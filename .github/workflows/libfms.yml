@@ -17,6 +17,8 @@ env:
   CMAKE_Fortran_COMPILER: mpif90
   CMAKE_C_COMPILER: mpicc
   CMAKE_CXX_COMPILER: mpicxx
+  BASE_FLAGS: "-ffree-line-length-none -fno-range-check -fbacktrace"
+  
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -33,7 +35,9 @@ jobs:
       - name: get mpich
         run: sudo apt-get install -y mpich libmpich-dev
       - name: test env variables 
-        run: echo $CC
+        env: 
+          CMAKE_Fortran_FLAGS: $BASE_FLAGS
+        run: echo $ CMAKE_Fortran_FLAGS
       
   
 
