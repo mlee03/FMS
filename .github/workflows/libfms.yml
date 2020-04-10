@@ -10,32 +10,30 @@ on:
   pull_request:
     branches: [ user/mkl/github_actions ]
 
+env:
+  FC: gfortran
+  CC: gcc
+  CXX: gcc
+  CMAKE_Fortran_COMPILER: mpif90
+  CMAKE_C_COMPILER: mpicc
+  CMAKE_CXX_COMPILER: mpicxx
+
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   # This workflow contains a single job called "build"
-  get_netcdf:
+  get_netcdf and mpich:
     runs-on: ubuntu-latest
     steps: 
-      - run: sudo apt autoremove netcdf-bin libnetcdf-dev libnetcdff-dev
-      - run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev --fix-missing 
-      - run: nc-config --all
-      - run: ls /usr/bin
-      - name: archive-netcdf
-        uses: actions/upload-artifact@v1
-        with:
-          name: netcdf
-          path: /usr
-
-  get_mpich:
-    runs-on: ubuntu-latest
-    steps:
-      - run: sudo apt-get install -y mpich libmpich-dev
-      - run: ls /usr
+      - name: cleanup 
+        run: sudo apt autoremove netcdf-bin libnetcdf-dev libnetcdff-dev
+      - name: install netcdf 
+        run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev --fix-missing 
+      - name: where is netcdf 
+        run: nc-config --all  
+      - name: get mpich
+        run: sudo apt-get install -y mpich libmpich-dev
+      - name: test env variables 
+        run: echo $CC
+      
   
-  build:
-    needs: [get_netcdf, get_mpich]
-    runs-on: ubuntu-latest
-    steps: 
-      - run: ls /usr/bin
-    #steps:
-    #  - run: echo `nc-config --all`
+
