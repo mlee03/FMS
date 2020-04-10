@@ -36,8 +36,8 @@ jobs:
         run: sudo apt-get install -y mpich libmpich-dev
       - name: test env variables 
         env: 
-          CMAKE_Fortran_FLAGS: $BASE_FLAGS
-        run: echo $ CMAKE_Fortran_FLAGS
+          CMAKE_Fortran_FLAGS: ${BASE_FLAGS}
+        run: echo ${CMAKE_Fortran_FLAGS}
       
   
 
