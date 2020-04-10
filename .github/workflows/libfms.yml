@@ -19,14 +19,23 @@ jobs:
       - run: sudo apt autoremove netcdf-bin libnetcdf-dev libnetcdff-dev
       - run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev --fix-missing 
       - run: nc-config --all
+      - run: ls /usr
+      #- name: archive-netcdf
+      #    uses: actions/upload-artifact@v1
+      #    with:
+      #      name: netcdf
+      #      path: 
 
   get_mpich:
     runs-on: ubuntu-latest
     steps:
       - run: sudo apt-get install -y mpich libmpich-dev
+      - run: ls /usr
   
   build:
     needs: [get_netcdf, get_mpich]
     runs-on: ubuntu-latest
-    steps:
-      - run: echo `nc-config --all`
+    steps: 
+      - run: ls /usr
+    #steps:
+    #  - run: echo `nc-config --all`
