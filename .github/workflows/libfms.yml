@@ -20,11 +20,11 @@ jobs:
       - run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev --fix-missing 
       - run: nc-config --all
       - run: ls /usr/bin
-      #- name: archive-netcdf
-      #    uses: actions/upload-artifact@v1
-      #    with:
-      #      name: netcdf
-      #      path: 
+      - name: archive-netcdf
+          uses: actions/upload-artifact@v1
+          with:
+            name: netcdf
+            path: /usr
 
   get_mpich:
     runs-on: ubuntu-latest
