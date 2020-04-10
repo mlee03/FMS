@@ -37,10 +37,12 @@ jobs:
       - name: checkout code
         uses: actions/checkout@v2
       - run: ls && pwd
+      - run: cd libfms/test
       - name: test env variables 
         env: 
           CMAKE_Fortran_FLAGS: ${{env.BASE_FLAGS}}
         run: echo ${CMAKE_Fortran_FLAGS}
+      - run: cmake .
       
   
 
