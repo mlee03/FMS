@@ -16,7 +16,6 @@
 !* You should have received a copy of the GNU Lesser General Public
 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
 !***********************************************************************
-!!#include <fms_platform.h>
 
 module drifters_io_mod
 
@@ -302,5 +301,3 @@ contains
   end subroutine drifters_io_write
 
 end module drifters_io_mod
- !###############################################################################
- !###############################################################################
