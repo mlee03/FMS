@@ -51,8 +51,9 @@ check_PROGRAMS = test_mpp \
   test_mpp_pe \
   test_mpp_root_pe \
   test_peset \
+  test_mpp_update_domains \
+  test_mpp_sum
   test_mpp_gatscat \
-  test_mpp_update_domains 
 
 # These are the sources for the tests.
 test_mpp_SOURCES = test_mpp.F90
@@ -80,6 +81,7 @@ test_mpp_root_pe_SOURCES=test_mpp_root_pe.F90
 test_peset_SOURCES=test_peset.F90
 test_mpp_gatscat_SOURCES=test_mpp_gatscat.F90
 test_mpp_update_domains_SOURCES = test_mpp_update_domains.F90 fill_halo.F90 compare_data_checksums.F90
+test_mpp_sum_SOURCES=test_mpp_sum.F90
 
 
 # Run the test programs.
@@ -101,6 +103,8 @@ TESTS = test_mpp_domains2.sh \
   test_mpp_pe.sh \
   test_mpp_root_pe.sh \
   test_peset.sh \
+  test_mpp_update_domains.sh \
+  test_mpp_sum.sh
   test_mpp_gatscat.sh \
   test_mpp_update_domains.sh
 
@@ -127,8 +131,9 @@ EXTRA_DIST = input_base.nml \
   test_mpp_pe.sh \
   test_mpp_root_pe.sh \
   test_peset.sh \
+  test_mpp_update_domains.sh \
+  test_mpp_sum.sh
   test_mpp_gatscat.sh \
-  test_mpp_update_domains.sh
 
   compare_data_checksums.mod : compare_data_checksums.$(OBJEXT)
   fill_halo.mod : fill_halo.$(OBJEXT)
