@@ -22,7 +22,8 @@
 # Find the needed mod and inc files.
 AM_CPPFLAGS = -I${top_srcdir}/include \
   -I${top_builddir}/mpp \
-  -I${top_builddir}/affinity
+  -I${top_builddir}/affinity \
+  -I${top_builddir}/platform
 
 # Link to the FMS library.
 LDADD = ${top_builddir}/libFMS/libFMS.la
@@ -52,8 +53,8 @@ check_PROGRAMS = test_mpp \
   test_mpp_root_pe \
   test_peset \
   test_mpp_update_domains \
-  test_mpp_sum
-  test_mpp_gatscat \
+  test_mpp_sum \
+  test_mpp_gatscat 
 
 # These are the sources for the tests.
 test_mpp_SOURCES = test_mpp.F90
@@ -104,7 +105,7 @@ TESTS = test_mpp_domains2.sh \
   test_mpp_root_pe.sh \
   test_peset.sh \
   test_mpp_update_domains.sh \
-  test_mpp_sum.sh
+  test_mpp_sum.sh \
   test_mpp_gatscat.sh \
   test_mpp_update_domains.sh
 
@@ -132,8 +133,8 @@ EXTRA_DIST = input_base.nml \
   test_mpp_root_pe.sh \
   test_peset.sh \
   test_mpp_update_domains.sh \
-  test_mpp_sum.sh
-  test_mpp_gatscat.sh \
+  test_mpp_sum.sh \
+  test_mpp_gatscat.sh 
 
   compare_data_checksums.mod : compare_data_checksums.$(OBJEXT)
   fill_halo.mod : fill_halo.$(OBJEXT)
