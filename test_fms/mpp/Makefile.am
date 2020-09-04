@@ -53,7 +53,7 @@ check_PROGRAMS = test_mpp \
   test_peset \
   test_mpp_update_domains \
   test_mpp_sum \
-  test_mpp_gatscat \
+  test_mpp_gatscat
 
 # These are the sources for the tests.
 test_mpp_SOURCES = test_mpp.F90
@@ -105,8 +105,7 @@ TESTS = test_mpp_domains2.sh \
   test_peset.sh \
   test_mpp_update_domains.sh \
   test_mpp_sum.sh \
-  test_mpp_gatscat.sh \
-  test_mpp_update_domains.sh
+  test_mpp_gatscat.sh
 
 # These files will also be included in the distribution.
 EXTRA_DIST = input_base.nml \
@@ -133,7 +132,7 @@ EXTRA_DIST = input_base.nml \
   test_peset.sh \
   test_mpp_update_domains.sh \
   test_mpp_sum.sh \
-  test_mpp_gatscat.sh \
+  test_mpp_gatscat.sh
 
   compare_data_checksums.mod : compare_data_checksums.$(OBJEXT)
   fill_halo.mod : fill_halo.$(OBJEXT)
