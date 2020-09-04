@@ -19,7 +19,7 @@
 !> @file
 !! @brief unit test for mpp_broadcast 
 !! @email gfdl.climate.model.info@noaa.gov
-!! @description This program tests the subroutine mpp_broadcast_real4_2d to mpp_broadcast_real4_5d, 
+!! @description This program tests the subroutines mpp_broadcast_real4_2d to mpp_broadcast_real4_5d, 
 !! mpp_broadcast_real8_2d to mpp_broadcast_real8_5d, and mpp_broadcast_char
 
 program test_mpp_broadcast
