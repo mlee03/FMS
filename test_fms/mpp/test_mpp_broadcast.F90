@@ -17,9 +17,9 @@
 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
 !***********************************************************************
 !> @file
-!! @brief unit test for mpp_broadcast 
+!! @brief unit test for mpp_broadcast
 !! @email gfdl.climate.model.info@noaa.gov
-!! @description This program tests the subroutines mpp_broadcast_real4_2d to mpp_broadcast_real4_5d, 
+!! @description This program tests the subroutines mpp_broadcast_real4_2d to mpp_broadcast_real4_5d,
 !! mpp_broadcast_real8_2d to mpp_broadcast_real8_5d, and mpp_broadcast_char
 
 program test_mpp_broadcast
@@ -50,7 +50,7 @@ program test_mpp_broadcast
   call MPI_FINALIZE(ierr)
 
 
-contains 
+contains
 
 
 !> test mpp_broadcast_real4_2d
@@ -63,46 +63,46 @@ subroutine test_broadcast_2D_R4()
 
   integer :: n, m
   real(r4_kind) :: p, r(NN,NN), k(NN,NN)
-  
+
   p=zero
   do n = 1, NN
      do m = 1, NN
-       p = p + one
-       k(m,n) = p
-       r(m,n) = k(m,n)
-    enddo
- enddo
- 
- if(mpp_pe() .NE. mpp_root_pe()) then
-    do n = 1, NN
-       r(:, n) = zero
-    enddo
+        p = p + one
+        k(m,n) = p
+        r(m,n) = k(m,n)
+     enddo
+  enddo
+
+  if(mpp_pe() .NE. mpp_root_pe()) then
+     do n = 1, NN
+        r(:, n) = zero
+     enddo
   endif
-  
+
   !--- comparing array r and k. r and k are supposed to be different on pe other
   !than root_pe
   if(mpp_pe() == mpp_root_pe()) then
-    do n = 1, NN
-       do m = 1, NN
-          if(r(m,n) .NE. k(m,n)) call mpp_error(FATAL, "test_broadcast: on root_pe, r should equal k")
-       enddo
-    enddo
+     do n = 1, NN
+        do m = 1, NN
+           if(r(m,n) .NE. k(m,n)) call mpp_error(FATAL, "test_broadcast: on root_pe, r should equal k")
+        enddo
+     enddo
   else
-    do n = 1, NN
-       do m = 1, NN
-          if(r(m,n) == k(m,n)) call mpp_error(FATAL, "test_broadcast: on non root_pes, r should not equal k")
-       enddo
-    enddo
+     do n = 1, NN
+        do m = 1, NN
+           if(r(m,n) == k(m,n)) call mpp_error(FATAL, "test_broadcast: on non root_pes, r should not equal k")
+        enddo
+     enddo
  endif
 
-  call mpp_broadcast(r, NN*NN, mpp_root_pe())
+ call mpp_broadcast(r, NN*NN, mpp_root_pe())
 
-  !--- after broadcast, r and k should be the same
-  do n = 1, NN
-     do m = 1, NN
-        if(r(m,n) .NE. k(m,n)) call mpp_error(FATAL, "test_broadcast: after broadcast, r should equal k")
-     enddo
-  enddo
+ !--- after broadcast, r and k should be the same
+ do n = 1, NN
+    do m = 1, NN
+       if(r(m,n) .NE. k(m,n)) call mpp_error(FATAL, "test_broadcast: after broadcast, r should equal k")
+    enddo
+ enddo
 
 end subroutine test_broadcast_2D_R4
 
@@ -128,11 +128,11 @@ subroutine test_broadcast_3D_R4()
         enddo
      enddo
   enddo
-  
+
   if(mpp_pe() .NE. mpp_root_pe()) then
      r(:,:,:) = zero
   endif
-  
+
   !--- comparing array r and k. r and k are supposed to be different on pe other
   !than root_pe
   if(mpp_pe() == mpp_root_pe()) then
@@ -152,7 +152,7 @@ subroutine test_broadcast_3D_R4()
         enddo
      enddo
   endif
-  
+
   call mpp_broadcast(r, NN*NN*NN, mpp_root_pe())
 
   !--- after broadcast, r and k should be the same
@@ -174,7 +174,7 @@ subroutine test_broadcast_4D_R4()
 
   integer, parameter :: NN = 3
   real(r4_kind), parameter  :: zero = 0., one=1.
-  
+
   integer :: i, j, n, m
   real(r4_kind) :: p, r(NN,NN,NN,NN), k(NN,NN,NN,NN)
 
@@ -190,11 +190,11 @@ subroutine test_broadcast_4D_R4()
         enddo
      enddo
   enddo
-  
+
   if(mpp_pe() .NE. mpp_root_pe()) then
      r(:,:,:,:) = zero
   endif
-  
+
   !--- comparing array r and k. r and k are supposed to be different on pe other
   !than root_pe
   if(mpp_pe() == mpp_root_pe()) then
@@ -241,7 +241,7 @@ subroutine test_broadcast_5D_R4()
 
   integer, parameter :: NN = 3
   real(r4_kind), parameter  :: zero = 0., one=1.
-  
+
   integer :: i, j, l, n, m
   real(r4_kind) :: p, r(NN,NN,NN,NN,NN), k(NN,NN,NN,NN,NN)
 
@@ -259,11 +259,11 @@ subroutine test_broadcast_5D_R4()
         enddo
      enddo
   enddo
-  
+
   if(mpp_pe() .NE. mpp_root_pe()) then
      r(:,:,:,:,:) = zero
   endif
-  
+
   !--- comparing array r and k. r and k are supposed to be different on pe other
   !than root_pe
   if(mpp_pe() == mpp_root_pe()) then
@@ -317,17 +317,17 @@ subroutine test_broadcast_2D_R8()
 
   integer, parameter :: NN = 3
   real(r8_kind), parameter  :: zero = 0., one=1.
-  
+
   integer :: n, m
   real(r8_kind) :: p, r(NN,NN), k(NN,NN)
 
   p=zero
   do n = 1, NN
-    do m = 1, NN
-       p = p + one
-       k(m,n) = p
-       r(m,n) = k(m,n)
-    enddo
+     do m = 1, NN
+        p = p + one
+        k(m,n) = p
+        r(m,n) = k(m,n)
+     enddo
   enddo
 
   if(mpp_pe() .NE. mpp_root_pe()) then
@@ -335,21 +335,21 @@ subroutine test_broadcast_2D_R8()
         r(:,n) = zero
      enddo
   endif
-  
+
   !--- comparing array r and k. r and k are supposed to be different on pe other
   !than root_pe
   if(mpp_pe() == mpp_root_pe()) then
-    do n = 1, NN
-       do m = 1, NN
-          if(r(m,n) .NE. k(m,n)) call mpp_error(FATAL, "test_broadcast: on root_pe, r should equal k")
-       enddo
-    enddo
+     do n = 1, NN
+        do m = 1, NN
+           if(r(m,n) .NE. k(m,n)) call mpp_error(FATAL, "test_broadcast: on root_pe, r should equal k")
+        enddo
+     enddo
   else
-    do n = 1, NN
-       do m = 1, NN
-          if(r(m,n) == k(m,n)) call mpp_error(FATAL, "test_broadcast: on non root_pes, r should not equal k")
-       enddo
-    enddo
+     do n = 1, NN
+        do m = 1, NN
+           if(r(m,n) == k(m,n)) call mpp_error(FATAL, "test_broadcast: on non root_pes, r should not equal k")
+        enddo
+     enddo
   endif
 
   call mpp_broadcast(r, NN*NN, mpp_root_pe())
@@ -609,4 +609,3 @@ subroutine test_broadcast_char()
 end subroutine test_broadcast_char
 
 end program test_mpp_broadcast
-
