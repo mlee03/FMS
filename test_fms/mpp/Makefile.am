@@ -52,7 +52,7 @@ check_PROGRAMS = test_mpp \
   test_mpp_root_pe \
   test_peset \
   test_mpp_update_domains \
-  test_mpp_sum
+  test_mpp_sum \
   test_mpp_gatscat \
 
 # These are the sources for the tests.
@@ -104,7 +104,7 @@ TESTS = test_mpp_domains2.sh \
   test_mpp_root_pe.sh \
   test_peset.sh \
   test_mpp_update_domains.sh \
-  test_mpp_sum.sh
+  test_mpp_sum.sh \
   test_mpp_gatscat.sh \
   test_mpp_update_domains.sh
 
@@ -132,7 +132,7 @@ EXTRA_DIST = input_base.nml \
   test_mpp_root_pe.sh \
   test_peset.sh \
   test_mpp_update_domains.sh \
-  test_mpp_sum.sh
+  test_mpp_sum.sh \
   test_mpp_gatscat.sh \
 
   compare_data_checksums.mod : compare_data_checksums.$(OBJEXT)
