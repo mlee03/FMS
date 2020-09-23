@@ -55,7 +55,8 @@ check_PROGRAMS = test_mpp \
 	test_mpp_update_domains \
 	test_mpp_gatscat \
 	test_mpp_sum \
-	test_update_domains_performance
+	test_update_domains_performance \
+	test_mpp_alltoall
 
 # These are the sources for the tests.
 test_mpp_SOURCES = test_mpp.F90
@@ -87,6 +88,7 @@ test_mpp_update_domains_SOURCES = test_mpp_update_domains.F90 \
 test_mpp_sum_SOURCES=test_mpp_sum.F90
 test_update_domains_performance_SOURCES=test_update_domains_performance.F90 \
 																				compare_data_checksums.F90
+test_mpp_alltoall_SOURCES = test_mpp_alltoall.F90
 
 # Run the test programs.
 TESTS = test_mpp_domains2.sh \
@@ -110,7 +112,8 @@ TESTS = test_mpp_domains2.sh \
 	test_mpp_update_domains.sh \
 	test_mpp_sum.sh \
 	test_mpp_gatscat.sh \
-	test_update_domains_performance.sh
+	test_update_domains_performance.sh \
+	test_mpp_alltoall.sh
 
 # These files will also be included in the distribution.
 EXTRA_DIST = input_base.nml \
@@ -138,7 +141,8 @@ EXTRA_DIST = input_base.nml \
 	test_mpp_update_domains.sh \
 	test_mpp_sum.sh \
 	test_mpp_gatscat.sh \
-	test_update_domains_performance.sh
+	test_update_domains_performance.sh \
+	test_mpp_alltoall.sh
 
 compare_data_checksums.mod : compare_data_checksums.$(OBJEXT)
 fill_halo.mod : fill_halo.$(OBJEXT)
