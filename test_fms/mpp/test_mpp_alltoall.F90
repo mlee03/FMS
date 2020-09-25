@@ -30,7 +30,7 @@
 !! process1: [10,11,12,13,14,15,16,17]  --alltoall--> [2,3,12,13,22,23,32,33]
 !! process2: [20,21,22,23,24,25,26,27]  --alltoall--> [4,5,14,15,24,25,34,35]
 !! process3: [30,31,32,33,34,35,36,37]  --alltoall--> [6,7,16,17,26,27,36,37]
-
+!! https://www.olcf.ornl.gov/wp-content/uploads/2018/06/intro_to_HPC_intro_to_mpi.pdf
 
 program test_mpp_alltoall
 
@@ -220,23 +220,28 @@ contains
     !! process2: [20,21,22,23]  --alltoallv--> [-1,-1,-1,-1]
     !! process3: [30,31,32,33]  --alltoallv--> [-1,-1,-1,-1]
 
+    allocate( sdata(0:N), rdata(0:N) )
     allocate( nsend(0:N), nrecv(0:N) )
     allocate( sdispl(0:N), rdispl(0:N) )
 
-    nsend = 1
-    nrecv = 0
-    sdispl = 0
-    rdispl = 0
+    do i=0, N
+       nsend(i)  = 1  !! send one element to each processor
+       sdispl(i) = i  !! send ith element to the ith processor
+    end do
 
-    allocate( sdata(0:N), rdata(0:N) )
-
+    !! data to send
     do i=0, N
        sdata(i) = real( 10*pe+i, kind=r4_kind )
     end do
 
+    do i=0, N
+       nrecv(i) = 0 !! receive none from each processor
+       rdispl(i) = i
+    end do
+
+    !! initialize receiving buffer
     rdata = real( -1.0, kind=r4_kind )
 
-    !: receive none
     call mpp_alltoall(sdata, nsend, sdispl, rdata, nrecv, rdispl, pelist )
 
     do i=0, N
@@ -255,27 +260,57 @@ contains
     nsend = 1
     nrecv = 1
 
-    rdata = real( -1.0, kind=r4_kind )
-
     do i=0, N
        sdata(i) = real( 10*pe+i, kind=r4_kind )
     end do
 
     do i=0, N
        sdispl(i) = i
-       rdispl(i) = i
     end do
+
+    rdata = real( -1.0, kind=r4_kind )
 
     call mpp_alltoall(sdata, nsend, sdispl, rdata, nrecv, rdispl, pelist)
 
-    write(*,*) pe, '|', rdata
+    do i=0, N
+       if ( rdata(i).ne.real(10*i+pe, kind=r4_kind) ) then
+          call mpp_error( FATAL, 'test mpp_alltoallv fail' )
+       end if
+    end do
 
-    !do i=0, N
-       !if ( rdata(i).ne.real(10*i+pe, kind=r4_kind) ) then
-       !   call mpp_error( FATAL, 'test mpp_alltoallv fail' )
-       !end if
-    !end do
 
+    !>send one element, receive one
+    !! process0: [ 0, 1, 2, 3, 4, 5, 6, 7]  --alltoallv--> [0,-1,10,-1,20,-1,30,-1]
+    !! process1: [10,11,12,13,14,15,16,17]  --alltoallv--> [2,-1,12,-1,22,-1,32,-1]
+    !! process2: [20,21,22,23,24,25,26,27]  --alltoallv--> [4,-1,14,-1,24,-1,34,-1]
+    !! process3: [30,31,32,33,34,35,36,37]  --alltoallv--> [6,-1,16,-1,26,-1,36,-1]
+
+    nsend = 1
+    nrecv = 1
+
+    deallocate( sdata, rdata )
+    allocate( sdata(0:2*npes-1), rdata(0:2*npes-1) )
+
+    do i=0, N
+       sdispl(i) = 2*i
+    end do
+
+    do i=0, N
+       rdispl(i) = 2*i
+    end do
+
+    do i=0, N
+       sdata(2*i)   = real( 10*pe+2*i, kind=r4_kind )
+       sdata(2*i+1) = real( 10*pe+2*i+1, kind=r4_kind )
+    end do
+
+    rdata = real(-1.0, kind=r4_kind )
+
+    call mpp_alltoall(sdata, nsend, sdispl, rdata, nrecv, rdispl, pelist)
+
+    !> check
+    !do i=1, N
+    !   if( rdata(i)
 
 
   end subroutine test_mpp_alltoallv_real4
