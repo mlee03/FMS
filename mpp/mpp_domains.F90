@@ -270,6 +270,8 @@ module mpp_domains_mod
   end type domainUG
 
 !> type used to specify index limits along an axis of a domain
+
+domain_axis_spec
   type domain_axis_spec        
      private
      integer :: begin, end, size, max_size !< start, end of domain axis, size, max size in set
