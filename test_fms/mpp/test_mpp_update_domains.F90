@@ -119,19 +119,6 @@ program test_mpp_update_domains
     real(kind=r8_kind), allocatable, dimension(:,:,:) :: yr8, y1r8, y2r8, y3r8, y4r8
     type(domain2D) :: domain
     real(kind=r8_kind),    allocatable :: global1r8(:,:,:), global2r8(:,:,:), globalr8(:,:,:)
-=======
-  !> Finalize mpp
-  call MPI_FINALIZE(ierr)
-  contains
-#include <fms_platform.h>
-  !> Perform simple addition on 64-bit real arrays in different domain configurations and update the domains
-  subroutine test_halo_update_r8( domain_type )
-    character(len=*), intent(in) :: domain_type !< the domain type that will be tested
-    real(DOUBLE_KIND), allocatable, dimension(:,:,:) :: xr8, x1r8, x2r8, x3r8, x4r8
-    real(DOUBLE_KIND), allocatable, dimension(:,:,:) :: yr8, y1r8, y2r8, y3r8, y4r8
-    type(domain2D) :: domain
-    real(DOUBLE_KIND),    allocatable :: global1r8(:,:,:), global2r8(:,:,:), globalr8(:,:,:)
->>>>>>> a43a4e9... Add mixed precision (#34)
     logical, allocatable :: maskmap(:,:)
     integer              :: shift, i, xhalo, yhalo
     logical              :: is_symmetry, folded_south, folded_west, folded_east

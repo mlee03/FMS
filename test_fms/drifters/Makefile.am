@@ -23,11 +23,8 @@
 # uramirez, Ed Hartnett
 
 # Find the needed mod and .inc files.
-AM_CPPFLAGS = -I${top_builddir}/drifters \
-  -I${top_builddir}/mpp \
-  -I${top_srcdir}/include \
-  -I${top_builddir}/fms \
-  -I${top_builddir}/platform
+AM_CPPFLAGS = -I${top_builddir}/drifters -I${top_builddir}/mpp \
+-I${top_srcdir}/include -I${top_builddir}/fms
 
 # Link to the FMS library.
 LDADD = ${top_builddir}/libFMS/libFMS.la

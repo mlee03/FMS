@@ -53,7 +53,7 @@
 
       integer :: i, outunit, errunit
       integer :: np
-      integer(i8_kind) :: data_loc
+      integer(LONG_KIND) :: data_loc
 !pointer to remote data
       MPP_TYPE_ :: remote_data(get_len)
       pointer( ptr_remote_data, remote_data )
@@ -206,7 +206,7 @@
       integer, intent(in), optional :: pelist(:)
       integer :: n
       integer :: np, i, outunit
-      integer(i8_kind) :: data_loc
+      integer(LONG_KIND) :: data_loc
 !pointer to remote data
       MPP_TYPE_ :: bdata(length)
       pointer( ptr, bdata )

@@ -21,12 +21,11 @@
 
 !> @brief Utility routines.
 module fms_io_utils_mod
-use, intrinsic :: iso_fortran_env, only: error_unit
+use, intrinsic :: iso_fortran_env, only: error_unit, int32, int64, real32, real64
 #ifdef _OPENMP
 use omp_lib
 #endif
 use mpp_mod
-use platform_mod
 implicit none
 private
 
@@ -203,20 +202,18 @@ subroutine string_copy(dest, source, check_for_null)
 
   check_null = .false.
   if (present(check_for_null)) check_null = check_for_null
-
-  i = 0
-  if (check_null) then
-     i = index(source, char(0)) - 1
-  endif
-
-  if (i < 1 ) i = len_trim(source)
-
-  if (len_trim(source(1:i)) .gt. len(dest)) then
+  if (len_trim(source) .gt. len(dest)) then
     call error("The input destination string is not big enough to" &
                  //" to hold the input source string.")
   endif
   dest = ""
-  dest = adjustl(trim(source(1:i)))
+  dest = adjustl(trim(source))
+
+  if (check_null) then
+     i = 0
+     i = index(dest, char(0))
+     if (i > 0 ) dest = dest(1:i-1)
+  endif
 
 end subroutine string_copy
 
@@ -466,4 +463,3 @@ include "get_checksum.inc"
 
 
 end module fms_io_utils_mod
-

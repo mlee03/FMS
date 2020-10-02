@@ -72,7 +72,34 @@ interface fill_folded_west_halo
   module procedure fill_folded_west_halo_r8
   module procedure fill_folded_west_halo_r4
 end interface fill_folded_west_halo
+
+contains
+
+  !> fill the halo region of a 64-bit real array with zeros
+  subroutine fill_halo_zero_r8(data, whalo, ehalo, shalo, nhalo, xshift, yshift, isc, iec, jsc, jec, isd, ied, jsd, jed)
     real(kind=r8_kind), dimension(isd:,jsd:,:), intent(inout) :: data
+    integer,                         intent(in) :: isc, iec, jsc, jec, isd, ied, jsd, jed
+    integer,                         intent(in) :: whalo, ehalo, shalo, nhalo, xshift, yshift
+
+    if(whalo >=0) then
+       data(iec+ehalo+1+xshift:ied+xshift,jsd:jed+yshift,:) = 0
+       data(isd:isc-whalo-1,jsd:jed+yshift,:) = 0
+    else
+       data(iec+1+xshift:iec-ehalo+xshift,jsc+shalo:jec-nhalo+yshift,:) = 0
+       data(isc+whalo:isc-1,jsc+shalo:jec-nhalo+yshift,:) = 0
+    end if
+
+    if(shalo>=0) then
+       data(isd:ied+xshift, jec+nhalo+1+yshift:jed+yshift,:) = 0
+       data(isd:ied+xshift, jsd:jsc-shalo-1,:) = 0
+    else
+       data(isc+whalo:iec-ehalo+xshift,jec+1+yshift:jec-nhalo+yshift,:) = 0
+       data(isc+whalo:iec-ehalo+xshift,jsc+shalo:jsc-1,:) = 0
+    end if
+  end subroutine fill_halo_zero_r8
+ 
+  !> fill the halo region of a 32-bit real array with zeros
+  subroutine fill_halo_zero_r4(data, whalo, ehalo, shalo, nhalo, xshift, yshift, isc, iec, jsc, jec, isd, ied, jsd, jed)
     real(kind=r4_kind), dimension(isd:,jsd:,:), intent(inout) :: data
     integer,                         intent(in) :: isc, iec, jsc, jec, isd, ied, jsd, jed
     integer,                         intent(in) :: whalo, ehalo, shalo, nhalo, xshift, yshift
@@ -99,6 +126,32 @@ end interface fill_folded_west_halo
   subroutine fill_regular_refinement_halo_r8( data, data_all, ni, nj, tm, te, tse, ts, tsw, tw, tnw, tn, tne, ioff, joff )
     real(kind=r8_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
     real(kind=r8_kind), dimension(:,:,:,:),             intent(in)    :: data_all
+    integer, dimension(:),                intent(in)    :: ni, nj
+    integer,                              intent(in)    :: tm, te, tse, ts, tsw, tw, tnw, tn, tne
+    integer,                              intent(in)    :: ioff, joff
+
+
+    if(te>0) data    (ni(tm)+1+ioff:ni(tm)+ehalo+ioff, 1:nj(tm)+joff,                   :) = &
+             data_all(1+ioff:ehalo+ioff,               1:nj(te)+joff,                   :,te)  ! east
+    if(ts>0) data    (1:ni(tm)+ioff,                   1-shalo:0,                       :) = &
+             data_all(1:ni(ts)+ioff,                   nj(ts)-shalo+1:nj(ts),           :,ts)  ! south
+    if(tw>0) data    (1-whalo:0,                       1:nj(tm)+joff,                   :) = &
+             data_all(ni(tw)-whalo+1:ni(tw),           1:nj(tw)+joff,                   :,tw)  ! west
+    if(tn>0) data    (1:ni(tm)+ioff,                   nj(tm)+1+joff:nj(tm)+nhalo+joff, :) = &
+             data_all(1:ni(tn)+ioff,                   1+joff:nhalo+joff,               :,tn)  ! north
+    if(tse>0)data    (ni(tm)+1+ioff:ni(tm)+ehalo+ioff, 1-shalo:0,                       :) = &
+             data_all(1+ioff:ehalo+ioff,               nj(tse)-shalo+1:nj(tse),         :,tse) ! southeast
+    if(tsw>0)data    (1-whalo:0,                       1-shalo:0,                       :) = &
+             data_all(ni(tsw)-whalo+1:ni(tsw),         nj(tsw)-shalo+1:nj(tsw),         :,tsw) ! southwest
+    if(tne>0)data    (ni(tm)+1+ioff:ni(tm)+ehalo+ioff, nj(tm)+1+joff:nj(tm)+nhalo+joff, :) = &
+             data_all(1+ioff:ehalo+ioff,               1+joff:nhalo+joff,               :,tnw) ! northeast
+    if(tnw>0)data    (1-whalo:0,                       nj(tm)+1+joff:nj(tm)+nhalo+joff, :) = &
+             data_all(ni(tnw)-whalo+1:ni(tnw),         1+joff:nhalo+joff,               :,tne) ! northwest
+
+  end subroutine fill_regular_refinement_halo_r8
+
+  !> fill the halo region of 32-bit array on a regular grid
+  subroutine fill_regular_refinement_halo_r4( data, data_all, ni, nj, tm, te, tse, ts, tsw, tw, tnw, tn, tne, ioff, joff )
     real(kind=r4_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
     real(kind=r4_kind), dimension(:,:,:,:),             intent(in)    :: data_all
     integer, dimension(:),                intent(in)    :: ni, nj

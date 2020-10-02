@@ -23,9 +23,7 @@
 # uramirez
 
 # Find the fms and mpp mod files.
-AM_CPPFLAGS = -I${top_builddir}/mpp \
-  -I${top_builddir}/affinity \
-  -I${top_builddir}/platform
+AM_CPPFLAGS = -I${top_builddir}/mpp -I${top_builddir}/affinity
 
 # Link to the FMS library.
 LDADD = ${top_builddir}/libFMS/libFMS.la
