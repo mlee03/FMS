@@ -3888,6 +3888,7 @@ end subroutine interp_linear
 
 #else
 
+#include <fms_platform.h>
 
 use mpp_mod,           only : mpp_error, &
                               FATAL,     &
