@@ -40,11 +40,5 @@ if [ $(command -v nproc) ]
        # Run the test with 2 pes
        echo "Running test_mpp_update_domains with 2 pes"
        run_test test_mpp_update_domains 2
-     if [ ${nProc} -ge 16 ]
-       then
-         # Run the test with 16 pes
-         echo "Running test_mpp_update_domains with 16 pes"
-         run_test test_mpp_update_domains 16
-     fi 
    fi
 fi
