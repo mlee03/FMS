@@ -42,7 +42,7 @@ program test_mpp_broadcast
   call test_broadcast_3D_I4()
   call test_broadcast_4D_I4()
   call test_broadcast_5D_I4()
-  !> tests mpp_broadcast_*D_I4
+  !> tests mpp_broadcast_*D_I8
   call test_broadcast_2D_I8()
   call test_broadcast_3D_I8()
   call test_broadcast_4D_I8()
@@ -622,9 +622,9 @@ subroutine test_broadcast_2D_R4()
  enddo
 
 end subroutine test_broadcast_2D_R4
-
-
+!>
 !> test mpp_broadcast_3d_r4
+!>
 subroutine test_broadcast_3D_R4()
 
   implicit none
@@ -838,9 +838,9 @@ subroutine test_broadcast_2D_R8()
   integer :: n, m
   real(r8_kind) :: p, r(NN,NN), k(NN,NN)
 
-  p=zero
-  do n = 1, NN
-     do m = 1, NN
+  p = zero
+  do n=1, NN
+     do m=1, NN
         p = p + one
         k(m,n) = p
      enddo
@@ -852,8 +852,8 @@ subroutine test_broadcast_2D_R8()
   !--- comparing array r and k. r and k are supposed to be different on pe other
   !than root_pe
   if(mpp_pe() == mpp_root_pe()) then
-     do n = 1, NN
-        do m = 1, NN
+     do n=1, NN
+        do m=1, NN
            if(r(m,n) .NE. k(m,n)) call mpp_error(FATAL, "test_broadcast: on root_pe, r should equal k")
         enddo
      enddo
@@ -888,7 +888,7 @@ subroutine test_broadcast_3D_R8()
   integer :: i, n, m
   real(r8_kind) :: p, r(NN,NN,NN), k(NN,NN,NN)
 
-  p=zero
+  p = zero
   do n=1, NN
      do m=1, NN
         do i=1, NN
@@ -945,7 +945,7 @@ subroutine test_broadcast_4D_R8()
   integer :: i, j, n, m
   real(r8_kind) :: p, r(NN,NN,NN,NN), k(NN,NN,NN,NN)
 
-  p=zero
+  p = zero
   do n=1, NN
      do m=1, NN
         do i=1, NN
@@ -1014,7 +1014,7 @@ subroutine test_broadcast_5D_R8()
   integer :: i, j, l, n, m
   real(r8_kind) :: p, r(NN,NN,NN,NN,NN), k(NN,NN,NN,NN,NN)
 
-  p=zero
+  p = zero
   do n=1, NN
      do m=1, NN
         do i=1, NN
