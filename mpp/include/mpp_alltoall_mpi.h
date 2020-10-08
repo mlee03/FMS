@@ -71,6 +71,8 @@ subroutine MPP_ALLTOALLV_(sbuf, ssize, sdispl, rbuf, rsize, rdispl, pelist)
     if (current_clock .NE. 0) &
         call increment_current_clock(EVENT_ALLTOALL, MPP_TYPE_BYTELEN_)
 
+
+
 end subroutine MPP_ALLTOALLV_
 
 
