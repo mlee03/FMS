@@ -47,87 +47,465 @@ program test_mpp_sum
   root = mpp_root_pe()
 
   if( pe.EQ.root ) print *, '------------------> Calling test_mpp_sum <------------------'
-    call test_mpp_sum_dim1()
-    call test_mpp_sum_pelist()
-    call test_mpp_sum_large()
+    call test_mpp_sum_scalar(pe,npes,root)
+    call test_mpp_sum_2D(pe,npes,root)
+    call test_mpp_sum_3D(pe,npes,root)
+    call test_mpp_sum_4D(pe,npes,root)
+    call test_mpp_sum_5D(pe,npes,root)
+    call test_mpp_sum_pelist(pe,npes,root)
+    call test_mpp_sum_large(pe,npes,root)
   if( pe.EQ.root ) print *, '------------------> Finished test_mpp_sum <------------------'
 
   call MPI_FINALIZE(ierr)
 
 contains
 
-  subroutine test_mpp_sum_dim1()
+  subroutine test_mpp_sum_scalar(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
 
-! Verify that mpp_sum calculates the sum for array with dim=1
-  n=1
-  allocate( a4(n), a8(n), b4(npes), b8(npes), c4(n), c8(n))
+    call test_mpp_sum_scalar_r4(pe,npes,root)
+    call test_mpp_sum_scalar_r8(pe,npes,root)
+    call test_mpp_sum_scalar_i4(pe,npes,root)
+    call test_mpp_sum_scalar_i8(pe,npes,root)
 
-  a4 = real(pe+1, kind=r4_kind)
-  a8 = real(pe+1, kind=r8_kind)
-  call mpp_sync()
-  call mpp_sum(a4(1:n),n)
-  call mpp_sum(a8(1:n),n)
-  if (pe .EQ. root) then
-    b4 = (/(i, i=1,npes, 1)/)
-    b8 = (/(i, i=1,npes, 1)/)
-    c4 = sum(b4)
-    c8 = sum(b8)
+  end subroutine test_mpp_sum_scalar
 
-    if (a4(1) .ne. c4(1)) call mpp_error(FATAL, "Real4: mpp_sum differs from fortran intrinsic sum")
-    if (a8(1) .ne. c8(1)) call mpp_error(FATAL, "Real8: mpp_sum differs from fortran intrinsic sum")
-  endif
-  deallocate(a4, b4, c4, a8, b8, c8)
+  !> Test the functionality of mpp_transmit for an r4_scalar.
+  subroutine test_mpp_sum_scalar_r4(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=1
+    real(kind=r4_kind) :: a4, c4
+    real(kind=r4_kind), dimension(npes) :: b4
 
-  end subroutine test_mpp_sum_dim1
+    a4 = real(pe+1, kind=r4_kind)
+    call mpp_sync()
+    call mpp_sum(a4)
+    if (pe .EQ. root) then
+      b4 = (/(i, i=1,npes, 1)/)
+      c4 = sum(b4)
+      if (a4 .ne. c4) call mpp_error(FATAL, "Scalar_r4: mpp_sum differs from fortran intrinsic sum")
+    endif
 
-  subroutine test_mpp_sum_pelist()
+  end subroutine test_mpp_sum_scalar_r4
 
-! Verify mpp_sum accurately sums from select list of pes
-  allocate( a4(n), a8(n), b4(npes), b8(npes), c4(n), c8(n))
-  allocate( pelist(0:npes-1) )
+  !> Test the functionality of mpp_transmit for an r8_scalar.
+  subroutine test_mpp_sum_scalar_r8(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=1
+    real(kind=r8_kind) :: a8, c8
+    real(kind=r8_kind), dimension(npes) :: b8
 
-  a4 = real(pe+1, kind=r4_kind)
-  a8 = real(pe+1, kind=r8_kind)
-  call mpp_sync()
-  if (pe .LE. npes-2) then
-    pelist = (/(i,i=0,npes-2)/)
-    if (pe .EQ. root) print *,'PE: ',mpp_pe(),' pelist: ',pelist(:)
-    call mpp_sum(a4(1:n),n, pelist=pelist)
-    call mpp_sum(a8(1:n),n, pelist=pelist)
-  endif
-  if (pe .EQ. root) then
-    b4 = (/(i, i=1,npes-1, 1)/)
-    b8 = (/(i, i=1,npes-1, 1)/)
-    c4 = sum(b4)
-    c8 = sum(b8)
-    print *, 'b4: ',b4, 'a4: ',a4, 'c4: ',c4
-    if (a4(1) .ne. c4(1)) call mpp_error(FATAL, "Real4 with pelist: mpp_sum differs from fortran intrinsic sum")
-    if (a8(1) .ne. c8(1)) call mpp_error(FATAL, "Real8 with pelist: mpp_sum differs from fortran intrinsic sum")
-  endif
-  deallocate(a4, b4, c4, a8, b8, c8)
+    a8 = real(pe+1, kind=r8_kind)
+    call mpp_sync()
+    call mpp_sum(a8)
+    if (pe .EQ. root) then
+      b8 = (/(i, i=1,npes, 1)/)
+      c8 = sum(b8)
+      if (a8 .ne. c8) call mpp_error(FATAL, "Scalar_r8: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_scalar_r8
+
+  !> Test the functionality of mpp_transmit for an i4_scalar.
+  subroutine test_mpp_sum_scalar_i4(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=1
+    integer(kind=i4_kind) :: a4, c4
+    integer(kind=i4_kind), dimension(npes) :: b4
+
+    a4 = int(pe+1, kind=i4_kind)
+    call mpp_sync()
+    call mpp_sum(a4)
+    if (pe .EQ. root) then
+      b4 = (/(i, i=1,npes, 1)/)
+      c4 = sum(b4)
+      if (a4 .ne. c4) call mpp_error(FATAL, "Scalar_r4: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_scalar_i4
+
+  !> Test the functionality of mpp_transmit for an i8_scalar.
+  subroutine test_mpp_sum_scalar_i8(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=1
+    integer(kind=i8_kind) :: a8, c8
+    integer(kind=i8_kind), dimension(npes) :: b8
+
+    a8 = int(pe+1, kind=i8_kind)
+    call mpp_sync()
+    call mpp_sum(a8)
+    if (pe .EQ. root) then
+      b8 = (/(i, i=1,npes, 1)/)
+      c8 = sum(b8)
+      if (a8 .ne. c8) call mpp_error(FATAL, "Scalar_r8: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_scalar_i8
+
+  subroutine test_mpp_sum_2D(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+
+    call test_mpp_sum_2D_r4(pe,npes,root)
+    call test_mpp_sum_2D_r8(pe,npes,root)
+    call test_mpp_sum_2D_i4(pe,npes,root)
+    call test_mpp_sum_2D_i8(pe,npes,root)
+
+  end subroutine test_mpp_sum_2D
+
+  !> Test the functionality of mpp_transmit for an r4_2D.
+  subroutine test_mpp_sum_2D_r4(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=4
+    real(kind=r4_kind), dimension(2,2) :: a4, c4
+    real(kind=r4_kind), dimension(npes) :: b4
+
+    a4 = real(pe+1, kind=r4_kind)
+    call mpp_sync()
+    call mpp_sum(a4,n)
+    if (pe .EQ. root) then
+      b4 = (/(i, i=1,npes, 1)/)
+      c4 = sum(b4)
+      if (all(a4 .ne. c4)) call mpp_error(FATAL, "2D_r4: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_2D_r4
+
+  !> Test the functionality of mpp_transmit for an r8_2D.
+  subroutine test_mpp_sum_2D_r8(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=4
+    real(kind=r8_kind), dimension(2,2) :: a8, c8
+    real(kind=r8_kind), dimension(npes) :: b8
+
+    a8 = real(pe+1, kind=r8_kind)
+    call mpp_sync()
+    call mpp_sum(a8,n)
+    if (pe .EQ. root) then
+      b8 = (/(i, i=1,npes, 1)/)
+      c8 = sum(b8)
+      if (all(a8 .ne. c8)) call mpp_error(FATAL, "2D_r8: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_2D_r8
+
+  !> Test the functionality of mpp_transmit for an i4_2D.
+  subroutine test_mpp_sum_2D_i4(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=4
+    integer(kind=i4_kind), dimension(2,2) :: a4, c4
+    integer(kind=i4_kind), dimension(npes) :: b4
+
+    a4 = int(pe+1, kind=i4_kind)
+    call mpp_sync()
+    call mpp_sum(a4,n)
+    if (pe .EQ. root) then
+      b4 = (/(i, i=1,npes, 1)/)
+      c4 = sum(b4)
+      if (all(a4 .ne. c4)) call mpp_error(FATAL, "2D_r4: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_2D_i4
+
+  !> Test the functionality of mpp_transmit for an i8_2D.
+  subroutine test_mpp_sum_2D_i8(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=4
+    integer(kind=i8_kind), dimension(2,2) :: a8, c8
+    integer(kind=i8_kind), dimension(npes) :: b8
+
+    a8 = int(pe+1, kind=i8_kind)
+    call mpp_sync()
+    call mpp_sum(a8,n)
+    if (pe .EQ. root) then
+      b8 = (/(i, i=1,npes, 1)/)
+      c8 = sum(b8)
+      if (all(a8 .ne. c8)) call mpp_error(FATAL, "2D_r8: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_2D_i8
+
+  subroutine test_mpp_sum_3D(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+
+    call test_mpp_sum_3D_r4(pe,npes,root)
+    call test_mpp_sum_3D_r8(pe,npes,root)
+    call test_mpp_sum_3D_i4(pe,npes,root)
+    call test_mpp_sum_3D_i8(pe,npes,root)
+
+  end subroutine test_mpp_sum_3D
+
+  !> Test the functionality of mpp_transmit for an r4_3D.
+  subroutine test_mpp_sum_3D_r4(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=8
+    real(kind=r4_kind), dimension(2,2,2) :: a4, c4
+    real(kind=r4_kind), dimension(npes) :: b4
+
+    a4 = real(pe+1, kind=r4_kind)
+    call mpp_sync()
+    call mpp_sum(a4,n)
+    if (pe .EQ. root) then
+      b4 = (/(i, i=1,npes, 1)/)
+      c4 = sum(b4)
+      if (all(a4 .ne. c4)) call mpp_error(FATAL, "3D_r4: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_3D_r4
+
+  !> Test the functionality of mpp_transmit for an r8_3D.
+  subroutine test_mpp_sum_3D_r8(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=8
+    real(kind=r8_kind), dimension(2,2,2) :: a8, c8
+    real(kind=r8_kind), dimension(npes) :: b8
+
+    a8 = real(pe+1, kind=r8_kind)
+    call mpp_sync()
+    call mpp_sum(a8,n)
+    if (pe .EQ. root) then
+      b8 = (/(i, i=1,npes, 1)/)
+      c8 = sum(b8)
+      if (all(a8 .ne. c8)) call mpp_error(FATAL, "3D_r8: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_3D_r8
+
+  !> Test the functionality of mpp_transmit for an i4_3D.
+  subroutine test_mpp_sum_3D_i4(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=8
+    integer(kind=i4_kind), dimension(2,2,2) :: a4, c4
+    integer(kind=i4_kind), dimension(npes) :: b4
+
+    a4 = int(pe+1, kind=i4_kind)
+    call mpp_sync()
+    call mpp_sum(a4,n)
+    if (pe .EQ. root) then
+      b4 = (/(i, i=1,npes, 1)/)
+      c4 = sum(b4)
+      if (all(a4 .ne. c4)) call mpp_error(FATAL, "3D_r4: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_3D_i4
+
+  !> Test the functionality of mpp_transmit for an i8_3D.
+  subroutine test_mpp_sum_3D_i8(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=8
+    integer(kind=i8_kind), dimension(2,2,2) :: a8, c8
+    integer(kind=i8_kind), dimension(npes) :: b8
+
+    a8 = int(pe+1, kind=i8_kind)
+    call mpp_sync()
+    call mpp_sum(a8,n)
+    if (pe .EQ. root) then
+      b8 = (/(i, i=1,npes, 1)/)
+      c8 = sum(b8)
+      if (all(a8 .ne. c8)) call mpp_error(FATAL, "3D_r8: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_3D_i8
+
+  subroutine test_mpp_sum_4D(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+
+    call test_mpp_sum_4D_r4(pe,npes,root)
+    call test_mpp_sum_4D_r8(pe,npes,root)
+    call test_mpp_sum_4D_i4(pe,npes,root)
+    call test_mpp_sum_4D_i8(pe,npes,root)
+
+  end subroutine test_mpp_sum_4D
+
+  !> Test the functionality of mpp_transmit for an r4_4D.
+  subroutine test_mpp_sum_4D_r4(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=16
+    real(kind=r4_kind), dimension(2,2,2,2) :: a4, c4
+    real(kind=r4_kind), dimension(npes) :: b4
+
+    a4 = real(pe+1, kind=r4_kind)
+    call mpp_sync()
+    call mpp_sum(a4,n)
+    if (pe .EQ. root) then
+      b4 = (/(i, i=1,npes, 1)/)
+      c4 = sum(b4)
+      if (all(a4 .ne. c4)) call mpp_error(FATAL, "4D_r4: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_4D_r4
+
+  !> Test the functionality of mpp_transmit for an r8_4D.
+  subroutine test_mpp_sum_4D_r8(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=16
+    real(kind=r8_kind), dimension(2,2,2,2) :: a8, c8
+    real(kind=r8_kind), dimension(npes) :: b8
+
+    a8 = real(pe+1, kind=r8_kind)
+    call mpp_sync()
+    call mpp_sum(a8,n)
+    if (pe .EQ. root) then
+      b8 = (/(i, i=1,npes, 1)/)
+      c8 = sum(b8)
+      if (all(a8 .ne. c8)) call mpp_error(FATAL, "4D_r8: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_4D_r8
+
+  !> Test the functionality of mpp_transmit for an i4_4D.
+  subroutine test_mpp_sum_4D_i4(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=16
+    integer(kind=i4_kind), dimension(2,2,2,2) :: a4, c4
+    integer(kind=i4_kind), dimension(npes) :: b4
+
+    a4 = int(pe+1, kind=i4_kind)
+    call mpp_sync()
+    call mpp_sum(a4,n)
+    if (pe .EQ. root) then
+      b4 = (/(i, i=1,npes, 1)/)
+      c4 = sum(b4)
+      if (all(a4 .ne. c4)) call mpp_error(FATAL, "4D_r4: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_4D_i4
+
+  !> Test the functionality of mpp_transmit for an i8_4D.
+  subroutine test_mpp_sum_4D_i8(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=16
+    integer(kind=i8_kind), dimension(2,2,2,2) :: a8, c8
+    integer(kind=i8_kind), dimension(npes) :: b8
+
+    a8 = int(pe+1, kind=i8_kind)
+    call mpp_sync()
+    call mpp_sum(a8,n)
+    if (pe .EQ. root) then
+      b8 = (/(i, i=1,npes, 1)/)
+      c8 = sum(b8)
+      if (all(a8 .ne. c8)) call mpp_error(FATAL, "4D_r8: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_4D_i8
+
+  subroutine test_mpp_sum_5D(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+
+    call test_mpp_sum_5D_r4(pe,npes,root)
+    call test_mpp_sum_5D_r8(pe,npes,root)
+    call test_mpp_sum_5D_i4(pe,npes,root)
+    call test_mpp_sum_5D_i8(pe,npes,root)
+
+  end subroutine test_mpp_sum_5D
+
+  !> Test the functionality of mpp_transmit for an r4_5D.
+  subroutine test_mpp_sum_5D_r4(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=32
+    real(kind=r4_kind), dimension(2,2,2,2,2) :: a4, c4
+    real(kind=r4_kind), dimension(npes) :: b4
+
+    a4 = real(pe+1, kind=r4_kind)
+    call mpp_sync()
+    call mpp_sum(a4,n)
+    if (pe .EQ. root) then
+      b4 = (/(i, i=1,npes, 1)/)
+      c4 = sum(b4)
+      if (all(a4 .ne. c4)) call mpp_error(FATAL, "5D_r4: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_5D_r4
+
+  !> Test the functionality of mpp_transmit for an r8_5D.
+  subroutine test_mpp_sum_5D_r8(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=32
+    real(kind=r8_kind), dimension(2,2,2,2,2) :: a8, c8
+    real(kind=r8_kind), dimension(npes) :: b8
+
+    a8 = real(pe+1, kind=r8_kind)
+    call mpp_sync()
+    call mpp_sum(a8,n)
+    if (pe .EQ. root) then
+      b8 = (/(i, i=1,npes, 1)/)
+      c8 = sum(b8)
+      if (all(a8 .ne. c8)) call mpp_error(FATAL, "5D_r8: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_5D_r8
+
+  !> Test the functionality of mpp_transmit for an i4_5D.
+  subroutine test_mpp_sum_5D_i4(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=32
+    integer(kind=i4_kind), dimension(2,2,2,2,2) :: a4, c4
+    integer(kind=i4_kind), dimension(npes) :: b4
+
+    a4 = int(pe+1, kind=i4_kind)
+    call mpp_sync()
+    call mpp_sum(a4,n)
+    if (pe .EQ. root) then
+      b4 = (/(i, i=1,npes, 1)/)
+      c4 = sum(b4)
+      if (all(a4 .ne. c4)) call mpp_error(FATAL, "5D_r4: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_5D_i4
+
+  !> Test the functionality of mpp_transmit for an i8_5D.
+  subroutine test_mpp_sum_5D_i8(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=32
+    integer(kind=i8_kind), dimension(2,2,2,2,2) :: a8, c8
+    integer(kind=i8_kind), dimension(npes) :: b8
+
+    a8 = int(pe+1, kind=i8_kind)
+    call mpp_sync()
+    call mpp_sum(a8,n)
+    if (pe .EQ. root) then
+      b8 = (/(i, i=1,npes, 1)/)
+      c8 = sum(b8)
+      if (all(a8 .ne. c8)) call mpp_error(FATAL, "5D_r8: mpp_sum differs from fortran intrinsic sum")
+    endif
+
+  end subroutine test_mpp_sum_5D_i8
+
+  !> Test mpp_sum for a select list of pes with r4
+  subroutine test_mpp_sum_pelist(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=1
+    integer, dimension(0:npes-2) :: pelist
+    real(kind=r4_kind), dimension(1) :: a4, c4
+    real(kind=r4_kind), dimension(0:npes-2) :: b4
+
+    a4 = real(pe+1, kind=r4_kind)
+    call mpp_sync()
+    if (pe .LE. npes-2) then
+      pelist = (/(i,i=0,npes-2)/)
+      call mpp_sum(a4(1:n),n, pelist=pelist)
+    endif
+    if (pe .EQ. root) then
+      b4 = (/(i, i=1,npes-1, 1)/)
+      c4 = sum(b4)
+      if (a4(1) .ne. c4(1)) call mpp_error(FATAL, "Real4 with pelist: mpp_sum differs from fortran intrinsic sum")
+    endif
 
   end subroutine test_mpp_sum_pelist
 
-  subroutine test_mpp_sum_large()
+  !> Test mpp_sum for large length variable with r4
+  subroutine test_mpp_sum_large(pe,npes,root)
+    integer, intent(in) :: npes, pe, root
+    integer, parameter :: n=3000
+    real(kind=r4_kind), dimension(n) :: a4
+    ! Verify mpp_sum works for large array dim with random values
+    call random_number(a4)
+    call mpp_sync()
+    call mpp_sum(a4(1:n),n)
 
-! Verify mpp_sum works for large array dim with random values
-  n=30000
-  allocate( a4(n), a8(n) )
-
-  call random_number(a4)
-  call random_number(a8)
-
-  call mpp_sync()
-  call mpp_sum(a4(1:n),n)
-  call mpp_sum(a8(1:n),n)
-
-! Verify mpp_sum works for large array dim with random values and mpp_sum length less than array dim
-  call random_number(a4)
-  call random_number(a8)
-
-  call mpp_sync()
-  call mpp_sum(a4(1:n),n/2)
-  call mpp_sum(a8(1:n),n/2)
+    ! Verify mpp_sum works for large array dim with random values and mpp_sum length less than array dim
+    call random_number(a4)
+    call mpp_sync()
+    call mpp_sum(a4(1:n),n/2)
 
   end subroutine test_mpp_sum_large
 
