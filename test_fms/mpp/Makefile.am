@@ -31,6 +31,10 @@ LDADD = ${top_builddir}/libFMS/libFMS.la
 # Build these test programs.
 check_PROGRAMS = test_mpp \
   test_mpp_domains \
+<<<<<<< HEAD
+  test_mpp_pset \
+=======
+>>>>>>> upstream/add_mixed_precision
   test_redistribute_int \
   test_mpp_memuse \
   test_mpp_mem_dump \
@@ -58,7 +62,11 @@ check_PROGRAMS = test_mpp \
   test_update_domains_performance \
   test_minmax \
   test_mpp_sendrecv \
+<<<<<<< HEAD
+  test_global_arrays \
+=======
   test_global_minmax \
+>>>>>>> upstream/add_mixed_precision
   test_chksum_int   \
   test_mpp_update_domains_ad \
   test_mpp_transmit
@@ -66,6 +74,10 @@ check_PROGRAMS = test_mpp \
 # These are the sources for the tests.
 test_mpp_SOURCES = test_mpp.F90
 test_mpp_domains_SOURCES = test_mpp_domains.F90 compare_data_checksums.F90 test_domains_utility_mod.F90
+<<<<<<< HEAD
+test_mpp_pset_SOURCES = test_mpp_pset.F90
+=======
+>>>>>>> upstream/add_mixed_precision
 test_mpp_memuse_SOURCES=test_mpp_memuse.F90
 test_mpp_mem_dump_SOURCES=test_mpp_mem_dump.F90
 test_mpp_memutils_begin_end_SOURCES=test_mpp_memutils_begin_end.F90
@@ -100,7 +112,11 @@ test_update_domains_performance_SOURCES=test_update_domains_performance.F90 \
                                         compare_data_checksums_int.F90
 test_minmax_SOURCES=test_minmax.F90
 test_mpp_update_domains_ad_SOURCES=test_mpp_update_domains_ad.F90 compare_data_checksums.F90
+<<<<<<< HEAD
+test_global_arrays_SOURCES=test_global_arrays.F90
+=======
 test_global_minmax_SOURCES=test_global_minmax.F90
+>>>>>>> upstream/add_mixed_precision
 test_chksum_int_SOURCES=test_chksum_int.F90
 test_redistribute_int_SOURCES=test_redistribute_int.F90
 test_mpp_transmit_SOURCES=test_mpp_transmit.F90
@@ -109,7 +125,12 @@ test_mpp_transmit_SOURCES=test_mpp_transmit.F90
 # Run the test programs.
 TESTS = test_mpp_domains2.sh \
   test_redistribute_int.sh \
+<<<<<<< HEAD
+  test_global_arrays.sh  \
+  test_mpp_pset2.sh \
+=======
   test_global_minmax.sh  \
+>>>>>>> upstream/add_mixed_precision
   test_mpp2.sh \
   test_mpp_memuse \
   test_mpp_mem_dump \
@@ -139,6 +160,10 @@ TESTS = test_mpp_domains2.sh \
 # These files will also be included in the distribution.
 EXTRA_DIST = input_base.nml \
 	test_mpp_domains2.sh \
+<<<<<<< HEAD
+  test_mpp_pset2.sh     \
+=======
+>>>>>>> upstream/add_mixed_precision
   test_mpp2.sh \
   test_mpp_memutils_mod.sh \
   test_read_ascii_file.sh \
@@ -164,7 +189,11 @@ EXTRA_DIST = input_base.nml \
   test_update_domains_performance.sh \
   test_minmax.sh \
   test_mpp_sendrecv.sh \
+<<<<<<< HEAD
+  test_global_arrays.sh \
+=======
   test_global_minmax.sh \
+>>>>>>> upstream/add_mixed_precision
   test_chksum_int.sh   \
   test_redistribute_int.sh \
   test_mpp_update_domains_ad.sh \
