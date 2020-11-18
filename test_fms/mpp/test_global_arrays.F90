@@ -165,8 +165,8 @@ program test_global_arrays
   endif
 
   !> copy with more ranks and test sum
-  allocate(dataR4_5d(isc:iec,jsc:jec, 1, 1, 1), dataR8_5d(isc:iec,jsc:jec, 1, 1, 1))
-  allocate(dataI4_5d(isc:iec,jsc:jec, 1, 1, 1), dataI8_5d(isc:iec,jsc:jec, 1, 1, 1))
+  allocate(dataR4_5d(isd:ied,jsd:jed, 1, 1, 1), dataR8_5d(isd:ied,jsd:jed, 1, 1, 1))
+  allocate(dataI4_5d(isd:ied,jsd:jed, 1, 1, 1), dataI8_5d(isd:ied,jsd:jed, 1, 1, 1))
   do i=isc, iec-1
     do j=jsc, jec-1
       dataR4_5d(i, j, 1, 1, 1) = dataR4(i, j) 
@@ -217,6 +217,7 @@ function checkResultInt4(res)
   deallocate(tres)
 end function checkResultInt4 
 
+!> true if all pes return the same result and have a lower/higher local max/min 
 function checkResultInt8(res)
   logical                               :: checkResultInt8
   integer(i8_kind),intent(in)           :: res(2)
@@ -241,6 +242,7 @@ function checkResultInt8(res)
   deallocate(tres)
 end function checkResultInt8
 
+!> true if all pes return the same result and have a lower/higher local max/min 
 function checkResultReal4(res)
   logical                            :: checkResultReal4
   real(r4_kind),intent(in)           :: res(2)
@@ -265,6 +267,7 @@ function checkResultReal4(res)
   deallocate(tres)
 end function checkResultReal4
 
+!> true if all pes return the same result and have a lower/higher local max/min 
 function checkResultReal8(res)
   logical                            :: checkResultReal8
   real(r8_kind),intent(in)           :: res(:)
