@@ -44,12 +44,12 @@ program test_global_arrays
   integer(i8_kind)              :: maxI8, minI8, sumI8
   integer(i4_kind), allocatable :: dataI4(:,:), dataI4_5d(:,:,:,:,:)
   integer(i8_kind), allocatable :: dataI8(:,:), dataI8_5d(:,:,:,:,:)
-  real(r4_kind), allocatable    :: dataR4(:,:), dataR4_5d(:,:,:,:,:)
-  real(r8_kind), allocatable    :: dataR8(:,:), dataR8_5d(:,:,:,:,:)
+  real(r4_kind), allocatable    :: dataR4(:,:)
+  real(r8_kind), allocatable    :: dataR8(:,:)
   real, allocatable             :: rands(:)
   type(domain2D)                :: domain
-  real(r8_kind)                 :: rcoef, maxR8, minR8, sumR8
-  real(r4_kind)                 :: maxR4, minR4, sumR4
+  real(r8_kind)                 :: rcoef, maxR8, minR8
+  real(r4_kind)                 :: maxR4, minR4
   integer                       :: isc, iec, jsc, jec
   integer                       :: isd, ied, jsd, jed 
   character(len=32)             :: strMax, strMin
@@ -131,22 +131,6 @@ program test_global_arrays
   endif
 
   !> test global sums for each kind
-  call mpp_error(NOTE, "----------Testing 32-bit real mpp_global_sum----------")
-  call mpp_update_domains(dataR4, domain)
-  sumR4 = mpp_global_sum(domain, dataR4)
-  write(strMax,*) sumR4 
-  if(.NOT. checkSumReal4(sumR4)) then
-    call mpp_error(FATAL, "test_global_arrays: invalid 32-bit real sum"// &
-                               NEW_LINE('a')//"Sum: "// strMax )
-  endif
-  call mpp_error(NOTE, "----------Testing 64-bit real mpp_global_sum----------")
-  call mpp_update_domains(dataR8, domain)
-  sumR8 = mpp_global_sum(domain, dataR8)
-  write(strMax,*) sumR8 
-  if(.NOT. checkSumReal8(sumR8)) then
-    call mpp_error(FATAL, "test_global_arrays: invalid 64-bit real sum"// &
-                               NEW_LINE('a')//"Sum: "// strMax )
-  endif
   call mpp_error(NOTE, "----------Testing 32-bit integer mpp_global_sum----------")
   call mpp_update_domains(dataI4, domain)
   sumI4 = mpp_global_sum(domain, dataI4)
@@ -165,28 +149,20 @@ program test_global_arrays
   endif
 
   !> copy with more ranks and test sum
-  allocate(dataR4_5d(isd:ied,jsd:jed, 1, 1, 1), dataR8_5d(isd:ied,jsd:jed, 1, 1, 1))
   allocate(dataI4_5d(isd:ied,jsd:jed, 1, 1, 1), dataI8_5d(isd:ied,jsd:jed, 1, 1, 1))
   do i=isc, iec-1
     do j=jsc, jec-1
-      dataR4_5d(i, j, 1, 1, 1) = dataR4(i, j) 
-      dataR8_5d(i, j, 1, 1, 1) = dataR8(i, j) 
       dataI4_5d(i, j, 1, 1, 1) = dataI4(i, j) 
       dataI8_5d(i, j, 1, 1, 1) = dataI8(i, j) 
     end do
   end do
-  call mpp_sync()
-  call mpp_error(NOTE, "----------Testing 5D real mpp_global_sum----------")
-  if( sumR4 .ne. mpp_global_sum(domain,dataR4_5d) .or. sumR8 .ne. mpp_global_sum(domain,dataR8_5d)) then
-    call mpp_error(FATAL, "test_global_arrays: invalid higher rank results")
-  endif
   call mpp_sync()
   call mpp_error(NOTE, "----------Testing 5D integer mpp_global_sum----------")
   if( sumI4 .ne. mpp_global_sum(domain,dataI4_5d) .or. sumI8 .ne. mpp_global_sum(domain,dataI8_5d)) then
     call mpp_error(FATAL, "test_global_arrays: invalid higher rank results")
   endif
 
-  deallocate(dataI4, dataI8, dataR4, dataR8, rands, dataR4_5d, dataR8_5d, dataI4_5d, dataI8_5d)
+  deallocate(dataI4, dataI8, dataR4, dataR8, rands, dataI4_5d, dataI8_5d)
   call mpp_domains_exit()
   call MPI_FINALIZE(ierr)
   
@@ -291,73 +267,6 @@ function checkResultReal8(res)
   end if
   deallocate(tres)
 end function checkResultReal8
-
-!>@brief Sum local sums from pes and compares with gsum
-!>@return True if gsum is the global sum, false otherwise
-function checkSumReal4(gsum)
-  logical                   :: checkSumReal4
-  real(r4_kind),intent(in)  :: gsum
-  real(r4_kind),allocatable :: recv(:) !> pe's local sum at 1, global sum at 2
-  real(r4_kind)             :: nsum
-  integer                   :: i
-
-  allocate(recv(2))
-  ! root receives and sums local sums from each pe
-  if(pe .eq. root) then
-    nsum = SUM(dataR4)
-    do i=1, npes - 1 
-      call mpp_recv(recv, 2, i)
-      nsum = nsum + recv(1)
-      ! also check for matching global sum
-      if( recv(2) .ne. gsum ) then
-        checkSumReal4 = .false.
-        deallocate(recv)
-        return 
-      endif
-    end do
-    checkSumReal4 = nsum .eq. gsum
-  else
-    recv(1) = SUM(dataR4)
-    recv(2) = gsum 
-    call mpp_send(recv, 2, root) 
-    checkSumReal4 = .true. 
-  endif
-  deallocate(recv)
-end function checkSumReal4
-
-!>@brief Sum local sums from pes and compares with gsum
-!>@return True if gsum is the global sum, false otherwise
-function checkSumReal8(gsum)
-  logical                   :: checkSumReal8
-  real(r8_kind),intent(in)  :: gsum
-  real(r8_kind),allocatable :: recv(:) !> pe's local sum at 1, global sum at 2
-  real(r8_kind)             :: nsum
-  integer                   :: i
-
-  allocate(recv(2))
-  ! root receives and sums local sums from each pe
-  if(pe .eq. root) then
-    nsum = SUM(dataR8)
-    do i=1, npes - 1 
-      call mpp_recv(recv, 2, i)
-      nsum = nsum + recv(1)
-      ! also check for matching global sum
-      if( recv(2) .ne. gsum ) then
-        checkSumReal8 = .false.
-        deallocate(recv)
-        return 
-      endif
-    end do
-    checkSumReal8 = nsum .eq. gsum
-  else
-    recv(1) = SUM(dataR8)
-    recv(2) = gsum 
-    call mpp_send(recv, 2, root) 
-    checkSumReal8 = .true. 
-  endif
-  deallocate(recv)
-end function checkSumReal8
-
 !>@brief Sum local sums from pes and compares with gsum
 !>@return True if gsum is the global sum, false otherwise
 function checkSumInt4(gsum)
