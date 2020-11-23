@@ -35,15 +35,16 @@
 program test_mpp_alltoall
 
   use platform_mod
-  use mpp_mod, only : mpp_init, mpp_init_test_peset_allocated, mpp_error, FATAL
-  use mpp_mod, only : mpp_pe, mpp_npes, mpp_alltoall, mpp_sync
+  use mpp_mod, only : mpp_init, mpp_init_test_requests_allocated, mpp_init_test_peset_allocated, mpp_error, FATAL
+  use mpp_mod, only : mpp_pe, mpp_npes, mpp_alltoall
+  use mpp_mod, only : mpp_type_create, mpp_type
 
   implicit none
 
-  integer :: npes
+  integer :: npes, ierr
 
     !> initialize MPI
-    call mpp_init( test_level=mpp_init_test_peset_allocated )
+    call mpp_init( test_level=mpp_init_test_requests_allocated )
 
     !> get total number of pe's
     npes = mpp_npes()
@@ -52,6 +53,10 @@ program test_mpp_alltoall
     call test_mpp_alltoall_real4(npes)
     call test_mpp_alltoall_real8(npes)
     call test_mpp_alltoallv_real4(npes)
+
+    call test_mpp_alltoallw_real4(npes)
+
+    call MPI_FINALIZE(ierr)
 
 
 contains
@@ -66,7 +71,7 @@ contains
 
     integer :: pe, ierr, i, ii, N, isend, jsend, irecv, nsend, nrecv
     integer, allocatable :: pelist(:)
-    real(r4_kind), allocatable :: sdata(:), rdata(:)
+    real(r4_kind), allocatable :: sbuf(:), rbuf(:)
 
     !> get pe
     pe = mpp_pe()
@@ -88,37 +93,37 @@ contains
 
     do isend=1, nsend
 
-       !> allocate sdata (senddata), rdata (receivedata)
+       !> allocate sbuf (senddata), rbuf (receivedata)
        N = isend*npes - 1
-       allocate( sdata(0:N), rdata(0:N) )
+       allocate( sbuf(0:N), rbuf(0:N) )
 
        !> initialize receiving array
-       rdata = real( -1.0, kind=r4_kind )
+       rbuf = real( -1.0, kind=r4_kind )
 
        !> intialize sending array
        do i=0, N
-          sdata(i) = real( 10*pe+i, kind=r4_kind )
+          sbuf(i) = real( 10*pe+i, kind=r4_kind )
        end do
 
        !> number of elements to send and receive
        irecv = isend
 
        !> call mpp_alltoall to send/receive one element
-       call mpp_alltoall( sdata, isend, rdata, irecv, pelist )
+       call mpp_alltoall( sbuf, isend, rbuf, irecv, pelist )
 
        !> check
        ii = 0
        do i=0, (npes-1)
           do jsend=0, isend-1
-             if( rdata(ii) .ne. real( 10*i+isend*pe+jsend, kind=r4_kind ) ) then
-                write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, ii, real(10*i+nsend*pe+jsend), rdata(ii)
+             if( rbuf(ii) .ne. real( 10*i+isend*pe+jsend, kind=r4_kind ) ) then
+                write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, ii, real(10*i+nsend*pe+jsend), rbuf(ii)
                 call mpp_error(FATAL, 'test_mpp_alltoall failed')
              end if
              ii = ii + 1
           end do
        end do
 
-       deallocate( sdata, rdata )
+       deallocate( sbuf, rbuf )
 
     end do
 
@@ -134,7 +139,7 @@ contains
 
     integer :: pe, ierr, i, ii, N, isend, jsend, irecv, nsend, nrecv
     integer, allocatable :: pelist(:)
-    real(r8_kind), allocatable :: sdata(:), rdata(:)
+    real(r8_kind), allocatable :: sbuf(:), rbuf(:)
 
     !> get pe
     pe = mpp_pe()
@@ -155,37 +160,37 @@ contains
 
     do isend=1, nsend
 
-       !> allocate sdata (senddata), rdata (receivedata)
+       !> allocate sbuf (senddata), rbuf (receivedata)
        N = isend*npes - 1
-       allocate( sdata(0:N), rdata(0:N) )
+       allocate( sbuf(0:N), rbuf(0:N) )
 
        !> initialize receiving array
-       rdata = real( -1.0, kind=r8_kind )
+       rbuf = real( -1.0, kind=r8_kind )
 
        !> intialize sending array
        do i=0, N
-          sdata(i) = real( 10*pe+i, kind=r8_kind )
+          sbuf(i) = real( 10*pe+i, kind=r8_kind )
        end do
 
        !> number of elements to send and receive
        irecv = isend
 
        !> call mpp_alltoall to send/receive one element
-       call mpp_alltoall( sdata, isend, rdata, irecv, pelist )
+       call mpp_alltoall( sbuf, isend, rbuf, irecv, pelist )
 
        !> check
        ii = 0
        do i=0, (npes-1)
           do jsend=0, isend-1
-             if( rdata(ii) .ne. real( 10*i+isend*pe+jsend, kind=r8_kind ) ) then
-                write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, ii, real(10*i+nsend*pe+jsend), rdata(ii)
+             if( rbuf(ii) .ne. real( 10*i+isend*pe+jsend, kind=r8_kind ) ) then
+                write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, ii, real(10*i+nsend*pe+jsend), rbuf(ii)
                 call mpp_error(FATAL, 'test_mpp_alltoall failed')
              end if
              ii = ii + 1
           end do
        end do
 
-       deallocate( sdata, rdata )
+       deallocate( sbuf, rbuf )
 
     end do
 
@@ -200,53 +205,22 @@ contains
     integer, intent(in) :: npes
 
     integer :: pe, ierr, i, ii, N
-    integer, allocatable :: pelist(:), nsend(:), nrecv(:), sdispl(:), rdispl(:)
-    real(r4_kind), allocatable :: sdata(:), rdata(:), sdata2(:), rdata2(:)
+    integer, allocatable :: pelist(:), ssize(:), rsize(:), sdispl(:), rdispl(:)
+    real(r4_kind), allocatable :: sbuf(:), rbuf(:)
 
     !> get pe
     pe = mpp_pe()
 
     N = npes - 1
 
-    allocate( sdata(0:N),  rdata(0:N) )
-    allocate( nsend(0:N),  nrecv(0:N) )
+    allocate( sbuf(0:N),   rbuf(0:N) )
+    allocate( ssize(0:N),  rsize(0:N) )
     allocate( sdispl(0:N), rdispl(0:N) )
 
     !> get pelist to pass into mpp_alltoall
     allocate( pelist(0:N) )
     do i=0, N
        pelist(i) = i
-    end do
-
-    !> test sending 1 element and receiving none
-    !! process0: [ 0, 1, 2, 3]  --alltoallv--> [-1,-1,-1,-1]
-    !! process1: [10,11,12,13]  --alltoallv--> [-1,-1,-1,-1]
-    !! process2: [20,21,22,23]  --alltoallv--> [-1,-1,-1,-1]
-    !! process3: [30,31,32,33]  --alltoallv--> [-1,-1,-1,-1]
-
-    do i=0, N
-       nsend(i)  = 1  !! send one element to each processor
-       sdispl(i) = i  !! send ith element to the ith processor
-    end do
-
-    !! data to send
-    do i=0, N
-       sdata(i) = real( 10*pe+i, kind=r4_kind )
-    end do
-
-    do i=0, N
-       nrecv(i) = 0 !! receive none from each processor
-       rdispl(i) = i
-    end do
-
-    !! initialize receiving buffer
-    rdata = real( -1.0, kind=r4_kind )
-
-    call mpp_alltoall(sdata, nsend, sdispl, rdata, nrecv, rdispl )
-    do i=0, N
-       if( rdata(i).ne.real(-1.0, kind=r4_kind) ) then
-          call mpp_error( FATAL, 'test mpp_alltoallv, expected value of -1.0' )
-       end if
     end do
 
 
@@ -256,27 +230,24 @@ contains
     !! process2: [20,21,22,23]  --alltoallv--> [2,12,22,32]
     !! process3: [30,31,32,33]  --alltoallv--> [3,13,23,33]
 
-    nsend = 1
-    nrecv = 1
-
-    do i=0, N
-       sdata(i) = real( 10*pe+i, kind=r4_kind )
-    end do
+    ssize = 1
+    rsize = 1
 
     do i=0, N
        sdispl(i) = i
        rdispl(i) = i
     end do
 
-    rdata = real( -1.0, kind=r4_kind )
-
-    call mpp_alltoall(sdata, nsend, sdispl, rdata, nrecv, rdispl )
-
-
     do i=0, N
-       if ( rdata(i).ne.real(10*i+pe, kind=r4_kind) ) then
-          call mpp_error( FATAL, 'test mpp_alltoallv fail' )
-       end if
+       sbuf(i) = real( 10*pe+i, kind=r4_kind )
+    end do
+    rbuf = real( -1.0, kind=r4_kind )
+
+    call mpp_alltoall(sbuf, ssize, sdispl, rbuf, rsize, rdispl )
+
+    !> check
+    do i=0, N
+       if ( rbuf(i).ne.real(10*i+pe, kind=r4_kind) ) call mpp_error( FATAL, 'test mpp_alltoallv fail' )
     end do
 
 
@@ -286,11 +257,11 @@ contains
     !! process2: [20,21,22,23,24,25,26,27]  --alltoallv--> [4,-1,14,-1,24,-1,34,-1]
     !! process3: [30,31,32,33,34,35,36,37]  --alltoallv--> [6,-1,16,-1,26,-1,36,-1]
 
-    nsend = 1
-    nrecv = 1
+    ssize = 1
+    rsize = 1
 
-    !deallocate( sdata, rdata )
-    allocate( sdata2(0:2*npes-1), rdata2(0:2*npes-1) )
+    deallocate( sbuf, rbuf )
+    allocate( sbuf(0:(2*npes-1)), rbuf(0:(2*npes-1)) )
 
     do i=0, N
        sdispl(i) = 2*i
@@ -301,17 +272,58 @@ contains
     end do
 
     do i=0, N
-       sdata2(2*i)   = real( 10*pe+2*i, kind=r4_kind )
-       sdata2(2*i+1) = real( 10*pe+2*i+1, kind=r4_kind )
+       sbuf(2*i)   = real( 10*pe+2*i, kind=r4_kind )
+       sbuf(2*i+1) = real( 10*pe+2*i+1, kind=r4_kind )
     end do
 
-    rdata2 = real(-1.0, kind=r4_kind )
+    rbuf = real(-1.0, kind=r4_kind )
 
-    call mpp_alltoall(sdata2, nsend, sdispl, rdata2, nrecv, rdispl )
+    call mpp_alltoall(sbuf, ssize, sdispl, rbuf, rsize, rdispl)
 
-    write(*,*) pe, ':', rdata2
-
+    !> check
+    do i=0, N
+       if ( rbuf(2*i).ne.real(10*i+2*pe, kind=r4_kind) ) call mpp_error( FATAL, 'test mpp_alltoallv fail' )
+       if ( rbuf(2*i+1).ne.real(-1, kind=r4_kind) ) call mpp_error( FATAL, 'test mpp_alltoallv fail' )
+    end do
 
   end subroutine test_mpp_alltoallv_real4
+
+
+  !> test mpp_alltoallw_real4
+  subroutine test_mpp_alltoallw_real4(npes)
+
+    implicit none
+
+    integer, intent(in) :: npes
+
+    real(r4_kind), parameter :: zero = 0. , one = 1.
+
+    integer :: pe, i
+    integer :: array_of_subsizes(3), array_of_starts(3)
+    integer :: ssize(npes), rsize(npes), sdispl(npes), rdispl(npes)
+    !integer(i4_kind), allocatable :: sbuf(:,:,:), rbuf(:,:,:)
+    real(r4_kind), allocatable :: sbuf(:,:,:), rbuf(:,:,:)
+    type(mpp_type) :: stype(0:npes), rtype(0:npes)
+
+    pe = mpp_pe()
+
+    allocate( sbuf(5,5,5), rbuf(5,5,5) )
+    sbuf = zero
+    rbuf = one
+
+    ssize = 3
+    rsize = 3
+    sdispl = 0
+    rdispl = 0
+
+    array_of_subsizes = (/3,3,3/)
+    array_of_starts = (/1,1,1/)
+
+    call mpp_type_create( sbuf, array_of_subsizes, array_of_starts, stype(pe) )
+    call mpp_type_create( rbuf, array_of_subsizes, array_of_starts, rtype(pe) )
+    call mpp_alltoall( sbuf, ssize, sdispl, stype, rbuf, rsize, rdispl, stype )
+
+  end subroutine test_mpp_alltoallw_real4
+
 
 end program test_mpp_alltoall

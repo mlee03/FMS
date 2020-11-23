@@ -42,6 +42,7 @@ subroutine MPP_TYPE_CREATE_(field, array_of_subsizes, array_of_starts, &
 
     ! Check if mpp_type already exists
     do while (.not. associated(dtype))
+
         dtype => dtype%next
 
         if (dtype%ndims /= rank(field)) cycle
@@ -55,6 +56,7 @@ subroutine MPP_TYPE_CREATE_(field, array_of_subsizes, array_of_starts, &
         dtype_out = dtype
         return
     end do
+
 
     ! The type does not exist; create a new internal type
     call MPI_Type_create_subarray( &
