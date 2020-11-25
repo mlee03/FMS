@@ -37,7 +37,7 @@ program test_mpp_alltoall
   use platform_mod
   use mpp_mod, only : mpp_init, mpp_init_test_requests_allocated, mpp_init_test_peset_allocated, mpp_error, FATAL
   use mpp_mod, only : mpp_pe, mpp_npes, mpp_alltoall
-  use mpp_mod, only : mpp_type_create, mpp_type
+  use mpp_mod, only : mpp_type_create, mpp_type, mpp_byte
 
   implicit none
 
@@ -296,32 +296,69 @@ contains
 
     integer, intent(in) :: npes
 
+    integer, parameter :: n=4
     real(r4_kind), parameter :: zero = 0. , one = 1.
 
-    integer :: pe, i
+    integer :: pe, i, j, k
+
     integer :: array_of_subsizes(3), array_of_starts(3)
-    integer :: ssize(npes), rsize(npes), sdispl(npes), rdispl(npes)
-    !integer(i4_kind), allocatable :: sbuf(:,:,:), rbuf(:,:,:)
-    real(r4_kind), allocatable :: sbuf(:,:,:), rbuf(:,:,:)
-    type(mpp_type) :: stype(0:npes), rtype(0:npes)
+    integer :: ssize(0:npes-1), rsize(0:npes-1), sdispl(0:npes-1), rdispl(0:npes-1)
+    real(r4_kind), target :: sbuf(n,n,n), rbuf(n,n,n)
+
+    real(r4_kind), dimension(:), pointer :: psbuf, prbuf
+    type(mpp_type) :: stype(0:npes-1), rtype(0:npes-1)
+
 
     pe = mpp_pe()
 
-    allocate( sbuf(5,5,5), rbuf(5,5,5) )
-    sbuf = zero
-    rbuf = one
+    do i=1, n
+       do j=1, n
+          do k=1, n
+             sbuf(k,j,i) = real( (pe-1)*1000 + i*100 + j*10 + k, kind=r4_kind )
+          end do
+       end do
+    end do
+    rbuf = 0
 
-    ssize = 3
-    rsize = 3
+    ssize = 0
+    if ( pe == 0 ) then
+       do i = 0, npes-1
+          ssize(i) = 1
+       end do
+    end if
     sdispl = 0
+
+    rsize = 1
     rdispl = 0
 
     array_of_subsizes = (/3,3,3/)
-    array_of_starts = (/1,1,1/)
+    array_of_starts = (/0,0,0/)
 
-    call mpp_type_create( sbuf, array_of_subsizes, array_of_starts, stype(pe) )
-    call mpp_type_create( rbuf, array_of_subsizes, array_of_starts, rtype(pe) )
-    call mpp_alltoall( sbuf, ssize, sdispl, stype, rbuf, rsize, rdispl, stype )
+    stype(:) = mpp_byte
+    rtype(:) = mpp_byte
+
+    psbuf(1:size(sbuf)) => sbuf
+    prbuf(1:size(rbuf)) => rbuf
+
+    do i=0, npes-1
+       call mpp_type_create( sbuf, array_of_subsizes, array_of_starts, stype(i) )
+    end do
+
+    do i=0, npes-1
+       call mpp_type_create( rbuf, array_of_subsizes, array_of_starts, rtype(i) )
+    end do
+
+    call mpp_alltoall( psbuf, ssize, sdispl, stype, prbuf, rsize, rdispl, stype )
+
+    !if ( pe==0 ) then
+    !   do i=1, 5
+    !      do j=1, 5
+    !         do k=1, 5
+    !            write(*,*) i, j, k, ':', rbuf(k,j,i)
+    !         end do
+    !      end do
+    !   end do
+    !end if
 
   end subroutine test_mpp_alltoallw_real4
 
