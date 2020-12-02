@@ -196,7 +196,7 @@ program test_global_arrays
   deallocate(dataI4, dataI8, dataR4, dataR8, rands, dataI4_5d, dataI8_5d)
   call mpp_domains_exit()
   call MPI_FINALIZE(ierr)
-  
+
   contains
 
 !> true if all pes return the same result and have a lower/higher local max/min 
