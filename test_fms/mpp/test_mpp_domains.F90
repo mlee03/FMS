@@ -129,7 +129,7 @@ program test_mpp_domains
                                extra_halo, npes_nest_tile, cyclic_nest, mix_2D_3D, test_get_nbr, &
                                test_edge_update, test_cubic_grid_redistribute, ensemble_size, &
                                layout_cubic, layout_ensemble, nthreads, test_boundary, &
-                               layout_tripolar, test_group, test_global_sum, test_unstruct, &
+                               layout_tripolar, test_group, test_global_sum, test_subset, test_unstruct, &
                                test_nonsym_edge, test_halosize_performance, test_adjoint, wide_halo
   integer :: i, j, k, n
   integer :: layout(2)
@@ -1692,8 +1692,6 @@ contains
   !###############################################################
   subroutine test_mpp_global_sum( type )
     character(len=*), intent(in) :: type
-<<<<<<< HEAD
-=======
 
     type(domain2D) :: domain
     integer        :: num_contact, ntiles, npes_per_tile
@@ -1914,7 +1912,6 @@ contains
   !###############################################################
   subroutine test_group_update( type )
     character(len=*), intent(in) :: type
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
 
     type(domain2D) :: domain
     integer        :: num_contact, ntiles, npes_per_tile

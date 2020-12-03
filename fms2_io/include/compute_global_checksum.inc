@@ -105,39 +105,21 @@ function compute_global_checksum_2d(fileobj, variable_name, variable_data, is_de
       else
         chksum_val = mpp_chksum(buf_i8_kind)
       endif
-<<<<<<< HEAD
-      deallocate(buf_int64)
-   type is (real(kind=real32))
-     call allocate_array(buf_real32, e)
-     call get_array_section(buf_real32, variable_data, c, e)
-     if (get_fill_value(fileobj, variable_name, fill_real32)) then
-       chksum_val = mpp_chksum(buf_real32, mask_val=fill_real32)
-=======
       deallocate(buf_i8_kind)
    type is (real(kind=r4_kind))
      call allocate_array(buf_r4_kind, e)
      call get_array_section(buf_r4_kind, variable_data, c, e)
      if (get_fill_value(fileobj, variable_name, fill_r4_kind)) then
        chksum_val = mpp_chksum(buf_r4_kind, mask_val=fill_r4_kind)
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
      else
        chksum_val = mpp_chksum(buf_r4_kind)
      endif
-<<<<<<< HEAD
-     deallocate(buf_real32)
-   type is (real(kind=real64))
-      call allocate_array(buf_real64, e)
-      call get_array_section(buf_real64, variable_data, c, e)
-      if (get_fill_value(fileobj, variable_name, fill_real64)) then
-        chksum_val = mpp_chksum(buf_real64, mask_val=fill_real64)
-=======
      deallocate(buf_r4_kind)
    type is (real(kind=r8_kind))
       call allocate_array(buf_r8_kind, e)
       call get_array_section(buf_r8_kind, variable_data, c, e)
       if (get_fill_value(fileobj, variable_name, fill_r8_kind)) then
         chksum_val = mpp_chksum(buf_r8_kind, mask_val=fill_r8_kind)
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
       else
         chksum_val = mpp_chksum(buf_r8_kind)
       endif
@@ -237,39 +219,21 @@ function compute_global_checksum_3d(fileobj, variable_name, variable_data, is_de
       else
         chksum_val = mpp_chksum(buf_i8_kind)
       endif
-<<<<<<< HEAD
-      deallocate(buf_int64)
-   type is (real(kind=real32))
-     call allocate_array(buf_real32, e)
-     call get_array_section(buf_real32, variable_data, c, e)
-     if (get_fill_value(fileobj, variable_name, fill_real32)) then
-       chksum_val = mpp_chksum(buf_real32, mask_val=fill_real32)
-=======
       deallocate(buf_i8_kind)
    type is (real(kind=r4_kind))
      call allocate_array(buf_r4_kind, e)
      call get_array_section(buf_r4_kind, variable_data, c, e)
      if (get_fill_value(fileobj, variable_name, fill_r4_kind)) then
        chksum_val = mpp_chksum(buf_r4_kind, mask_val=fill_r4_kind)
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
      else
        chksum_val = mpp_chksum(buf_r4_kind)
      endif
-<<<<<<< HEAD
-     deallocate(buf_real32)
-   type is (real(kind=real64))
-      call allocate_array(buf_real64, e)
-      call get_array_section(buf_real64, variable_data, c, e)
-      if (get_fill_value(fileobj, variable_name, fill_real64)) then
-        chksum_val = mpp_chksum(buf_real64, mask_val=fill_real64)
-=======
      deallocate(buf_r4_kind)
    type is (real(kind=r8_kind))
       call allocate_array(buf_r8_kind, e)
       call get_array_section(buf_r8_kind, variable_data, c, e)
       if (get_fill_value(fileobj, variable_name, fill_r8_kind)) then
         chksum_val = mpp_chksum(buf_r8_kind, mask_val=fill_r8_kind)
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
       else
         chksum_val = mpp_chksum(buf_r8_kind)
       endif
@@ -370,39 +334,21 @@ function compute_global_checksum_4d(fileobj, variable_name, variable_data, is_de
       else
         chksum_val = mpp_chksum(buf_i8_kind)
       endif
-<<<<<<< HEAD
-      deallocate(buf_int64)
-   type is (real(kind=real32))
-     call allocate_array(buf_real32, e)
-     call get_array_section(buf_real32, variable_data, c, e)
-     if (get_fill_value(fileobj, variable_name, fill_real32)) then
-       chksum_val = mpp_chksum(buf_real32, mask_val=fill_real32)
-=======
       deallocate(buf_i8_kind)
    type is (real(kind=r4_kind))
      call allocate_array(buf_r4_kind, e)
      call get_array_section(buf_r4_kind, variable_data, c, e)
      if (get_fill_value(fileobj, variable_name, fill_r4_kind)) then
        chksum_val = mpp_chksum(buf_r4_kind, mask_val=fill_r4_kind)
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
      else
        chksum_val = mpp_chksum(buf_r4_kind)
      endif
-<<<<<<< HEAD
-     deallocate(buf_real32)
-   type is (real(kind=real64))
-      call allocate_array(buf_real64, e)
-      call get_array_section(buf_real64, variable_data, c, e)
-      if (get_fill_value(fileobj, variable_name, fill_real64)) then
-        chksum_val = mpp_chksum(buf_real64, mask_val=fill_real64)
-=======
      deallocate(buf_r4_kind)
    type is (real(kind=r8_kind))
       call allocate_array(buf_r8_kind, e)
       call get_array_section(buf_r8_kind, variable_data, c, e)
       if (get_fill_value(fileobj, variable_name, fill_r8_kind)) then
         chksum_val = mpp_chksum(buf_r8_kind, mask_val=fill_r8_kind)
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
       else
         chksum_val = mpp_chksum(buf_r8_kind)
       endif

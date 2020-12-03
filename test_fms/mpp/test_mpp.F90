@@ -50,12 +50,6 @@ program test   !test various aspects of mpp_mod
   out_unit = stdout()
 
   call SYSTEM_CLOCK( count_rate=ticks_per_sec )
-<<<<<<< HEAD
-  if( pe.EQ.root ) print *, '------------------> Calling test_time_transmit <------------------'
-    call test_time_transmit()
-  if( pe.EQ.root ) print *, '------------------> Finished test_time_transmit <------------------'
-=======
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
 
   if( pe.EQ.root ) print *, '------------------> Calling test_mpp_max <------------------'
     call test_mpp_max()
@@ -85,40 +79,6 @@ program test   !test various aspects of mpp_mod
 
 contains
 
-<<<<<<< HEAD
-  subroutine test_time_transmit()
-
-  allocate( a(n), b(n) )
-  id = mpp_clock_id( 'Random number' )
-  call mpp_clock_begin(id)
-  call random_number(a)
-  call mpp_clock_end  (id)
-
-  id = mpp_clock_id( 'mpp_transmit' )
-  call mpp_clock_begin(id)
-  !timing is done for cyclical pass (more useful than ping-pong etc)
-  l = n
-  do while( l.GT.0 )
-     !--- mpp_transmit -------------------------------------------------
-     call mpp_sync()
-     call SYSTEM_CLOCK(tick0)
-     do i = 1,npes
-        call mpp_transmit( put_data=a(1), plen=l, to_pe=modulo(pe+npes-i,npes), &
-                           get_data=b(1), glen=l, from_pe=modulo(pe+i,npes) )
-        call mpp_sync_self()
-     end do
-     call mpp_sync()
-     call SYSTEM_CLOCK(tick)
-     dt = real(tick-tick0)/(npes*ticks_per_sec)
-     dt = max( dt, epsilon(dt) )
-     if( pe.EQ.root ) print *, 'MPP_TRANSMIT length, time, bw(Mb/s)=', l, dt, l*8e-6/dt
-     l = l/2
-  end do
-
-  end subroutine test_time_transmit
-
-=======
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   subroutine test_mpp_max
 
   allocate( a(n), b(n) )

@@ -23,10 +23,7 @@
 !! The test cases are 'folded_north' and 'cubic_grid'
 program test_update_domains_performance
   use compare_data_checksums, only : compare_checksums
-<<<<<<< HEAD
-=======
   use compare_data_checksums_int, only : compare_checksums_int
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   use mpp_mod, only : FATAL, WARNING, NOTE, MPP_CLOCK_SYNC,MPP_CLOCK_DETAILED
   use mpp_mod, only : mpp_init, mpp_pe, mpp_npes, mpp_root_pe, mpp_error
   use mpp_mod, only : mpp_clock_id, mpp_clock_begin, mpp_clock_end, mpp_sync
@@ -75,30 +72,18 @@ program test_update_domains_performance
   npes = mpp_npes()
   !> run the tests
   if (mpp_pe() == mpp_root_pe()) &
-<<<<<<< HEAD
-    print *, '--------------------> Calling 64-bit update_domains_performance tests <-------------------'
-=======
     print *, '--------------------> Calling 64-bit real update_domains_performance tests <-------------------'
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   call update_domains_performance_r8('Folded-north')
   call update_domains_performance_r8('Cubic-Grid')
   call update_domains_performance_r8('Single-Tile')
   if (mpp_pe() == mpp_root_pe()) &
-<<<<<<< HEAD
-    print *, '--------------------> Finished 64-bit update_domains_performance tests <-------------------'
-    print *, '--------------------> Calling 32-bit update_domains_performance tests <-------------------'
-=======
     print *, '--------------------> Finished 64-bit real update_domains_performance tests <-------------------'
   if (mpp_pe() == mpp_root_pe()) &
     print *, '--------------------> Calling 32-bit real update_domains_performance tests <-------------------'
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   call update_domains_performance_r4('Folded-north')
   call update_domains_performance_r4('Cubic-Grid')
   call update_domains_performance_r4('Single-Tile')
   if (mpp_pe() == mpp_root_pe()) &
-<<<<<<< HEAD
-    print *, '--------------------> Finished 32-bit update_domains_performance tests <-------------------'
-=======
     print *, '--------------------> Finished 32-bit real update_domains_performance tests'
   if (mpp_pe() == mpp_root_pe()) &
     print *, '--------------------> Calling 64-bit integer update_domains_performance tests <-------------------' 
@@ -116,7 +101,6 @@ program test_update_domains_performance
   call update_domains_performance_i4('Single-Tile')
   if (mpp_pe() == mpp_root_pe()) &
     print *, '--------------------> Finished 32-bit integer update_domains_performance tests <-------------------'
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   call mpp_domains_exit()
   !> Finalize mpp
   call MPI_FINALIZE(ierr)
@@ -1326,8 +1310,6 @@ program test_update_domains_performance
 
   end subroutine update_domains_performance_r4
 
-<<<<<<< HEAD
-=======
  !> run performance tests on 64-bit integer arrays
   subroutine update_domains_performance_i8( test_type )
     character(len=*), intent(in) :: test_type
@@ -1851,7 +1833,6 @@ program test_update_domains_performance
 
   end subroutine update_domains_performance_i4
 
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   !> define mosaic domain for cubic grid
   subroutine define_cubic_mosaic(type, domain, ni, nj, global_indices, layout, pe_start, pe_end, use_memsize)
     character(len=*), intent(in)  :: type

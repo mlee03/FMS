@@ -542,10 +542,6 @@ private
      module procedure mpp_max_real8_1d
      module procedure mpp_max_int8_0d
      module procedure mpp_max_int8_1d
-<<<<<<< HEAD
-#endif
-=======
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
      module procedure mpp_max_real4_0d
      module procedure mpp_max_real4_1d
      module procedure mpp_max_int4_0d
@@ -557,10 +553,6 @@ private
      module procedure mpp_min_real8_1d
      module procedure mpp_min_int8_0d
      module procedure mpp_min_int8_1d
-<<<<<<< HEAD
-#endif
-=======
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
      module procedure mpp_min_real4_0d
      module procedure mpp_min_real4_1d
      module procedure mpp_min_int4_0d

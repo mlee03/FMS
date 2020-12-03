@@ -18,11 +18,7 @@
 !***********************************************************************
 !> @author Jessica Liptak
 !> @brief This module contains routines to fill halos in different domain configurations
-<<<<<<< HEAD
-!! It is required by test_mpp_update_domains
-=======
 !! It is required by test_mpp_update_domains_real and test_mpp_update_domains_int.
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
 module fill_halo
 
 use :: platform_mod
@@ -39,77 +35,56 @@ public :: fill_folded_north_halo, fill_folded_south_halo, fill_folded_east_halo,
 interface fill_regular_refinement_halo
   module procedure fill_regular_refinement_halo_r8
   module procedure fill_regular_refinement_halo_r4
-<<<<<<< HEAD
-=======
   module procedure fill_regular_refinement_halo_i8
   module procedure fill_regular_refinement_halo_i4
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
 end interface
 
 !> Routines to fill halo regions of 64-bit and 32-bit real arrays with zeros
 interface fill_halo_zero
   module procedure fill_halo_zero_r8
   module procedure fill_halo_zero_r4
-<<<<<<< HEAD
-=======
   module procedure fill_halo_zero_i8
   module procedure fill_halo_zero_i4
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
 end interface
 
 !> Routines to fill halo regions of 64-bit and 32-bit real arrays on a mosaic grid
 interface fill_regular_mosaic_halo
   module procedure fill_regular_mosaic_halo_r8
   module procedure fill_regular_mosaic_halo_r4
-<<<<<<< HEAD
-=======
   module procedure fill_regular_mosaic_halo_i8
   module procedure fill_regular_mosaic_halo_i4
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
 end interface fill_regular_mosaic_halo
 
 !> Routines to fill halo regions of 64-bit and 32-bit real arrays on a domain with a folded north edge
 interface fill_folded_north_halo
   module procedure fill_folded_north_halo_r8
   module procedure fill_folded_north_halo_r4
-<<<<<<< HEAD
-=======
   module procedure fill_folded_north_halo_i8
   module procedure fill_folded_north_halo_i4
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
 end interface fill_folded_north_halo
 
 !> Routines to fill halo regions of 64-bit and 32-bit real arrays on a domain with a folded south edge
 interface fill_folded_south_halo
   module procedure fill_folded_south_halo_r8
   module procedure fill_folded_south_halo_r4
-<<<<<<< HEAD
-=======
   module procedure fill_folded_south_halo_i8
   module procedure fill_folded_south_halo_i4
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
 end interface fill_folded_south_halo
 
 !> Routines to fill halo regions of 64-bit and 32-bit real arrays on a domain with a folded east edge
 interface fill_folded_east_halo
   module procedure fill_folded_east_halo_r8
   module procedure fill_folded_east_halo_r4
-<<<<<<< HEAD
-=======
   module procedure fill_folded_east_halo_i8
   module procedure fill_folded_east_halo_i4
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
 end interface fill_folded_east_halo
 
 !> Routines to fill halo regions of 64-bit and 32-bit real arrays on a domain with a folded west edge
 interface fill_folded_west_halo
   module procedure fill_folded_west_halo_r8
   module procedure fill_folded_west_halo_r4
-<<<<<<< HEAD
-=======
   module procedure fill_folded_west_halo_i8
   module procedure fill_folded_west_halo_i4
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
 end interface fill_folded_west_halo
 
 contains
@@ -160,11 +135,6 @@ contains
     end if
   end subroutine fill_halo_zero_r4
 
-<<<<<<< HEAD
- 
-  !> fill the halo region of 64-bit array on a regular grid
-  subroutine fill_regular_refinement_halo_r8( data, data_all, ni, nj, tm, te, tse, ts, tsw, tw, tnw, tn, tne, ioff, joff )
-=======
 !> fill the halo region of a 64-bit integer array with zeros
   subroutine fill_halo_zero_i8(data, whalo, ehalo, shalo, nhalo, xshift, yshift, isc, iec, jsc, jec, isd, ied, jsd, jed)
     integer(kind=i8_kind), dimension(isd:,jsd:,:), intent(inout) :: data
@@ -215,7 +185,6 @@ contains
   !> fill the halo region of 64-bit array on a regular grid
   subroutine fill_regular_refinement_halo_r8( data, data_all, ni, nj, tm, te, tse, ts, &
                                              tsw, tw, tnw, tn, tne, ioff, joff )
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
     real(kind=r8_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
     real(kind=r8_kind), dimension(:,:,:,:),             intent(in)    :: data_all
     integer, dimension(:),                intent(in)    :: ni, nj
@@ -270,8 +239,6 @@ contains
 
   end subroutine fill_regular_refinement_halo_r4
 
-<<<<<<< HEAD
-=======
 !> fill the halo region of 64-bit integer array on a regular grid
   subroutine fill_regular_refinement_halo_i8( data, data_all, ni, nj, tm, te, tse, ts, tsw, &
                                              tw, tnw, tn, tne, ioff, joff )
@@ -329,7 +296,6 @@ contains
 
   end subroutine fill_regular_refinement_halo_i4
 
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   ! Fill the halo points of a 64-bit real array on the regular mosaic grid
   subroutine fill_regular_mosaic_halo_r8(data, data_all, te, tse, ts, tsw, tw, tnw, tn, tne)
     real(kind=r8_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
@@ -362,9 +328,6 @@ contains
     data(1-whalo:0,     ny+1:ny+nhalo, :) = data_all(nx-whalo+1:nx, 1:nhalo,       :,tne) ! northwest
   end subroutine fill_regular_mosaic_halo_r4
 
-<<<<<<< HEAD
-  !> Fill the halo region of a 64-bit array on a domain with a folded north edge
-=======
   ! Fill the halo points of a 64-bit integer array on the regular mosaic grid
   subroutine fill_regular_mosaic_halo_i8(data, data_all, te, tse, ts, tsw, tw, tnw, tn, tne)
     integer(kind=i8_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
@@ -398,7 +361,6 @@ contains
   end subroutine fill_regular_mosaic_halo_i4
 
   !> Fill the halo region of a 64-bit array real on a domain with a folded north edge
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   subroutine fill_folded_north_halo_r8(data, ioff, joff, ishift, jshift, sign)
     real(kind=r8_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
     integer, intent(in) :: ioff, joff, ishift, jshift, sign
@@ -419,11 +381,7 @@ contains
 
   end subroutine fill_folded_north_halo_r8
 
-<<<<<<< HEAD
-  !> Fill the halo region of a 32-bit array on a domain with a folded north edge
-=======
   !> Fill the halo region of a 32-bit real array on a domain with a folded north edge
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   subroutine fill_folded_north_halo_r4(data, ioff, joff, ishift, jshift, sign)
     real(kind=r4_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
     integer, intent(in) :: ioff, joff, ishift, jshift, sign
@@ -445,9 +403,6 @@ contains
 
   end subroutine fill_folded_north_halo_r4
 
-<<<<<<< HEAD
-  !> Fill the halo region of a 64-bit array on a domain with a folded south edge
-=======
   !> Fill the halo region of a 64-bit integer array on a domain with a folded north edge
   subroutine fill_folded_north_halo_i8(data, ioff, joff, ishift, jshift, sign)
     integer(kind=i8_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
@@ -492,7 +447,6 @@ contains
   end subroutine fill_folded_north_halo_i4
 
   !> Fill the halo region of a 64-bit real array on a domain with a folded south edge
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   subroutine fill_folded_south_halo_r8(data, ioff, joff, ishift, jshift, sign)
     real(kind=r8_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
     integer, intent(in) :: ioff, joff, ishift, jshift, sign
@@ -514,11 +468,7 @@ contains
 
   end subroutine fill_folded_south_halo_r8
 
-<<<<<<< HEAD
-  !> Fill the halo region of a 32-bit array on a domain with a folded south edge
-=======
   !> Fill the halo region of a 32-bit real array on a domain with a folded south edge
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   subroutine fill_folded_south_halo_r4(data, ioff, joff, ishift, jshift, sign)
     real(kind=r4_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
     integer, intent(in) :: ioff, joff, ishift, jshift, sign
@@ -540,9 +490,6 @@ contains
 
   end subroutine fill_folded_south_halo_r4
 
-<<<<<<< HEAD
-  !> Fill the halo region of a 64-bit array on a domain with a folded west edge
-=======
   !> Fill the halo region of a 64-bit intger array on a domain with a folded south edge
   subroutine fill_folded_south_halo_i8(data, ioff, joff, ishift, jshift, sign)
     integer(kind=i8_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
@@ -588,7 +535,6 @@ contains
   end subroutine fill_folded_south_halo_i4
 
   !> Fill the halo region of a 64-bit real array on a domain with a folded west edge
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   subroutine fill_folded_west_halo_r8(data, ioff, joff, ishift, jshift, sign)
     real(kind=r8_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
     integer, intent(in) :: ioff, joff, ishift, jshift, sign
@@ -609,11 +555,7 @@ contains
 
   end subroutine fill_folded_west_halo_r8
 
-<<<<<<< HEAD
-  !> Fill the halo region of a 32-bit array on a domain with a folded west edge
-=======
   !> Fill the halo region of a 32-bit real array on a domain with a folded west edge
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   subroutine fill_folded_west_halo_r4(data, ioff, joff, ishift, jshift, sign)
     real(kind=r4_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
     integer, intent(in) :: ioff, joff, ishift, jshift, sign
@@ -634,9 +576,6 @@ contains
 
   end subroutine fill_folded_west_halo_r4
 
-<<<<<<< HEAD
-  !> Fill the halo region of a 64-bit array on a domain with a folded east edge
-=======
   !> Fill the halo region of a 64-bit integer array on a domain with a folded west edge
   subroutine fill_folded_west_halo_i8(data, ioff, joff, ishift, jshift, sign)
     integer(kind=i8_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
@@ -680,7 +619,6 @@ contains
   end subroutine fill_folded_west_halo_i4
 
   !> Fill the halo region of a 64-bit real array on a domain with a folded east edge
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   subroutine fill_folded_east_halo_r8(data, ioff, joff, ishift, jshift, sign)
     real(kind=r8_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
     integer, intent(in) :: ioff, joff, ishift, jshift, sign
@@ -702,11 +640,7 @@ contains
 
   end subroutine fill_folded_east_halo_r8
 
-<<<<<<< HEAD
-  !> Fill the halo region of a 32-bit array on a domain with a folded east edge
-=======
   !> Fill the halo region of a 32-bit real array on a domain with a folded east edge
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
   subroutine fill_folded_east_halo_r4(data, ioff, joff, ishift, jshift, sign)
     real(kind=r4_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
     integer, intent(in) :: ioff, joff, ishift, jshift, sign
@@ -728,8 +662,6 @@ contains
 
   end subroutine fill_folded_east_halo_r4
 
-<<<<<<< HEAD
-=======
   !> Fill the halo region of a 64-bit integer array on a domain with a folded east edge
   subroutine fill_folded_east_halo_i8(data, ioff, joff, ishift, jshift, sign)
     integer(kind=i8_kind), dimension(1-whalo:,1-shalo:,:), intent(inout) :: data
@@ -774,5 +706,4 @@ contains
 
   end subroutine fill_folded_east_halo_i4
 
->>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
 end module fill_halo
