@@ -22,14 +22,36 @@
 # This is part of the GFDL FMS package. This is a shell script to
 # execute tests in the test_fms/mpp directory.
 
-# Ed Hartnett 11/29/19
+# Ryan Mulhall 2020 
 
 # Set common test settings.
 . ../test_common.sh
 
-# Setup the run directory
-##tnum=$( printf "%2.2d" ${BATS_TEST_NUMBER} )
-##rm -f diag_test_${tnum}* > /dev/null 2>&1
-##sed "s/<test_num>/${tnum}/" input.nml_base > input.nml
+skip_test="no"
 
-run_test test_mpp_pset 2 skip
+# Get the number of available CPUs on the system
+if [ $(command -v nproc) ]
+then
+    # Looks like a linux system
+    nProc=$(nproc)
+elif [ $(command -v sysctl) ]
+then
+    # Looks like a Mac OS X system
+    nProc=$(sysctl -n hw.physicalcpu)
+else
+    nProc=-1
+fi
+
+# Do we need to oversubscribe
+if [ ${nProc} -lt 0 ]
+then
+    # Couldn't get the number of CPUs, skip the test.
+    skip_test="skip"
+elif [ $nProc -lt 4 ]
+then
+    # Need to oversubscribe the MPI
+    run_test test_redistribute_int 6 $skip_test "true"
+fi
+
+touch input.nml
+run_test test_redistribute_int 6 $skip_test

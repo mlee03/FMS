@@ -49,7 +49,7 @@
       integer                       :: unit_nml, io_status, iunit
       integer                       :: logunit, outunit, inunit, errunit
       logical                       :: opened
-      real(DOUBLE_KIND)             :: doubledata = 0
+      real(r8_kind)             :: doubledata = 0
       real                          :: realarray(4)
 
       if( module_is_initialized )return
@@ -182,11 +182,6 @@
           write( iunit,'(/a)' )'Using netCDF library version '//trim(text)
 #endif
       endif
-
-#ifdef CRAYPVP
-!we require every file to be assigned threadwise: PVPs default to global, and are reset here
-      call ASSIGN( 'assign -P thread p:%', error )
-#endif
 
       call mpp_io_set_stack_size(131072) ! default initial value
       call mpp_sync()

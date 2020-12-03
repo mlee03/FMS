@@ -21,7 +21,6 @@
 !! \brief Contains the \ref diag_integral_mod module
 
                      module diag_integral_mod
-#include <fms_platform.h>
 
 
 
@@ -95,6 +94,7 @@
 !! - format_data_init
 !!
 
+use platform_mod,     only:  i8_kind
 use time_manager_mod, only:  time_type, get_time, set_time,  &
                              time_manager_init, &
                              operator(+),  operator(-),      &
@@ -107,11 +107,7 @@ use fms_mod,          only:  open_file, error_mesg, &
                              mpp_pe, mpp_root_pe,&
                              FATAL, write_version_number, &
                              stdlog
-#ifndef use_mpp_io
 use fms2_io_mod,      only:  file_exists
-#else
-use  fms_io_mod,      only:  file_exists=>file_exist
-#endif
 use constants_mod,    only:  radius, constants_init
 use mpp_mod,          only:  mpp_sum, mpp_init
 use ensemble_manager_mod, only : get_ensemble_id, get_ensemble_size
@@ -219,7 +215,6 @@ logical             ::    &
 integer             ::    &
        fields_per_print_line = 4   ! number of fields to write per line
                                    ! of output
-
 
 namelist / diag_integral_nml /      &
                                 output_interval, time_units,  &
@@ -380,10 +375,10 @@ real,dimension(:,:), intent(in), optional :: blon, blat, area_in
 !-------------------------------------------------------------------------------
 !    read namelist.
 !-------------------------------------------------------------------------------
-      if ( file_exists('input.nml')) then
+    if ( file_exists('input.nml')) then
         read (input_nml_file, nml=diag_integral_nml, iostat=io)
         ierr = check_nml_error(io,'diag_integral_nml')
-      endif
+    endif
 
 !-------------------------------------------------------------------------------
 !    write version number and namelist to logfile.
@@ -1154,7 +1149,7 @@ type (time_type), intent(in) :: Time
       real    :: xtime, rcount
       integer :: nn, ninc, nst, nend, fields_to_print
       integer :: i, kount
-      integer(LONG_KIND) :: icount
+      integer(i8_kind) :: icount
 
 !-------------------------------------------------------------------------------
 !    each header and data format may be different and must be generated

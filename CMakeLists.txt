@@ -23,7 +23,7 @@ cmake_minimum_required(VERSION 3.7...3.15 FATAL_ERROR)
 
 # Define the CMake project
 project(FMS
-  VERSION 2020.02
+  VERSION 2020.03
   DESCRIPTION  "GFDL FMS Library"
   HOMEPAGE_URL "https://www.gfdl.noaa.gov/fms"
   LANGUAGES C Fortran)
@@ -96,6 +96,8 @@ list(APPEND fms_fortran_src_files
   coupler/atmos_ocean_fluxes.F90
   coupler/coupler_types.F90
   coupler/ensemble_manager.F90
+  data_override/get_grid_version_fms2io.F90
+  data_override/get_grid_version_mpp.F90
   data_override/data_override.F90
   diag_integral/diag_integral.F90
   diag_manager/diag_axis.F90
@@ -145,7 +147,6 @@ list(APPEND fms_fortran_src_files
   mpp/mpp_io.F90
   mpp/mpp_memutils.F90
   mpp/mpp_parameter.F90
-  mpp/mpp_pset.F90
   mpp/mpp_utilities.F90
   platform/platform.F90
   random_numbers/MersenneTwister.F90
@@ -172,8 +173,6 @@ list(APPEND fms_c_src_files
   mosaic/mosaic_util.c
   mosaic/read_mosaic.c
   mpp/mpp_memuse.c
-  mpp/nsclock.c
-  mpp/threadloc.c
 )
 
 # Collect FMS header files

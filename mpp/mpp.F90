@@ -112,7 +112,7 @@ module mpp_mod
 !   It is therefore important to be conscious of the context of a
 !   subroutine or function call, and the implied synchronization. There
 !   are certain calls here (e.g <TT>mpp_declare_pelist, mpp_init,
-!   mpp_malloc, mpp_set_stack_size</TT>) which must be called by all
+!   mpp_set_stack_size</TT>) which must be called by all
 !   PEs. There are others which must be called by a subset of PEs (here
 !   called a <TT>pelist</TT>) which must be called by all the PEs in the
 !   <TT>pelist</TT> (e.g <TT>mpp_max, mpp_sum, mpp_sync</TT>). Still
@@ -155,17 +155,12 @@ module mpp_mod
 ! </PUBLIC>
 
 ! Define rank(X) for PGI compiler
-#ifdef __PGI
+#if defined( __PGI) || defined (__FLANG)
 #define rank(X) size(shape(X))
 #endif
 
-#include <fms_platform.h>
 
-#if defined(use_libSMA) && defined(sgi_mipspro)
-  use shmem_interface
-#endif
-
-#if defined(use_libMPI) && defined(sgi_mipspro)
+#if defined(use_libMPI)
   use mpi
 #endif
 
@@ -190,18 +185,10 @@ module mpp_mod
   use mpp_data_mod,      only : stat, mpp_stack, ptr_stack, status, ptr_status, sync, ptr_sync
   use mpp_data_mod,      only : mpp_from_pe, ptr_from, remote_data_loc, ptr_remote
   use mpp_data_mod,      only : mpp_data_version=>version
+  use platform_mod
 
 implicit none
 private
-
-#if defined(use_libSMA)
-#include <mpp/shmem.fh>
-#endif
-
-#if defined(use_libMPI) && !defined(sgi_mipspro)
-#include <mpif.h>
-!sgi_mipspro gets this from 'use mpi'
-#endif
 
   !--- public paramters  -----------------------------------------------
   public :: MPP_VERBOSE, MPP_DEBUG, ALL_PES, ANY_PE, NULL_PE, NOTE, WARNING, FATAL
@@ -224,7 +211,7 @@ private
   !--- public interface from mpp_util.h ------------------------------
   public :: stdin, stdout, stderr, stdlog, lowercase, uppercase, mpp_error, mpp_error_state
   public :: mpp_set_warn_level, mpp_sync, mpp_sync_self, mpp_set_stack_size, mpp_pe
-  public :: mpp_node, mpp_npes, mpp_root_pe, mpp_set_root_pe, mpp_declare_pelist
+  public :: mpp_npes, mpp_root_pe, mpp_set_root_pe, mpp_declare_pelist
   public :: mpp_get_current_pelist, mpp_set_current_pelist, mpp_get_current_pelist_name
   public :: mpp_clock_id, mpp_clock_set_grain, mpp_record_timing_data, get_unit
   public :: read_ascii_file, read_input_nml, mpp_clock_begin, mpp_clock_end
@@ -234,12 +221,9 @@ private
   !--- public interface from mpp_comm.h ------------------------------
   public :: mpp_chksum, mpp_max, mpp_min, mpp_sum, mpp_transmit, mpp_send, mpp_recv
   public :: mpp_sum_ad
-  public :: mpp_broadcast, mpp_malloc, mpp_init, mpp_exit
+  public :: mpp_broadcast, mpp_init, mpp_exit
   public :: mpp_gather, mpp_scatter, mpp_alltoall
   public :: mpp_type, mpp_byte, mpp_type_create, mpp_type_free
-#ifdef use_MPI_GSM
-  public :: mpp_gsm_malloc, mpp_gsm_free
-#endif
 
   !*********************************************************************
   !
@@ -254,13 +238,12 @@ private
      integer           :: count
      integer           :: start, log2stride ! dummy variables when libMPI is defined.
      integer           :: id, group         ! MPI communicator and group id for this PE set.
-                                            ! dummy variables when libSMA is defined.
   end type communicator
 
   type :: event
      private
      character(len=16)                         :: name
-     integer(LONG_KIND), dimension(MAX_EVENTS) :: ticks, bytes
+     integer(i8_kind), dimension(MAX_EVENTS) :: ticks, bytes
      integer                                   :: calls
   end type event
 
@@ -268,8 +251,8 @@ private
   type :: clock
      private
      character(len=32)    :: name
-     integer(LONG_KIND)   :: tick
-     integer(LONG_KIND)   :: total_ticks
+     integer(i8_kind)   :: tick
+     integer(i8_kind)   :: total_ticks
      integer              :: peset_num
      logical              :: sync_on_begin, detailed
      integer              :: grain
@@ -281,12 +264,12 @@ private
   type :: Clock_Data_Summary
      private
      character(len=16)  :: name
-     real(DOUBLE_KIND)  :: msg_size_sums(MAX_BINS)
-     real(DOUBLE_KIND)  :: msg_time_sums(MAX_BINS)
-     real(DOUBLE_KIND)  :: total_data
-     real(DOUBLE_KIND)  :: total_time
-     integer(LONG_KIND) :: msg_size_cnts(MAX_BINS)
-     integer(LONG_KIND) :: total_cnts
+     real(r8_kind)  :: msg_size_sums(MAX_BINS)
+     real(r8_kind)  :: msg_time_sums(MAX_BINS)
+     real(r8_kind)  :: total_data
+     real(r8_kind)  :: total_time
+     integer(i8_kind) :: msg_size_cnts(MAX_BINS)
+     integer(i8_kind) :: total_cnts
   end type Clock_Data_Summary
 
   type :: Summary_Struct
@@ -426,14 +409,6 @@ private
 !    public interface from mpp_comm.h
 !
 !***********************************************************************
-#ifdef use_libSMA
-  !currently SMA contains no generic shmem_wait for different integer kinds:
-  !I have inserted one here
-  interface shmem_integer_wait
-     module procedure shmem_int4_wait_local
-     module procedure shmem_int8_wait_local
-  end interface
-#endif
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   !                                                                             !
@@ -476,50 +451,6 @@ private
   !  <TEMPLATE>
   !   call mpp_exit()
   !  </TEMPLATE>
-  ! </SUBROUTINE>
-
-  !#######################################################################
-  ! <SUBROUTINE NAME="mpp_malloc">
-  !  <OVERVIEW>
-  !    Symmetric memory allocation.
-  !  </OVERVIEW>
-  !  <DESCRIPTION>
-  !    This routine is used on SGI systems when <TT>mpp_mod</TT> is
-  !    invoked in the SHMEM library. It ensures that dynamically allocated
-  !    memory can be used with <TT>shmem_get</TT> and
-  !    <TT>shmem_put</TT>. This is called <I>symmetric
-  !    allocation</I> and is described in the
-  !    <TT>intro_shmem</TT> man page. <TT>ptr</TT> is a <I>Cray
-  !    pointer</I> (see the section on <LINK
-  !    SRC="#PORTABILITY">portability</LINK>).  The operation can be expensive
-  !    (since it requires a global barrier). We therefore attempt to re-use
-  !    existing allocation whenever possible. Therefore <TT>len</TT>
-  !    and <TT>ptr</TT> must have the <TT>SAVE</TT> attribute
-  !    in the calling routine, and retain the information about the last call
-  !    to <TT>mpp_malloc</TT>. Additional memory is symmetrically
-  !    allocated if and only if <TT>newlen</TT> exceeds
-  !    <TT>len</TT>.
-  !
-  !    This is never required on Cray PVP or MPP systems. While the T3E
-  !    manpages do talk about symmetric allocation, <TT>mpp_mod</TT>
-  !    is coded to remove this restriction.
-  !
-  !    It is never required if <TT>mpp_mod</TT> is invoked in MPI.
-  !
-  !   This call implies synchronization across all PEs.
-  !  </DESCRIPTION>
-  !  <TEMPLATE>
-  !   call mpp_malloc( ptr, newlen, len )
-  !  </TEMPLATE>
-  !  <IN NAME="ptr">
-  !     a cray pointer, points to a dummy argument in this routine.
-  !  </IN>
-  !  <IN NAME="newlen" TYPE="integer">
-  !     the required allocation length for the pointer ptr
-  !  </IN>
-  !  <IN NAME="len" TYPE="integer">
-  !     the current allocation (0 if unallocated).
-  !  </IN>
   ! </SUBROUTINE>
 
   !#####################################################################
@@ -609,10 +540,12 @@ private
   interface mpp_max
      module procedure mpp_max_real8_0d
      module procedure mpp_max_real8_1d
-#ifndef no_8byte_integers
      module procedure mpp_max_int8_0d
      module procedure mpp_max_int8_1d
+<<<<<<< HEAD
 #endif
+=======
+>>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
      module procedure mpp_max_real4_0d
      module procedure mpp_max_real4_1d
      module procedure mpp_max_int4_0d
@@ -622,10 +555,12 @@ private
   interface mpp_min
      module procedure mpp_min_real8_0d
      module procedure mpp_min_real8_1d
-#ifndef no_8byte_integers
      module procedure mpp_min_int8_0d
      module procedure mpp_min_int8_1d
+<<<<<<< HEAD
 #endif
+=======
+>>>>>>> b402a7097b2ec57cf3b0aafff80ccfad4773a20f
      module procedure mpp_min_real4_0d
      module procedure mpp_min_real4_1d
      module procedure mpp_min_int4_0d
@@ -667,14 +602,12 @@ private
   ! </INTERFACE>
 
   interface mpp_sum
-#ifndef no_8byte_integers
      module procedure mpp_sum_int8
      module procedure mpp_sum_int8_scalar
      module procedure mpp_sum_int8_2d
      module procedure mpp_sum_int8_3d
      module procedure mpp_sum_int8_4d
      module procedure mpp_sum_int8_5d
-#endif
      module procedure mpp_sum_real8
      module procedure mpp_sum_real8_scalar
      module procedure mpp_sum_real8_2d
@@ -712,14 +645,12 @@ private
   end interface
 
   interface mpp_sum_ad
-#ifndef no_8byte_integers
      module procedure mpp_sum_int8_ad
      module procedure mpp_sum_int8_scalar_ad
      module procedure mpp_sum_int8_2d_ad
      module procedure mpp_sum_int8_3d_ad
      module procedure mpp_sum_int8_4d_ad
      module procedure mpp_sum_int8_5d_ad
-#endif
      module procedure mpp_sum_real8_ad
      module procedure mpp_sum_real8_scalar_ad
      module procedure mpp_sum_real8_2d_ad
@@ -920,7 +851,6 @@ private
      module procedure mpp_transmit_cmplx8_4d
      module procedure mpp_transmit_cmplx8_5d
 #endif
-#ifndef no_8byte_integers
      module procedure mpp_transmit_int8
      module procedure mpp_transmit_int8_scalar
      module procedure mpp_transmit_int8_2d
@@ -933,7 +863,6 @@ private
      module procedure mpp_transmit_logical8_3d
      module procedure mpp_transmit_logical8_4d
      module procedure mpp_transmit_logical8_5d
-#endif
 
      module procedure mpp_transmit_real4
      module procedure mpp_transmit_real4_scalar
@@ -978,7 +907,6 @@ private
      module procedure mpp_recv_cmplx8_4d
      module procedure mpp_recv_cmplx8_5d
 #endif
-#ifndef no_8byte_integers
      module procedure mpp_recv_int8
      module procedure mpp_recv_int8_scalar
      module procedure mpp_recv_int8_2d
@@ -991,7 +919,6 @@ private
      module procedure mpp_recv_logical8_3d
      module procedure mpp_recv_logical8_4d
      module procedure mpp_recv_logical8_5d
-#endif
 
      module procedure mpp_recv_real4
      module procedure mpp_recv_real4_scalar
@@ -1036,7 +963,6 @@ private
      module procedure mpp_send_cmplx8_4d
      module procedure mpp_send_cmplx8_5d
 #endif
-#ifndef no_8byte_integers
      module procedure mpp_send_int8
      module procedure mpp_send_int8_scalar
      module procedure mpp_send_int8_2d
@@ -1049,7 +975,6 @@ private
      module procedure mpp_send_logical8_3d
      module procedure mpp_send_logical8_4d
      module procedure mpp_send_logical8_5d
-#endif
 
      module procedure mpp_send_real4
      module procedure mpp_send_real4_scalar
@@ -1128,7 +1053,6 @@ private
      module procedure mpp_broadcast_cmplx8_4d
      module procedure mpp_broadcast_cmplx8_5d
 #endif
-#ifndef no_8byte_integers
      module procedure mpp_broadcast_int8
      module procedure mpp_broadcast_int8_scalar
      module procedure mpp_broadcast_int8_2d
@@ -1141,7 +1065,6 @@ private
      module procedure mpp_broadcast_logical8_3d
      module procedure mpp_broadcast_logical8_4d
      module procedure mpp_broadcast_logical8_5d
-#endif
 
      module procedure mpp_broadcast_real4
      module procedure mpp_broadcast_real4_scalar
@@ -1179,13 +1102,13 @@ private
   !     Parallel checksums.
   !   </OVERVIEW>
   !   <DESCRIPTION>
-  !     <TT>mpp_chksum</TT> is a parallel checksum routine that returns an
+  !     \empp_chksum is a parallel checksum routine that returns an
   !     identical answer for the same array irrespective of how it has been
-  !     partitioned across processors. <TT>LONG_KIND</TT>is the <TT>KIND</TT>
+  !     partitioned across processors. \eint_kind is the KIND
   !     parameter corresponding to long integers (see discussion on
   !     OS-dependent preprocessor directives) defined in
-  !     the header file <TT>fms_platform.h</TT>. <TT>MPP_TYPE_</TT> corresponds to any
-  !     4-byte and 8-byte variant of <TT>integer, real, complex, logical</TT>
+  !     the file platform.F90. \eMPP_TYPE_ corresponds to any
+  !     4-byte and 8-byte variant of \einteger, \ereal, \ecomplex, \elogical
   !     variables, of rank 0 to 5.
   !
   !     Integer checksums on FP data use the F90 <TT>TRANSFER()</TT>
@@ -1221,7 +1144,6 @@ private
   !   <IN NAME="var" TYPE="MPP_TYPE_"> </IN>
   ! </INTERFACE>
   interface mpp_chksum
-#ifndef no_8byte_integers
      module procedure mpp_chksum_i8_1d
      module procedure mpp_chksum_i8_2d
      module procedure mpp_chksum_i8_3d
@@ -1233,7 +1155,6 @@ private
      module procedure mpp_chksum_i8_4d_rmask
      module procedure mpp_chksum_i8_5d_rmask
 
-#endif
      module procedure mpp_chksum_i4_1d
      module procedure mpp_chksum_i4_2d
      module procedure mpp_chksum_i4_3d
@@ -1285,11 +1206,11 @@ private
   logical              :: module_is_initialized = .false.
   logical              :: debug = .false.
   integer              :: npes=1, root_pe=0, pe=0
-  integer(LONG_KIND)   :: tick, ticks_per_sec, max_ticks, start_tick, end_tick, tick0=0
+  integer(i8_kind)   :: tick, ticks_per_sec, max_ticks, start_tick, end_tick, tick0=0
   integer              :: mpp_comm_private
   logical              :: first_call_system_clock_mpi=.TRUE.
-  real(DOUBLE_KIND)    :: mpi_count0=0  ! use to prevent integer overflow
-  real(DOUBLE_KIND)    :: mpi_tick_rate=0.d0  ! clock rate for mpi_wtick()
+  real(r8_kind)    :: mpi_count0=0  ! use to prevent integer overflow
+  real(r8_kind)    :: mpi_tick_rate=0.d0  ! clock rate for mpi_wtick()
   logical              :: mpp_record_timing_data=.TRUE.
   type(clock),save     :: clocks(MAX_CLOCKS)
   integer              :: log_unit, etc_unit
@@ -1328,32 +1249,12 @@ private
   integer              :: clock_grain=CLOCK_LOOP-1
 
   !--- variables used in mpp_comm.h
-#ifdef use_libMPI
-#ifdef _CRAYT3E
-  !BWA: mpif.h on t3e currently does not contain MPI_INTEGER8 datatype
-  !(O2k and t90 do)
-  !(t3e: fixed on 3.3 I believe)
-  integer, parameter :: MPI_INTEGER8=MPI_INTEGER
-#endif
-#endif /* use_libMPI */
-#ifdef use_MPI_SMA
-#include <mpp/shmem.fh>
-  integer :: pSync(SHMEM_BARRIER_SYNC_SIZE)
-  pointer( p_pSync, pSync ) !used by SHPALLOC
-#endif
-
   integer            :: clock0    !measures total runtime from mpp_init to mpp_exit
   integer            :: mpp_stack_size=0, mpp_stack_hwm=0
   logical            :: verbose=.FALSE.
-#ifdef _CRAY
-  integer(LONG_KIND) :: word(1)
-#endif
-#if defined(sgi_mipspro) || defined(__ia64)
-  integer(INT_KIND)  :: word(1)
-#endif
 
   integer :: get_len_nocomm = 0 ! needed for mpp_transmit_nocomm.h
-  
+
   !--- variables used in mpp_comm_mpi.inc
   integer, parameter :: mpp_init_test_full_init = -1
   integer, parameter :: mpp_init_test_init_true_only = 0

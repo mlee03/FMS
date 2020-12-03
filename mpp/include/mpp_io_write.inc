@@ -291,7 +291,7 @@
       call netcdf_err(error, mpp_file(unit),string='Axis='//trim(name))
 
     ! Write dimension data.
-      error = NF_DEF_VAR( mpp_file(unit)%ncid, name, NF_INT, 1, did, id )
+      error = NF_DEF_VAR( mpp_file(unit)%ncid, name, NF_INT, 1, (/did/), id )
       call netcdf_err( error, mpp_file(unit), string=' axis varable '//trim(name))
 
       error = NF_PUT_ATT_TEXT( mpp_file(unit)%ncid, id, 'long_name', len_trim(longname), longname )
@@ -305,7 +305,7 @@
          endif
       endif
       call netcdf_err( error, mpp_file(unit), string=' subroutine mpp_def_dim')
-      error = NF_PUT_VARA_INT ( mpp_file(unit)%ncid, id, 1, size(data), data )
+      error = NF_PUT_VARA_INT ( mpp_file(unit)%ncid, id, (/1/), (/size(data)/), data )
       call netcdf_err( error, mpp_file(unit), string=' axis varable '//trim(name))
       error = NF_REDEF(mpp_file(unit)%ncid)
       call netcdf_err( error, mpp_file(unit), string=' subroutine mpp_def_dim')
@@ -328,7 +328,7 @@
       call netcdf_err(error, mpp_file(unit),string='Axis='//trim(name))
 
     ! Write dimension data.
-      error = NF_DEF_VAR( mpp_file(unit)%ncid, name, NF_INT, 1, did, id )
+      error = NF_DEF_VAR( mpp_file(unit)%ncid, name, NF_INT, 1, (/did/), id )
       call netcdf_err( error, mpp_file(unit), string=' axis varable '//trim(name))
 
       error = NF_PUT_ATT_TEXT( mpp_file(unit)%ncid, id, 'long_name', len_trim(longname), longname )
@@ -342,7 +342,7 @@
          endif
       endif
       call netcdf_err( error, mpp_file(unit), string=' subroutine mpp_def_dim')
-      error = NF_PUT_VARA_INT ( mpp_file(unit)%ncid, id, 1, size(data), data )
+      error = NF90_PUT_VAR ( mpp_file(unit)%ncid, id, data, start=(/1/), count=(/size(data)/) )
       call netcdf_err( error, mpp_file(unit), string=' axis varable '//trim(name))
       error = NF_REDEF(mpp_file(unit)%ncid)
       call netcdf_err( error, mpp_file(unit), string=' subroutine mpp_def_dim')
@@ -445,9 +445,9 @@
               error = NF_DEF_DIM( mpp_file(unit)%ncid, axis%name, axis%len, axis%did )
               call netcdf_err( error, mpp_file(unit), axis )
               if(pack_size == 1) then
-                 error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_DOUBLE, 1, axis%did, axis%id )
+                 error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_DOUBLE, 1, (/axis%did/), axis%id )
               else ! pack_size == 2
-                 error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_FLOAT, 1, axis%did, axis%id )
+                 error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_FLOAT, 1, (/axis%did/), axis%id )
               endif
               call netcdf_err( error, mpp_file(unit), axis )
           else                            !time axis
@@ -456,9 +456,9 @@
               error = NF_DEF_DIM( mpp_file(unit)%ncid, axis%name, NF_UNLIMITED, axis%did )
               call netcdf_err( error, mpp_file(unit), axis )
               if(pack_size == 1) then
-                 error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_DOUBLE, 1, axis%did, axis%id )
+                 error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_DOUBLE, 1, (/axis%did/), axis%id )
               else ! pack_size == 2
-                 error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_FLOAT, 1, axis%did, axis%id )
+                 error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_FLOAT, 1, (/axis%did/), axis%id )
               endif
               call netcdf_err( error, mpp_file(unit), axis )
               mpp_file(unit)%id = axis%id !file ID is the same as time axis varID
@@ -580,7 +580,7 @@
       if( mpp_file(unit)%format.EQ.MPP_NETCDF )then
           error = NF_DEF_DIM( mpp_file(unit)%ncid, axis%name, axis%len, axis%did )
           call netcdf_err( error, mpp_file(unit), axis )
-          error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_INT, 1, axis%did, axis%id )
+          error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_INT, 1, (/axis%did/), axis%id )
           call netcdf_err( error, mpp_file(unit), axis )
       else
           call mpp_error( FATAL, 'MPP_WRITE_META_AXIS_I1D: Only netCDF format is currently supported.' )
@@ -647,7 +647,7 @@
       if( mpp_file(unit)%format.EQ.MPP_NETCDF )then
           error = NF_DEF_DIM( mpp_file(unit)%ncid, axis%name, NF_UNLIMITED, axis%did )
           call netcdf_err( error, mpp_file(unit), axis )
-          error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_INT, 0, axis%did, axis%id )
+          error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_INT, 0, (/axis%did/), axis%id )
           call netcdf_err( error, mpp_file(unit), axis )
       else
           call mpp_error( FATAL, 'MPP_WRITE_META_AXIS_UNLIMITED: Only netCDF format is currently supported.' )
@@ -684,7 +684,7 @@
       integer, intent(in), optional :: pack
       character(len=*), intent(in), optional :: time_method
       character(len=*), intent(in), optional :: standard_name
-      integer(LONG_KIND), dimension(:), intent(in), optional :: checksum
+      integer(i8_kind), dimension(:), intent(in), optional :: checksum
 !this array is required because of f77 binding on netCDF interface
       integer, allocatable :: axis_id(:)
       real :: a, b
@@ -952,49 +952,49 @@
 !pack was only meaningful for FP numbers, but is now extended by the ival branch of this routine
           if( PRESENT(pack) )then
              if( pack== 0 ) then !! here be dragons, use ival branch!...
-                if( KIND(rval).EQ.DOUBLE_KIND )then
+                if( KIND(rval).EQ.r8_kind )then
                    call mpp_error( FATAL, &
                         'WRITE_ATTRIBUTE_NETCDF: attempting to write internal NF_INT, currently int32, as double.' )
-                   error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_DOUBLE, size(rval(:)), rval )
-                else if( KIND(rval).EQ.FLOAT_KIND )then
+                   error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_DOUBLE, size(rval(:)), real(rval, kind=r8_kind))
+                else if( KIND(rval).EQ.r4_kind )then
                    call mpp_error( FATAL, &
                         'WRITE_ATTRIBUTE_NETCDF: attempting to write internal NF_INT, currently int32, as float.' )
-                   error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_DOUBLE, size(rval(:)), rval )
+                   error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_DOUBLE, size(rval(:)), real(rval, kind=r4_kind))
                 end if
                 call netcdf_err( error, mpp_file(unit), string=' Attribute='//name )
              else if( pack.EQ.1 )then
-                  if( KIND(rval).EQ.DOUBLE_KIND )then
-                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_DOUBLE, size(rval(:)), rval )
-                  else if( KIND(rval).EQ.FLOAT_KIND )then
+                  if( KIND(rval).EQ.r8_kind )then
+                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_DOUBLE, size(rval(:)), real(rval, kind=r8_kind))
+                  else if( KIND(rval).EQ.r4_kind )then
                       call mpp_error( WARNING, &
                            'WRITE_ATTRIBUTE_NETCDF: attempting to write internal 32-bit real as external 64-bit.' )
-                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_DOUBLE, size(rval(:)), rval )
+                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_DOUBLE, size(rval(:)), real(rval, kind=r4_kind))
                   end if
                   call netcdf_err( error, mpp_file(unit), string=' Attribute='//name )
               else if( pack.EQ.2 )then
-                  if( KIND(rval).EQ.DOUBLE_KIND )then
-                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_FLOAT,  size(rval(:)), rval )
-                  else if( KIND(rval).EQ.FLOAT_KIND )then
-                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_FLOAT,  size(rval(:)), rval )
+                  if( KIND(rval).EQ.r8_kind )then
+                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_FLOAT,  size(rval(:)), real(rval, kind=r8_kind))
+                  else if( KIND(rval).EQ.r4_kind )then
+                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_FLOAT,  size(rval(:)), real(rval, kind=r4_kind))
                   end if
                   call netcdf_err( error, mpp_file(unit), string=' Attribute='//name )
               else if( pack.EQ.4 )then
                   allocate( rval_i(size(rval(:))) )
                   rval_i = rval
-                  if( KIND(rval).EQ.DOUBLE_KIND )then
-                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_SHORT,  size(rval_i(:)), rval )
-                  else if( KIND(rval).EQ.FLOAT_KIND )then
-                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_SHORT,  size(rval_i(:)), rval )
+                  if( KIND(rval).EQ.r8_kind )then
+                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_SHORT,  size(rval_i(:)), real(rval, kind=r8_kind))
+                  else if( KIND(rval).EQ.r4_kind )then
+                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_SHORT,  size(rval_i(:)), real(rval, kind=r4_kind))
                   end if
                   call netcdf_err( error, mpp_file(unit), string=' Attribute='//name )
                   deallocate(rval_i)
               else if( pack.EQ.8 )then
                   allocate( rval_i(size(rval(:))) )
                   rval_i = rval
-                  if( KIND(rval).EQ.DOUBLE_KIND )then
-                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_BYTE,   size(rval_i(:)), rval )
-                  else if( KIND(rval).EQ.FLOAT_KIND )then
-                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_BYTE,   size(rval_i(:)), rval )
+                  if( KIND(rval).EQ.r8_kind )then
+                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_BYTE,   size(rval_i(:)), real(rval, kind=r8_kind))
+                  else if( KIND(rval).EQ.r4_kind )then
+                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_BYTE,   size(rval_i(:)), real(rval, kind=r4_kind))
                   end if
                   call netcdf_err( error, mpp_file(unit), string=' Attribute='//name )
                   deallocate(rval_i)
@@ -1003,17 +1003,17 @@
               end if
           else
 !default is to write FLOATs (32-bit)
-              if( KIND(rval).EQ.DOUBLE_KIND )then
-                  error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_FLOAT,  size(rval(:)), rval )
-              else if( KIND(rval).EQ.FLOAT_KIND )then
-                  error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_FLOAT,  size(rval(:)), rval )
+              if( KIND(rval).EQ.r8_kind )then
+                  error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_FLOAT,  size(rval(:)), real(rval, kind=r8_kind))
+              else if( KIND(rval).EQ.r4_kind )then
+                  error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_FLOAT,  size(rval(:)), real(rval, kind=r4_kind))
               end if
               call netcdf_err( error, mpp_file(unit), string=' Attribute='//name )
           end if
       else if( PRESENT(ival) )then
           if( PRESENT(pack) ) then
              if (pack ==0) then
-                if (KIND(ival).EQ.LONG_KIND ) then
+                if (KIND(ival).EQ.i8_kind) then
                    call mpp_error(FATAL,'only use NF_INTs with pack=0 for now')
                 end if
                 error = NF_PUT_ATT_INT( mpp_file(unit)%ncid, id, name, NF_INT, size(ival(:)), ival ) !!XXX int32_t..
@@ -1065,7 +1065,7 @@
 !  mpp_write( unit, field, data, tstamp )                              !
 !     integer, intent(in) :: unit                                      !
 !     type(fieldtype), intent(in) :: field                             !
-!     real(DOUBLE_KIND), optional :: tstamp                            !
+!     real(r8_kind), optional :: tstamp                            !
 !     data is real and can be scalar or of rank 1-3.                   !
 !                                                                      !
 ! For distributed data, use                                            !
@@ -1074,7 +1074,7 @@
 !     integer, intent(in) :: unit                                      !
 !     type(fieldtype), intent(in) :: field                             !
 !     type(domain2D), intent(in) :: domain                             !
-!     real(DOUBLE_KIND), optional :: tstamp                            !
+!     real(r8_kind), optional :: tstamp                            !
 !     data is real and can be of rank 2 or 3.                          !
 !                                                                      !
 !  mpp_write( unit, axis )                                             !
@@ -1098,22 +1098,20 @@
 #undef MPP_WRITE_2DDECOMP_4D_
 #define MPP_WRITE_2DDECOMP_4D_ mpp_write_2ddecomp_r4d
 #undef MPP_TYPE_
-#define MPP_TYPE_ real
+#define MPP_TYPE_ real(r8_kind)
 #include <mpp_write_2Ddecomp.h>
 
-#ifdef OVERLOAD_R8
 #undef WRITE_RECORD_
-#define WRITE_RECORD_ write_record_r8
+#define WRITE_RECORD_ write_record_r4
 #undef MPP_WRITE_2DDECOMP_2D_
-#define MPP_WRITE_2DDECOMP_2D_ mpp_write_2ddecomp_r2d_r8
+#define MPP_WRITE_2DDECOMP_2D_ mpp_write_2ddecomp_r2d_r4
 #undef MPP_WRITE_2DDECOMP_3D_
-#define MPP_WRITE_2DDECOMP_3D_ mpp_write_2ddecomp_r3d_r8
+#define MPP_WRITE_2DDECOMP_3D_ mpp_write_2ddecomp_r3d_r4
 #undef MPP_WRITE_2DDECOMP_4D_
-#define MPP_WRITE_2DDECOMP_4D_ mpp_write_2ddecomp_r4d_r8
+#define MPP_WRITE_2DDECOMP_4D_ mpp_write_2ddecomp_r4d_r4
 #undef MPP_TYPE_
-#define MPP_TYPE_ real(DOUBLE_KIND)
+#define MPP_TYPE_ real(r4_kind)
 #include <mpp_write_2Ddecomp.h>
-#endif
 
 #undef MPP_WRITE_COMPRESSED_1D_
 #define MPP_WRITE_COMPRESSED_1D_ mpp_write_compressed_r1d
@@ -1323,12 +1321,12 @@
                   error = NF_DEF_DIM( mpp_file(unit)%ncid, axis%name, size(axis%data(:)),          axis%did )
               end if
               call netcdf_err( error, mpp_file(unit), axis )
-              error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_FLOAT, 1, axis%did, axis%id )
+              error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_FLOAT, 1, (/axis%did/), axis%id )
               call netcdf_err( error, mpp_file(unit), axis )
           else                            !time axis
               error = NF_DEF_DIM( mpp_file(unit)%ncid, axis%name, NF_UNLIMITED, axis%did )
               call netcdf_err( error, mpp_file(unit), axis )
-              error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_DOUBLE, 1, axis%did, axis%id )
+              error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_DOUBLE, 1, (/axis%did/), axis%id )
               call netcdf_err( error, mpp_file(unit), axis )
               mpp_file(unit)%id = axis%id !file ID is the same as time axis varID
               mpp_file(unit)%recdimid = axis%did ! record dimension id
@@ -1577,7 +1575,7 @@
       integer, intent(in), optional :: pack
       character(len=*), intent(in), optional :: time_method
       character(len=*), intent(in), optional :: standard_name
-      integer(LONG_KIND), dimension(:), intent(in), optional :: checksum
+      integer(i8_kind), dimension(:), intent(in), optional :: checksum
 !this array is required because of f77 binding on netCDF interface
       integer, allocatable :: axis_id(:)
       real :: a, b
@@ -1651,3 +1649,4 @@
 
       return
     end subroutine fillin_fieldtype
+
