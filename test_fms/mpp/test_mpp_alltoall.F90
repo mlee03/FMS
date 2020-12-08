@@ -644,7 +644,7 @@ program test_mpp_alltoall
 
     !> assign sbuf/rbuf to send/receive
     do i=0, N
-       sbuf(i) = real( 100*pe+i, kind=i8_kind )
+       sbuf(i) = int( 100*pe+i, kind=i8_kind )
     end do
     rbuf = -one
 
