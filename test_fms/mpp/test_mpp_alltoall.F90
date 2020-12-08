@@ -107,7 +107,7 @@ program test_mpp_alltoall
     do i=0, (npes-1)
        do j=0, scount-1
           if( rbuf(ii) .ne. real( 100*i+scount*pe+j, kind=r4_kind ) ) then
-             write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, ii, real(100*i+scount*pe+j), rbuf(ii)
+             write(*,'("PE # ",i3," element",i4," Expected",f6.0," but received",f6.0)') pe, ii, real(100*i+scount*pe+j), rbuf(ii)
              call mpp_error(FATAL, 'test_mpp_alltoall_real4 failed')
           end if
           ii = ii + 1
@@ -167,7 +167,7 @@ program test_mpp_alltoall
     do i=0, (npes-1)
        do j=0, scount-1
           if( rbuf(ii) .ne. real( 100*i+scount*pe+j, kind=r8_kind ) ) then
-             write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, ii, real(100*i+scount*pe+j), rbuf(ii)
+             write(*,'("PE # ",i3," element",i4," Expected",f6.0," but received",f6.0)') pe, ii, real(100*i+scount*pe+j), rbuf(ii)
              call mpp_error(FATAL, 'test_mpp_alltoall_real8 failed')
           end if
           ii = ii + 1
@@ -216,7 +216,7 @@ program test_mpp_alltoall
 
     !> intialize sending array
     do i=0, N
-       sbuf(i) = real( 100*pe+i, kind=i4_kind )
+       sbuf(i) = int( 100*pe+i, kind=i4_kind )
     end do
 
     !> call mpp_alltoall to send/receive one element
@@ -226,8 +226,8 @@ program test_mpp_alltoall
     ii = 0
     do i=0, (npes-1)
        do j=0, scount-1
-          if( rbuf(ii) .ne. real( 100*i+scount*pe+j, kind=i4_kind ) ) then
-             write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, ii, real(100*i+scount*pe+j), rbuf(ii)
+          if( rbuf(ii) .ne. int( 100*i+scount*pe+j, kind=i4_kind ) ) then
+             write(*,'("PE # ",i3," element",i4," Expected",i6," but received",i6)') pe, ii, int(100*i+scount*pe+j), rbuf(ii)
              call mpp_error(FATAL, 'test_mpp_alltoall_int4 failed')
           end if
           ii = ii + 1
@@ -275,7 +275,7 @@ program test_mpp_alltoall
 
     !> intialize sending array
     do i=0, N
-       sbuf(i) = real( 100*pe+i, kind=i8_kind )
+       sbuf(i) = int( 100*pe+i, kind=i8_kind )
     end do
 
     !> call mpp_alltoall to send/receive one element
@@ -285,8 +285,8 @@ program test_mpp_alltoall
     ii = 0
     do i=0, (npes-1)
        do j=0, scount-1
-          if( rbuf(ii) .ne. real( 100*i+scount*pe+j, kind=i8_kind ) ) then
-             write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, ii, real(100*i+scount*pe+j), rbuf(ii)
+          if( rbuf(ii) .ne. int( 100*i+scount*pe+j, kind=i8_kind ) ) then
+             write(*,'("PE # ",i3," element",i4," Expected",i6," but received",i6)') pe, ii, int(100*i+scount*pe+j), rbuf(ii)
              call mpp_error(FATAL, 'test_mpp_alltoall_int8 failed')
           end if
           ii = ii + 1
@@ -348,7 +348,7 @@ program test_mpp_alltoall
     !> check
     do i=0, N
        if ( rbuf(i).ne.real(100*i+pe, kind=r4_kind) ) then
-          write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, i, real(100*i+pe), rbuf(i)
+          write(*,'("PE # ",i3," element",i4," Expected",f6.0," but received",f6.0)') pe, i, real(100*i+pe), rbuf(i)
           call mpp_error( FATAL, 'test_mpp_alltoallv_real4 fail in sending/receiving 1 element' )
        end if
     end do
@@ -386,7 +386,7 @@ program test_mpp_alltoall
     !> check
     do i=0, N
        if ( rbuf(2*i).ne.real(10*i+2*pe, kind=r4_kind) ) then
-          write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, i, real(10*i+2*pe), rbuf(i)
+          write(*,'("PE # ",i3," element",i4," Expected",f6.0," but received",f6.0)') pe, i, real(10*i+2*pe), rbuf(i)
           call mpp_error( FATAL, 'test_mpp_alltoallv_real4 fail sending/receiving every other element' )
        end if
        if ( rbuf(2*i+1).ne.-one ) then
@@ -450,7 +450,7 @@ program test_mpp_alltoall
     !> check
     do i=0, N
        if ( rbuf(i).ne.real(100*i+pe, kind=r8_kind) ) then
-          write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, i, real(100*i+pe), rbuf(i)
+          write(*,'("PE # ",i3," element",i4," Expected",f6.0," but received",f6.0)') pe, i, real(100*i+pe), rbuf(i)
           call mpp_error( FATAL, 'test_mpp_alltoallv_real8 fail in sending/receiving 1 element' )
        end if
     end do
@@ -488,11 +488,11 @@ program test_mpp_alltoall
     !> check
     do i=0, N
        if ( rbuf(2*i).ne.real(10*i+2*pe, kind=r8_kind) ) then
-          write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, i, real(10*i+2*pe), rbuf(i)
+          write(*,'("PE # ",i3," element",i4," Expected",f6.0," but received",f6.0)') pe, i, real(10*i+2*pe), rbuf(i)
           call mpp_error( FATAL, 'test_mpp_alltoallv_real8 fail sending/receiving every other element' )
        end if
        if ( rbuf(2*i+1).ne.-one ) then
-          write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, i,-one, rbuf(i)
+          write(*,'("PE # ",i3," element",i4," Expected",f6.0," but received",f6.0)') pe, i,-one, rbuf(i)
           call mpp_error( FATAL, 'test_mpp_alltoallv_real8 fail sending/receiving every other element' )
        end if
     end do
@@ -542,7 +542,7 @@ program test_mpp_alltoall
 
     !> assign sbuf/rbuf to send/receive
     do i=0, N
-       sbuf(i) = real( 100*pe+i, kind=i4_kind )
+       sbuf(i) = int( 100*pe+i, kind=i4_kind )
     end do
     rbuf = -one
 
@@ -551,8 +551,8 @@ program test_mpp_alltoall
 
     !> check
     do i=0, N
-       if ( rbuf(i).ne.real(100*i+pe, kind=i4_kind) ) then
-          write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, i, real(100*i+pe), rbuf(i)
+       if ( rbuf(i).ne.int(100*i+pe, kind=i4_kind) ) then
+          write(*,'("PE # ",i3," element",i4," Expected",i6," but received",i6)') pe, i, int(100*i+pe), rbuf(i)
           call mpp_error( FATAL, 'test_mpp_alltoallv_int4 fail in sending/receiving 1 element' )
        end if
     end do
@@ -577,8 +577,8 @@ program test_mpp_alltoall
 
     !> assign sbuf to send
     do i=0, N
-       sbuf(2*i)   = real( 10*pe+2*i,   kind=i4_kind )
-       sbuf(2*i+1) = real( 10*pe+2*i+1, kind=i4_kind )
+       sbuf(2*i)   = int( 10*pe+2*i,   kind=i4_kind )
+       sbuf(2*i+1) = int( 10*pe+2*i+1, kind=i4_kind )
     end do
 
     !> initialize rbuf to receive
@@ -589,12 +589,12 @@ program test_mpp_alltoall
 
     !> check
     do i=0, N
-       if ( rbuf(2*i).ne.real(10*i+2*pe, kind=i4_kind) ) then
-          write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, i, real(10*i+2*pe), rbuf(i)
+       if ( rbuf(2*i).ne.int(10*i+2*pe, kind=i4_kind) ) then
+          write(*,'("PE # ",i3," element",i4," Expected",i6," but received",i6)') pe, i, int(10*i+2*pe), rbuf(i)
           call mpp_error( FATAL, 'test_mpp_alltoallv_int4 fail sending/receiving every other element' )
        end if
        if ( rbuf(2*i+1).ne.-one ) then
-          write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, i,-one, rbuf(i)
+          write(*,'("PE # ",i3," element",i4," Expected",i6," but received",i6)') pe, i,-one, rbuf(i)
           call mpp_error( FATAL, 'test_mpp_alltoallv_int4 fail sending/receiving every other element' )
        end if
     end do
@@ -653,8 +653,8 @@ program test_mpp_alltoall
 
     !> check
     do i=0, N
-       if ( rbuf(i).ne.real(100*i+pe, kind=i8_kind) ) then
-          write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, i, real(100*i+pe), rbuf(i)
+       if ( rbuf(i).ne.int(100*i+pe, kind=i8_kind) ) then
+          write(*,'("PE # ",i3," element",i4," Expected",i6," but received",i6)') pe, i, int(100*i+pe), rbuf(i)
           call mpp_error( FATAL, 'test_mpp_alltoallv_int8 fail in sending/receiving 1 element' )
        end if
     end do
@@ -679,8 +679,8 @@ program test_mpp_alltoall
 
     !> assign sbuf to send
     do i=0, N
-       sbuf(2*i)   = real( 10*pe+2*i,   kind=i8_kind )
-       sbuf(2*i+1) = real( 10*pe+2*i+1, kind=i8_kind )
+       sbuf(2*i)   = int( 10*pe+2*i,   kind=i8_kind )
+       sbuf(2*i+1) = int( 10*pe+2*i+1, kind=i8_kind )
     end do
 
     !> initialize rbuf to receive
@@ -691,12 +691,12 @@ program test_mpp_alltoall
 
     !> check
     do i=0, N
-       if ( rbuf(2*i).ne.real(10*i+2*pe, kind=i8_kind) ) then
-          write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, i, real(10*i+2*pe), rbuf(i)
+       if ( rbuf(2*i).ne.int(10*i+2*pe, kind=i8_kind) ) then
+          write(*,'("PE # ",i3," element",i4," Expected",i6," but received",i6)') pe, i, int(10*i+2*pe), rbuf(i)
           call mpp_error( FATAL, 'test_mpp_alltoallv_int8 fail sending/receiving every other element' )
        end if
        if ( rbuf(2*i+1).ne.-one ) then
-          write(*,'("PE #",i3,"element",i4,"Expected",f6.0,"but received",f6.0)') pe, i,-one, rbuf(i)
+          write(*,'("PE # ",i3," element",i4," Expected",i6," but received",i6)') pe, i,-one, rbuf(i)
           call mpp_error( FATAL, 'test_mpp_alltoallv_int8 fail sending/receiving every other element' )
        end if
     end do
@@ -800,7 +800,10 @@ program test_mpp_alltoall
              if ( i.gt.subsize_i )                           answer=-one !! rbuf = -1 for i>1
              if ( mod(j,2).eq.0 .or. j.gt.2*npes )           answer=-one !! rbuf(k',2pe,1)=rbuf(k',j>2npes,1)=-1
              if ( k.le.start_k .or. k.gt.subsize_k+start_k ) answer=-one !! rbuf(k<start_k,2pe+1,1)=rbuf(k>start_k+subsize_k,2pe+1,1)=-1
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_real4 with columns' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE # ",i3," element",i2,",",i2,",",i2, " Expected",f6.0," but received ",f6.0)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_real4 with columns' )
+             end if
           end do
        end do
     end do
@@ -861,7 +864,10 @@ program test_mpp_alltoall
              if ( i .gt. subsize_i )                         answer=-one
              if ( j.le.start_j .or. j.gt.subsize_j+start_j ) answer=-one
              if ( k .gt. npes )                              answer=-one
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_real4 with rows' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE # ",i3," element",i2,",",i2,",",i2, " Expected",f6.0," but received ",f6.0)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_real4 with rows' )
+             end if
           end do
        end do
     end do
@@ -915,7 +921,10 @@ program test_mpp_alltoall
              if ( i .gt. subsize_i )                                answer=-one
              if ( j.le.start_j .or. j.gt.subsize_j*npes+start_j )   answer=-one
              if ( k.le.start_k .or. k.gt.subsize_k+start_k)         answer=-one
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_real4 with rank 2 subarrays' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE # ",i3," element",i2,",",i2,",",i2, " Expected",f6.0," but received ",f6.0)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_real4 with rank 2 subarrays' )
+             end if
           end do
        end do
     end do
@@ -969,7 +978,10 @@ program test_mpp_alltoall
              if ( i.le.start_i .or. i.gt.subsize_i+start_i )       answer=-one
              if ( j.le.start_j .or. j.gt.subsize_j*npes+start_j )  answer=-one
              if ( k.le.start_k .or. k.gt.subsize_k+start_k)        answer=-one
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_real4 with rank 3 subarrays' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE # ",i3," element",i2,",",i2,",",i2, " Expected",f6.0," but received ",f6.0)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_real4 with rank 3 subarrays' )
+             end if
           end do
        end do
     end do
@@ -1071,7 +1083,10 @@ program test_mpp_alltoall
              if ( i.gt.subsize_i )                           answer=-one !! rbuf = -1 for i>1
              if ( mod(j,2).eq.0 .or. j.gt.2*npes )           answer=-one !! rbuf(k',2pe,1)=rbuf(k',j>2npes,1)=-1
              if ( k.le.start_k .or. k.gt.subsize_k+start_k ) answer=-one !! rbuf(k<start_k,2pe+1,1)=rbuf(k>start_k+subsize_k,2pe+1,1)=-1
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_real8 with columns' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE # ",i3," element",i2,",",i2,",",i2, " Expected",f6.0," but received ",f6.0)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_real8 with columns' )
+             end if
           end do
        end do
     end do
@@ -1132,7 +1147,10 @@ program test_mpp_alltoall
              if ( i .gt. subsize_i )                         answer=-one
              if ( j.le.start_j .or. j.gt.subsize_j+start_j ) answer=-one
              if ( k .gt. npes )                              answer=-one
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_real8 with rows' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE # ",i3," element",i2,",",i2,",",i2, " Expected",f6.0," but received ",f6.0)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_real8 with rows' )
+             end if
           end do
        end do
     end do
@@ -1186,7 +1204,10 @@ program test_mpp_alltoall
              if ( i .gt. subsize_i )                                answer=-one
              if ( j.le.start_j .or. j.gt.subsize_j*npes+start_j )   answer=-one
              if ( k.le.start_k .or. k.gt.subsize_k+start_k)         answer=-one
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_real8 with rank 2 subarrays' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE # ",i3," element",i2,",",i2,",",i2, " Expected",f6.0," but received ",f6.0)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_real8 with rank 2 subarrays' )
+             end if
           end do
        end do
     end do
@@ -1240,7 +1261,10 @@ program test_mpp_alltoall
              if ( i.le.start_i .or. i.gt.subsize_i+start_i )       answer=-one
              if ( j.le.start_j .or. j.gt.subsize_j*npes+start_j )  answer=-one
              if ( k.le.start_k .or. k.gt.subsize_k+start_k)        answer=-one
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_real8 with rank 3 subarrays' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE # ",i3," element",i2,",",i2,",",i2, " Expected",f6.0," but received ",f6.0)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_real8 with rank 3 subarrays' )
+             end if
           end do
        end do
     end do
@@ -1280,7 +1304,7 @@ program test_mpp_alltoall
     do i=1, n
        do j=1, n
           do k=1, n
-             sbuf(k,j,i) = real( pe*1000 + i*100 + j*10 + k, kind=i4_kind )
+             sbuf(k,j,i) = int( pe*1000 + i*100 + j*10 + k, kind=i4_kind )
           end do
        end do
     end do
@@ -1338,11 +1362,14 @@ program test_mpp_alltoall
        do j=1, n
           jj = int( (j-1)/2 )
           do k=1, n
-             answer=real( jj*1000 + i*100 + (2*pe+1)*10 + k, kind=i4_kind )
+             answer=int( jj*1000 + i*100 + (2*pe+1)*10 + k, kind=i4_kind )
              if ( i.gt.subsize_i )                           answer=-one !! rbuf = -1 for i>1
              if ( mod(j,2).eq.0 .or. j.gt.2*npes )           answer=-one !! rbuf(k',2pe,1)=rbuf(k',j>2npes,1)=-1
              if ( k.le.start_k .or. k.gt.subsize_k+start_k ) answer=-one !! rbuf(k<start_k,2pe+1,1)=rbuf(k>start_k+subsize_k,2pe+1,1)=-1
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_int4 with columns' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE #",i3," element",i2,",",i2,",",i2, " Expected",i6," but received ",i6)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_int4 with columns' )
+             end if
           end do
        end do
     end do
@@ -1399,11 +1426,14 @@ program test_mpp_alltoall
     do i=1, n
        do j=1, n
           do k=1, n
-             answer=real( (k-1)*1000 + i*100 + j*10 + pe+1, kind=i4_kind )
+             answer=int( (k-1)*1000 + i*100 + j*10 + pe+1, kind=i4_kind )
              if ( i .gt. subsize_i )                         answer=-one
              if ( j.le.start_j .or. j.gt.subsize_j+start_j ) answer=-one
              if ( k .gt. npes )                              answer=-one
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_int4 with rows' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE #",i3," element",i2,",",i2,",",i2, " Expected",i6," but received ",i6)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_int4 with rows' )
+             end if
           end do
        end do
     end do
@@ -1453,11 +1483,14 @@ program test_mpp_alltoall
           jj  = int( (j-1-start_j)/subsize_j )
           jjj = mod( (j-1-start_j), subsize_j ) + 1 + start_j
           do k=1, n
-             answer=real( jj*1000 + i*100 + jjj*10 + subsize_k*pe+k, kind=i4_kind )
+             answer=int( jj*1000 + i*100 + jjj*10 + subsize_k*pe+k, kind=i4_kind )
              if ( i .gt. subsize_i )                                answer=-one
              if ( j.le.start_j .or. j.gt.subsize_j*npes+start_j )   answer=-one
              if ( k.le.start_k .or. k.gt.subsize_k+start_k)         answer=-one
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_int4 with rank 2 subarrays' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE # ",i3," element",i2,",",i2,",",i2, " Expected",i6," but received ",i6)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_int4 with rank 2 subarrays' )
+             end if
           end do
        end do
     end do
@@ -1507,11 +1540,14 @@ program test_mpp_alltoall
           jj  = int( (j-1-start_j)/subsize_j )
           jjj = mod( (j-1-start_j), subsize_j ) + 1 + start_j
           do k=1, n
-             answer=real( jj*1000 + i*100 + jjj*10 + subsize_k*pe+k, kind=i4_kind )
+             answer=int( jj*1000 + i*100 + jjj*10 + subsize_k*pe+k, kind=i4_kind )
              if ( i.le.start_i .or. i.gt.subsize_i+start_i )       answer=-one
              if ( j.le.start_j .or. j.gt.subsize_j*npes+start_j )  answer=-one
              if ( k.le.start_k .or. k.gt.subsize_k+start_k)        answer=-one
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_int4 with rank 3 subarrays' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE # ",i3," element",i2,",",i2,",",i2, " Expected",i6," but received ",i6)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_int4 with rank 3 subarrays' )
+             end if
           end do
        end do
     end do
@@ -1551,7 +1587,7 @@ program test_mpp_alltoall
     do i=1, n
        do j=1, n
           do k=1, n
-             sbuf(k,j,i) = real( pe*1000 + i*100 + j*10 + k, kind=i8_kind )
+             sbuf(k,j,i) = int( pe*1000 + i*100 + j*10 + k, kind=i8_kind )
           end do
        end do
     end do
@@ -1609,11 +1645,14 @@ program test_mpp_alltoall
        do j=1, n
           jj = int( (j-1)/2 )
           do k=1, n
-             answer=real( jj*1000 + i*100 + (2*pe+1)*10 + k, kind=i8_kind )
+             answer=int( jj*1000 + i*100 + (2*pe+1)*10 + k, kind=i8_kind )
              if ( i.gt.subsize_i )                           answer=-one !! rbuf = -1 for i>1
              if ( mod(j,2).eq.0 .or. j.gt.2*npes )           answer=-one !! rbuf(k',2pe,1)=rbuf(k',j>2npes,1)=-1
              if ( k.le.start_k .or. k.gt.subsize_k+start_k ) answer=-one !! rbuf(k<start_k,2pe+1,1)=rbuf(k>start_k+subsize_k,2pe+1,1)=-1
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_int8 with columns' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE #",i3," element",i2,",",i2,",",i2, " Expected",i6," but received ",i6)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_int8 with columns' )
+             end if
           end do
        end do
     end do
@@ -1670,11 +1709,14 @@ program test_mpp_alltoall
     do i=1, n
        do j=1, n
           do k=1, n
-             answer=real( (k-1)*1000 + i*100 + j*10 + pe+1, kind=i8_kind )
+             answer=int( (k-1)*1000 + i*100 + j*10 + pe+1, kind=i8_kind )
              if ( i .gt. subsize_i )                         answer=-one
              if ( j.le.start_j .or. j.gt.subsize_j+start_j ) answer=-one
              if ( k .gt. npes )                              answer=-one
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_int8 with rows' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE #",i3," element",i2,",",i2,",",i2, " Expected",i6," but received ",i6)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_int8 with rows' )
+             end if
           end do
        end do
     end do
@@ -1724,11 +1766,14 @@ program test_mpp_alltoall
           jj  = int( (j-1-start_j)/subsize_j )
           jjj = mod( (j-1-start_j), subsize_j ) + 1 + start_j
           do k=1, n
-             answer=real( jj*1000 + i*100 + jjj*10 + subsize_k*pe+k, kind=i8_kind )
+             answer=int( jj*1000 + i*100 + jjj*10 + subsize_k*pe+k, kind=i8_kind )
              if ( i .gt. subsize_i )                                answer=-one
              if ( j.le.start_j .or. j.gt.subsize_j*npes+start_j )   answer=-one
              if ( k.le.start_k .or. k.gt.subsize_k+start_k)         answer=-one
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_int8 with rank 2 subarrays' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE # ",i3," element",i2,",",i2,",",i2, " Expected",i6," but received ",i6)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_int8 with rank 2 subarrays' )
+             end if
           end do
        end do
     end do
@@ -1778,11 +1823,14 @@ program test_mpp_alltoall
           jj  = int( (j-1-start_j)/subsize_j )
           jjj = mod( (j-1-start_j), subsize_j ) + 1 + start_j
           do k=1, n
-             answer=real( jj*1000 + i*100 + jjj*10 + subsize_k*pe+k, kind=i8_kind )
+             answer=int( jj*1000 + i*100 + jjj*10 + subsize_k*pe+k, kind=i8_kind )
              if ( i.le.start_i .or. i.gt.subsize_i+start_i )       answer=-one
              if ( j.le.start_j .or. j.gt.subsize_j*npes+start_j )  answer=-one
              if ( k.le.start_k .or. k.gt.subsize_k+start_k)        answer=-one
-             if ( rbuf(k,j,i) .ne. answer ) call mpp_error( FATAL, 'error in test_mpp_alltoallw_int8 with rank 3 subarrays' )
+             if ( rbuf(k,j,i) .ne. answer ) then
+                write(*,'("PE # ",i3," element",i2,",",i2,",",i2, " Expected",i6," but received ",i6)') pe, k,j,i, answer, rbuf(k,j,i)
+                call mpp_error( FATAL, 'error in test_mpp_alltoallw_int8 with rank 3 subarrays' )
+             end if
           end do
        end do
     end do
