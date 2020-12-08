@@ -27,7 +27,7 @@ program test_global_arrays
   use mpp_mod,         only: mpp_init, mpp_exit, mpp_pe, mpp_npes, mpp_root_pe
   use mpp_mod,         only: mpp_set_stack_size, mpp_sync, mpp_sync_self
   use mpp_mod,         only: mpp_error, FATAL, NOTE, mpp_send, mpp_recv
-  use mpp_mod,         only: mpp_init_test_init_true_only
+  use mpp_mod,         only: mpp_init_test_init_true_only, mpp_set_root_pe
   use mpp_io_mod,      only: mpp_io_init
   use mpp_domains_mod, only: mpp_domains_init, mpp_define_domains, domain2d
   use mpp_domains_mod, only: mpp_define_layout, mpp_domains_set_stack_size
@@ -63,6 +63,7 @@ program test_global_arrays
   call mpp_domains_set_stack_size(3145746)
   pe = mpp_pe()
   npes = mpp_npes()
+  call mpp_set_root_pe(0)
   root = mpp_root_pe()
 
   !> define domains and allocate
@@ -165,8 +166,8 @@ program test_global_arrays
   endif
 
   !> shuffle data ordering and copy into array with 5 ranks
-  call shuffleDataI4()
-  call shuffleDataI8()
+  call shuffleDataI4(dataI4)
+  call shuffleDataI8(dataI8)
   allocate(dataI4_5d(jsd:jed, isd:ied, 1, 1, 1), dataI8_5d(jsd:jec,isd:ied, 1, 1, 1))
   do i=isc, iec
     do j=jsc, jec
@@ -429,9 +430,10 @@ function checkSumInt8(gsum)
 end function checkSumInt8
 
 !> aggregates data on root and randomizes ordering, then sends partitions back to pes
-subroutine shuffleDataI4
-  integer(i4_kind), allocatable :: trans(:,:), shuffled(:), tmp
-  integer                       :: rind, tsum=0
+subroutine shuffleDataI4(dataI4)
+  integer(i4_kind), allocatable, intent(INOUT) :: dataI4(:,:)
+  integer(i4_kind), allocatable                :: trans(:,:), shuffled(:), tmp
+  integer                                      :: rind, tsum=0
 
   allocate(trans(SIZE(dataI4,1), SIZE(dataI4,2)))
   allocate(shuffled(1:length*length))
@@ -460,9 +462,9 @@ subroutine shuffleDataI4
     do i=0, npes-1
       trans = RESHAPE(shuffled(SIZE(trans)*i + 1:SIZE(trans)*(i+1)), &
                          (/SIZE(trans,1), SIZE(trans,2) /) )
-      if(i.gt.0) then 
+      if(i.ne.root) then
         call mpp_send(trans, SIZE(trans), i)
-      else 
+      else
         dataI4 = trans
       endif
     end do
@@ -475,9 +477,10 @@ subroutine shuffleDataI4
 end subroutine shuffleDataI4
 
 !> aggregates data on root and randomizes ordering, then sends partitions back to pes
-subroutine shuffleDataI8
-  integer(i8_kind), allocatable :: trans(:,:), shuffled(:), tmp
-  integer                       :: rind, tsum=0
+subroutine shuffleDataI8(dataI8)
+  integer(i8_kind), allocatable, intent(INOUT) :: dataI8(:,:)
+  integer(i8_kind), allocatable                :: trans(:,:), shuffled(:), tmp
+  integer                                      :: rind, tsum=0
 
   allocate(trans(SIZE(dataI8,1), SIZE(dataI8,2)))
   allocate(shuffled(1:length*length))
@@ -506,7 +509,7 @@ subroutine shuffleDataI8
     do i=0, npes-1
       trans = RESHAPE(shuffled(SIZE(trans)*i + 1:SIZE(trans)*(i+1)), &
                          (/SIZE(trans,1), SIZE(trans,2) /) )
-      if(i.gt.0) then 
+      if(i.ne.root) then
         call mpp_send(trans, SIZE(trans), i)
       else 
         dataI8 = trans
