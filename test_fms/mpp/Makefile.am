@@ -30,39 +30,40 @@ LDADD = ${top_builddir}/libFMS/libFMS.la
 
 # Build these test programs.
 check_PROGRAMS = test_mpp \
-  test_mpp_domains \
-  test_redistribute_int \
-  test_mpp_memuse \
-  test_mpp_mem_dump \
-  test_mpp_memutils_begin_end \
-  test_mpp_print_memuse_stats_stderr \
-  test_mpp_print_memuse_stats_file \
-  test_mpp_memutils_begin_2x \
-  test_mpp_memutils_end_before_begin \
-  test_read_ascii_file \
-  test_read_input_nml \
-  test_stdout \
-  test_stderr \
-  test_mpp_get_ascii_lines \
-  test_system_clock \
-  test_mpp_broadcast \
-  test_clock_init \
-  test_domains_simple \
-  test_mpp_npes \
-  test_mpp_pe \
-  test_mpp_root_pe \
-  test_peset \
-  test_mpp_update_domains \
-  test_mpp_gatscat \
-  test_mpp_sum \
-  test_update_domains_performance \
-  test_minmax \
-  test_mpp_sendrecv \
-  test_global_arrays \
-  test_chksum_int   \
-  test_mpp_update_domains_ad \
-  test_mpp_transmit \
-	test_mpp_alltoall
+	test_mpp_domains \
+	test_redistribute_int \
+	test_mpp_memuse \
+	test_mpp_mem_dump \
+	test_mpp_memutils_begin_end \
+	test_mpp_print_memuse_stats_stderr \
+	test_mpp_print_memuse_stats_file \
+	test_mpp_memutils_begin_2x \
+	test_mpp_memutils_end_before_begin \
+	test_read_ascii_file \
+	test_read_input_nml \
+	test_stdout \
+	test_stderr \
+	test_mpp_get_ascii_lines \
+	test_system_clock \
+	test_mpp_broadcast \
+	test_clock_init \
+	test_domains_simple \
+	test_mpp_npes \
+	test_mpp_pe \
+	test_mpp_root_pe \
+	test_peset \
+	test_mpp_update_domains \
+	test_mpp_gatscat \
+	test_mpp_sum \
+	test_update_domains_performance \
+	test_minmax \
+	test_mpp_sendrecv \
+	test_global_arrays \
+	test_chksum_int   \
+	test_mpp_update_domains_ad \
+	test_mpp_transmit \
+	test_mpp_alltoall \
+	test_mpp_global_field
 
 # These are the sources for the tests.
 test_mpp_SOURCES = test_mpp.F90
@@ -106,73 +107,77 @@ test_chksum_int_SOURCES=test_chksum_int.F90
 test_redistribute_int_SOURCES=test_redistribute_int.F90
 test_mpp_transmit_SOURCES=test_mpp_transmit.F90
 test_mpp_alltoall_SOURCES=test_mpp_alltoall.F90
-
+test_mpp_global_field_SOURCES=test_mpp_global_field.F90   \
+															compare_data_checksums.F90  \
+															compare_data_checksums_int.F90
 
 # Run the test programs.
 TESTS = test_mpp_domains2.sh \
-  test_redistribute_int.sh \
-  test_global_arrays.sh  \
-  test_mpp2.sh \
-  test_mpp_memuse \
-  test_mpp_mem_dump \
-  test_mpp_memutils_mod.sh \
-  test_read_ascii_file.sh \
-  test_read_input_nml2.sh \
-  test_stdout.sh \
-  test_stderr.sh \
-  test_mpp_get_ascii_lines2.sh \
-  test_system_clock.sh \
-  test_mpp_broadcast.sh \
-  test_clock_init.sh \
-  test_mpp_npes.sh \
-  test_mpp_pe.sh \
-  test_mpp_root_pe.sh \
-  test_peset.sh \
-  test_mpp_update_domains.sh \
-  test_mpp_sum.sh \
-  test_mpp_gatscat.sh \
-  test_update_domains_performance.sh \
-  test_minmax.sh \
-  test_mpp_sendrecv.sh \
-  test_chksum_int.sh  \
-  test_mpp_update_domains_ad.sh \
-  test_mpp_transmit.sh \
-  test_mpp_alltoall.sh
+	test_redistribute_int.sh \
+	test_global_arrays.sh  \
+	test_mpp2.sh \
+	test_mpp_memuse \
+	test_mpp_mem_dump \
+	test_mpp_memutils_mod.sh \
+	test_read_ascii_file.sh \
+	test_read_input_nml2.sh \
+	test_stdout.sh \
+	test_stderr.sh \
+	test_mpp_get_ascii_lines2.sh \
+	test_system_clock.sh \
+	test_mpp_broadcast.sh \
+	test_clock_init.sh \
+	test_mpp_npes.sh \
+	test_mpp_pe.sh \
+	test_mpp_root_pe.sh \
+	test_peset.sh \
+	test_mpp_update_domains.sh \
+	test_mpp_sum.sh \
+	test_mpp_gatscat.sh \
+	test_update_domains_performance.sh \
+	test_minmax.sh \
+	test_mpp_sendrecv.sh \
+	test_chksum_int.sh  \
+	test_mpp_update_domains_ad.sh \
+	test_mpp_transmit.sh \
+	test_mpp_alltoall.sh \
+	test_mpp_global_field.sh
 
 # These files will also be included in the distribution.
 EXTRA_DIST = input_base.nml \
-  test_mpp_domains2.sh \
-  test_mpp2.sh \
-  test_mpp_memutils_mod.sh \
-  test_read_ascii_file.sh \
-  test_read_input_nml2.sh \
-  test_stdout.sh \
-  test_stderr.sh \
-  test_mpp_get_ascii_lines2.sh \
-  base_ascii_5 \
-  base_ascii_25 \
-  base_ascii_0 \
-  base_ascii_skip \
-  base_ascii_long \
-  test_system_clock.sh \
-  test_mpp_broadcast.sh \
-  test_clock_init.sh \
-  test_mpp_npes.sh \
-  test_mpp_pe.sh \
-  test_mpp_root_pe.sh \
-  test_peset.sh \
-  test_mpp_update_domains.sh \
-  test_mpp_sum.sh \
-  test_mpp_gatscat.sh \
-  test_update_domains_performance.sh \
-  test_minmax.sh \
-  test_mpp_sendrecv.sh \
-  test_global_arrays.sh \
-  test_chksum_int.sh \
-  test_redistribute_int.sh \
-  test_mpp_update_domains_ad.sh \
-  test_mpp_transmit.sh \
-	test_mpp_alltoall.sh
+	test_mpp_domains2.sh \
+	test_mpp2.sh \
+	test_mpp_memutils_mod.sh \
+	test_read_ascii_file.sh \
+	test_read_input_nml2.sh \
+	test_stdout.sh \
+	test_stderr.sh \
+	test_mpp_get_ascii_lines2.sh \
+	base_ascii_5 \
+	base_ascii_25 \
+	base_ascii_0 \
+	base_ascii_skip \
+	base_ascii_long \
+	test_system_clock.sh \
+	test_mpp_broadcast.sh \
+	test_clock_init.sh \
+	test_mpp_npes.sh \
+	test_mpp_pe.sh \
+	test_mpp_root_pe.sh \
+	test_peset.sh \
+	test_mpp_update_domains.sh \
+	test_mpp_sum.sh \
+	test_mpp_gatscat.sh \
+	test_update_domains_performance.sh \
+	test_minmax.sh \
+	test_mpp_sendrecv.sh \
+	test_global_arrays.sh \
+	test_chksum_int.sh \
+	test_redistribute_int.sh \
+	test_mpp_update_domains_ad.sh \
+	test_mpp_transmit.sh \
+	test_mpp_alltoall.sh \
+	test_mpp_global_field.sh
 
 # Each mod file depends on the .lo (library object) file.
 compare_data_checksums.mod : compare_data_checksums.lo
@@ -189,6 +194,7 @@ test_mpp_update_domains_int.lo: fill_halo.mod compare_data_checksums_int.mod
 test_update_domains_performance.lo : compare_data_checksums.mod compare_data_checksums_int.mod
 test_mpp_update_domains_ad.lo : compare_data_checksums.mod
 test_mpp_domains.lo : compare_data_checksums.mod test_domains_utility_mod.mod
+test_mpp_global_field.lo : compare_data_checksums.mod compare_data_checksums_int.mod
 
 # Mod files are built and then installed as headers.
 MODFILES = compare_data_checksums.mod \
