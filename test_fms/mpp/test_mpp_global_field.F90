@@ -16,7 +16,7 @@
 !* You should have received a copy of the GNU Lesser General Public
 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
 !***********************************************************************
-program test_mpp_domains
+program test_mpp_global_field
 
   use platform_mod
   use compare_data_checksums
@@ -1286,4 +1286,4 @@ contains
 
   end subroutine test_global_field_i8_3d
 
-end program test_mpp_domains
+end program test_mpp_global_field
