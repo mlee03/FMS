@@ -63,7 +63,8 @@ check_PROGRAMS = test_mpp \
 	test_mpp_update_domains_ad \
 	test_mpp_transmit \
 	test_mpp_alltoall \
-	test_mpp_global_field
+	test_mpp_global_field \
+	test_mpp_global_field_ug
 
 # These are the sources for the tests.
 test_mpp_SOURCES = test_mpp.F90
@@ -110,6 +111,9 @@ test_mpp_alltoall_SOURCES=test_mpp_alltoall.F90
 test_mpp_global_field_SOURCES=test_mpp_global_field.F90   \
 															compare_data_checksums.F90  \
 															compare_data_checksums_int.F90
+test_mpp_global_field_ug_SOURCES=test_mpp_global_field_ug.F90 \
+																 compare_data_checksums.F90 \
+																 compare_data_checksums_int.F90
 
 # Run the test programs.
 TESTS = test_mpp_domains2.sh \
@@ -141,7 +145,8 @@ TESTS = test_mpp_domains2.sh \
 	test_mpp_update_domains_ad.sh \
 	test_mpp_transmit.sh \
 	test_mpp_alltoall.sh \
-	test_mpp_global_field.sh
+	test_mpp_global_field.sh \
+	test_mpp_global_field_ug.sh
 
 # These files will also be included in the distribution.
 EXTRA_DIST = input_base.nml \
@@ -177,7 +182,8 @@ EXTRA_DIST = input_base.nml \
 	test_mpp_update_domains_ad.sh \
 	test_mpp_transmit.sh \
 	test_mpp_alltoall.sh \
-	test_mpp_global_field.sh
+	test_mpp_global_field.sh \
+	test_mpp_global_field_ug.sh
 
 # Each mod file depends on the .lo (library object) file.
 compare_data_checksums.mod : compare_data_checksums.lo
@@ -195,6 +201,7 @@ test_update_domains_performance.lo : compare_data_checksums.mod compare_data_che
 test_mpp_update_domains_ad.lo : compare_data_checksums.mod
 test_mpp_domains.lo : compare_data_checksums.mod test_domains_utility_mod.mod
 test_mpp_global_field.lo : compare_data_checksums.mod compare_data_checksums_int.mod
+test_mpp_global_field_ug.lo : compare_data_checksums.mod compare_data_checksums_int.mod
 
 # Mod files are built and then installed as headers.
 MODFILES = compare_data_checksums.mod \

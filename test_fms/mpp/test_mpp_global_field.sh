@@ -28,4 +28,4 @@
 . ../test_common.sh
 
 touch input.nml
-run_test test_mpp_global_field 2
+run_test test_mpp_global_field 4
