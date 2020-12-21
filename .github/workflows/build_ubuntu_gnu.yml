@@ -29,13 +29,13 @@ jobs:
         FC: "mpif90"
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-    - name: Prepare GNU autoconf for build
-      run: |
-        ls `nc-config --prefix`
-        export NETCDF_ROOT=$(
-        mkdir build && cd build
-        cmake ..
-        make
-        make install
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Prepare GNU autoconf for build
+        run: |
+          ls `nc-config --prefix`
+          export NETCDF_ROOT=$(
+          mkdir build && cd build
+          cmake ..
+          make
+          make install
