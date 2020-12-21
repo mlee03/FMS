@@ -24,7 +24,7 @@ jobs:
     container:
       image: underwoo/ubuntu_libfms_gnu
       env:
-        FCFLAGS:''
+        FCFLAGS: ''
         CC: "mpicc"
         FC: "mpif90"
 
