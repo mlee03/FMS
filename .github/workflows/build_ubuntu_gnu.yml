@@ -17,8 +17,8 @@ jobs:
         uses: actions/checkout@v2
       - name: Prepare GNU autoconf for build
         run: |
-          ls `nc-config --prefix`
-          export NETCDF_ROOT=$(
+          echo `nc-config --prefix`
+          export NETCDF_ROOT=$(nc-config --prefix) && echo $NETCDF_ROOT
           mkdir build && cd build
           cmake ..
           make
