@@ -961,27 +961,33 @@
                 end if
              else if( pack.EQ.1 )then
                   if( KIND(rval).EQ.r8_kind )then
-                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_DOUBLE, size(rval(:)), real(rval, kind=r8_kind))
+                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_DOUBLE, &
+                                                size(rval(:)), real(rval, kind=r8_kind))
                   else if( KIND(rval).EQ.r4_kind )then
                       call mpp_error( WARNING, &
                            'WRITE_ATTRIBUTE_NETCDF: attempting to write internal 32-bit real as external 64-bit.' )
-                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_DOUBLE, size(rval(:)), real(rval, kind=r4_kind))
+                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_DOUBLE, &
+                                                size(rval(:)), real(rval, kind=r4_kind))
                   end if
                   call netcdf_err( error, mpp_file(unit), string=' Attribute='//name )
               else if( pack.EQ.2 )then
                   if( KIND(rval).EQ.r8_kind )then
-                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_FLOAT,  size(rval(:)), real(rval, kind=r8_kind))
+                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_FLOAT, &
+                                                size(rval(:)), real(rval, kind=r8_kind))
                   else if( KIND(rval).EQ.r4_kind )then
-                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_FLOAT,  size(rval(:)), real(rval, kind=r4_kind))
+                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_FLOAT, &
+                                                size(rval(:)), real(rval, kind=r4_kind))
                   end if
                   call netcdf_err( error, mpp_file(unit), string=' Attribute='//name )
               else if( pack.EQ.4 )then
                   allocate( rval_i(size(rval(:))) )
                   rval_i = rval
                   if( KIND(rval).EQ.r8_kind )then
-                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_SHORT,  size(rval_i(:)), real(rval, kind=r8_kind))
+                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_SHORT, &
+                                                size(rval_i(:)), real(rval, kind=r8_kind))
                   else if( KIND(rval).EQ.r4_kind )then
-                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_SHORT,  size(rval_i(:)), real(rval, kind=r4_kind))
+                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_SHORT, &
+                                                size(rval_i(:)), real(rval, kind=r4_kind))
                   end if
                   call netcdf_err( error, mpp_file(unit), string=' Attribute='//name )
                   deallocate(rval_i)
@@ -989,9 +995,11 @@
                   allocate( rval_i(size(rval(:))) )
                   rval_i = rval
                   if( KIND(rval).EQ.r8_kind )then
-                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_BYTE,   size(rval_i(:)), real(rval, kind=r8_kind))
+                      error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_BYTE, &
+                                                size(rval_i(:)), real(rval, kind=r8_kind))
                   else if( KIND(rval).EQ.r4_kind )then
-                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_BYTE,   size(rval_i(:)), real(rval, kind=r4_kind))
+                      error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_BYTE, &
+                                                size(rval_i(:)), real(rval, kind=r4_kind))
                   end if
                   call netcdf_err( error, mpp_file(unit), string=' Attribute='//name )
                   deallocate(rval_i)
@@ -1001,9 +1009,11 @@
           else
 !default is to write FLOATs (32-bit)
               if( KIND(rval).EQ.r8_kind )then
-                  error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_FLOAT,  size(rval(:)), real(rval, kind=r8_kind))
+                  error = NF_PUT_ATT_DOUBLE( mpp_file(unit)%ncid, id, name, NF_FLOAT, &
+                                            size(rval(:)), real(rval, kind=r8_kind))
               else if( KIND(rval).EQ.r4_kind )then
-                  error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_FLOAT,  size(rval(:)), real(rval, kind=r4_kind))
+                  error = NF_PUT_ATT_REAL  ( mpp_file(unit)%ncid, id, name, NF_FLOAT, &
+                                            size(rval(:)), real(rval, kind=r4_kind))
               end if
               call netcdf_err( error, mpp_file(unit), string=' Attribute='//name )
           end if
@@ -1013,7 +1023,8 @@
                 if (KIND(ival).EQ.i8_kind) then
                    call mpp_error(FATAL,'only use NF_INTs with pack=0 for now')
                 end if
-                error = NF_PUT_ATT_INT( mpp_file(unit)%ncid, id, name, NF_INT, size(ival(:)), ival ) !!XXX int32_t..
+                error = NF_PUT_ATT_INT( mpp_file(unit)%ncid, id, name, &
+                                       NF_INT, size(ival(:)), ival ) !!XXX int32_t
                 call netcdf_err( error, mpp_file(unit), string=' Attribute='//name )
              else
                 call mpp_error( FATAL, 'WRITE_ATTRIBUTE_NETCDF: only implimented ints when pack=0, else use reals.' )
@@ -1315,7 +1326,7 @@
                   ieg = ieg + axis%shift
                   error = NF_DEF_DIM( mpp_file(unit)%ncid, axis%name, ie-is+1, axis%did )
               else
-                  error = NF_DEF_DIM( mpp_file(unit)%ncid, axis%name, size(axis%data(:)),          axis%did )
+                  error = NF_DEF_DIM( mpp_file(unit)%ncid, axis%name, size(axis%data(:)), axis%did )
               end if
               call netcdf_err( error, mpp_file(unit), axis )
               error = NF_DEF_VAR( mpp_file(unit)%ncid, axis%name, NF_FLOAT, 1, (/axis%did/), axis%id )
@@ -1363,7 +1374,8 @@
          endif
       enddo
 
-      if( mpp_file(unit)%threading.EQ.MPP_MULTI .AND. mpp_file(unit)%fileset.EQ.MPP_MULTI .AND. axis%domain.NE.NULL_DOMAIN1D )then
+      if( mpp_file(unit)%threading.EQ.MPP_MULTI .AND. mpp_file(unit)%fileset.EQ.MPP_MULTI &
+         .AND. axis%domain.NE.NULL_DOMAIN1D )then
           call mpp_write_meta( unit, axis%id, 'domain_decomposition', ival=(/isg,ieg,is,ie/) )
       end if
       if( verbose )print '(a,2i6,x,a,2i3)', 'MPP_WRITE_META: Wrote axis metadata, pe, unit, axis%name, axis%id, axis%did=', &
@@ -1432,17 +1444,21 @@
 !write field def
           select case (field%pack)
               case(1)
-                  error = NF_DEF_VAR( mpp_file(unit)%ncid, field%name, NF_DOUBLE, size(field%axes(:)), axis_id, field%id )
+                  error = NF_DEF_VAR( mpp_file(unit)%ncid, field%name, NF_DOUBLE, &
+                                     size(field%axes(:)), axis_id, field%id )
               case(2)
-                  error = NF_DEF_VAR( mpp_file(unit)%ncid, field%name, NF_FLOAT,  size(field%axes(:)), axis_id, field%id )
+                  error = NF_DEF_VAR( mpp_file(unit)%ncid, field%name, NF_FLOAT, &
+                                     size(field%axes(:)), axis_id, field%id )
               case(4)
 !                 if( field%scale.EQ.default_field%scale .OR. field%add.EQ.default_field%add ) &
 !                      call mpp_error( FATAL, 'MPP_WRITE_META_FIELD: scale and add must be supplied when pack=4.' )
-                  error = NF_DEF_VAR( mpp_file(unit)%ncid, field%name, NF_SHORT,  size(field%axes(:)), axis_id, field%id )
+                  error = NF_DEF_VAR( mpp_file(unit)%ncid, field%name, NF_SHORT, &
+                                     size(field%axes(:)), axis_id, field%id )
               case(8)
 !                 if( field%scale.EQ.default_field%scale .OR. field%add.EQ.default_field%add ) &
 !                      call mpp_error( FATAL, 'MPP_WRITE_META_FIELD: scale and add must be supplied when pack=8.' )
-                  error = NF_DEF_VAR( mpp_file(unit)%ncid, field%name, NF_BYTE,   size(field%axes(:)), axis_id, field%id )
+                  error = NF_DEF_VAR( mpp_file(unit)%ncid, field%name, NF_BYTE, &
+                                     size(field%axes(:)), axis_id, field%id )
               case default
                   call mpp_error( FATAL, 'MPP_WRITE_META_FIELD: only legal packing values are 1,2,4,8.' )
           end select
@@ -1506,8 +1522,10 @@
       end if
       if( field%pack.NE.1 .AND. field%pack.NE.2 )then
           call mpp_write_meta( unit, field%id, 'packing', ival=field%pack )
-          if( field%scale.NE.default_field%scale )call mpp_write_meta( unit, field%id, 'scale_factor',  rval=field%scale )
-          if( field%add.NE.default_field%add   )call mpp_write_meta( unit, field%id, 'add_offset',    rval=field%add   )
+          if( field%scale.NE.default_field%scale ) &
+                                 call mpp_write_meta( unit, field%id, 'scale_factor',  rval=field%scale )
+          if( field%add.NE.default_field%add   ) &
+                                 call mpp_write_meta( unit, field%id, 'add_offset',    rval=field%add )
       end if
       if( verbose )print '(a,2i6,x,a,i3)', 'MPP_WRITE_META: Wrote field metadata: pe, unit, field%name, field%id=', &
            pe, unit, trim(field%name), field%id
