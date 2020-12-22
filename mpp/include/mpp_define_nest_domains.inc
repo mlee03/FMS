@@ -162,7 +162,8 @@ subroutine mpp_define_nest_domains(nest_domain, domain, num_nest, nest_level, ti
   !---make sure tile_fine and tile_nest are monotone increasing.
   do n = 2, num_nest
      if(tile_fine(n) < tile_fine(n-1)) call  mpp_error(FATAL, "mpp_define_nest_domains.inc: tile_fine is not monotone increasing")
-     if(tile_coarse(n) < tile_coarse(n-1)) call  mpp_error(FATAL, "mpp_define_nest_domains.inc: tile_coarse is not monotone increasing")
+     if(tile_coarse(n) < tile_coarse(n-1)) call  mpp_error(FATAL, "mpp_define_nest_domains.inc: "// &
+                                                           "tile_coarse is not monotone increasing")
   enddo
 
   allocate( pes(mpp_npes()) )
@@ -219,7 +220,8 @@ subroutine mpp_define_nest_domains(nest_domain, domain, num_nest, nest_level, ti
      Pe_end_pos(n) = npes_nest_tile(1)*ntiles_top
   enddo
   ntiles = tile_fine(num_nest)
-  if(ntiles .NE. ntiles_top + num_nest) call mpp_error(FATAL, "mpp_define_nest_domains.inc:ntiles .NE. ntiles_top + num_nest")
+  if(ntiles .NE. ntiles_top + num_nest) call mpp_error(FATAL, "mpp_define_nest_domains.inc: "// &
+                                                       "ntiles .NE. ntiles_top + num_nest")
   do n = 1, num_nest
      pe_start_pos(ntiles_top+n) = pe_end_pos(ntiles_top+n-1) + 1
      pe_end_pos(ntiles_top+n)   = pe_end_pos(ntiles_top+n-1) + npes_nest_tile(tile_fine(n))
@@ -390,7 +392,8 @@ subroutine define_nest_level_type(nest_domain, x_refine, y_refine, extra_halo)
      call mpp_error(FATAL, "mpp_define_nest_domains.inc: nest_domain%is_fine_pe .neqv. ANY(pes_fine(:) == mpp_pe())")
   endif
   if( nest_domain%is_coarse_pe .neqv. ANY(pes_coarse(:) == mpp_pe()) ) then
-     call mpp_error(FATAL, "mpp_define_nest_domains.inc: nest_domain%is_coarse_pe .neqv. ANY(pes_coarse(:) == mpp_pe())")
+     call mpp_error(FATAL, "mpp_define_nest_domains.inc: "// &
+                    "nest_domain%is_coarse_pe .neqv. ANY(pes_coarse(:) == mpp_pe())")
   endif
 
   !--- figure out the the corresponding nested region.
@@ -2388,7 +2391,8 @@ function search_C2F_nest_overlap(nest_domain, nest_level, extra_halo, position)
        "mpp_define_nest_domains.inc(mpp_get_nest_fine_pelist): nest_level should be between 1 and nest_domain%num_level")
 
      if(size(pelist) .NE. size(nest_domain%nest(nest_level)%pelist_fine)) call mpp_error(FATAL, &
-       "mpp_define_nest_domains.inc(mpp_get_nest_fine_pelist): size(pelist) .NE. size(nest_domain%nest(nest_level)%pelist)")
+       "mpp_define_nest_domains.inc(mpp_get_nest_fine_pelist): size(pelist) "// &
+       ".NE. size(nest_domain%nest(nest_level)%pelist)")
 
      pelist = nest_domain%nest(nest_level)%pelist_fine
 
