@@ -663,7 +663,7 @@
                     call netcdf_err( error, mpp_file(unit), attr=mpp_file(unit)%Axis(dimid)%att(j) )
                     mpp_file(unit)%Axis(dimid)%Att(j)%fatt(1:len)=i2vals(1:len)
                     if( verbose .and. pe == 0  ) &
-                         print *, 'AXIS ',trim(mpp_file(unit)%Axis(dimid)%name),' ATT ',// &
+                         print *, 'AXIS ',trim(mpp_file(unit)%Axis(dimid)%name),' ATT ',&
                                 & trim(attname),' ',mpp_file(unit)%Axis(dimid)%Att(j)%fatt
                     deallocate(i2vals)
                  case (NF_INT)
