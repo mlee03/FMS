@@ -27,16 +27,16 @@
 
 #undef MPP_READ_2DDECOMP_2D_
 #undef READ_RECORD_CORE_
-#define READ_RECORD_CORE_ read_record_core
+#define READ_RECORD_CORE_ read_record_core_r8
 #undef READ_RECORD_
-#define READ_RECORD_ read_record
-#define MPP_READ_2DDECOMP_2D_ mpp_read_2ddecomp_r2d
+#define READ_RECORD_ read_record_r8
+#define MPP_READ_2DDECOMP_2D_ mpp_read_2ddecomp_r2d_r8
 #undef MPP_READ_2DDECOMP_3D_
-#define MPP_READ_2DDECOMP_3D_ mpp_read_2ddecomp_r3d
+#define MPP_READ_2DDECOMP_3D_ mpp_read_2ddecomp_r3d_r8
 #undef MPP_READ_2DDECOMP_4D_
-#define MPP_READ_2DDECOMP_4D_ mpp_read_2ddecomp_r4d
+#define MPP_READ_2DDECOMP_4D_ mpp_read_2ddecomp_r4d_r8
 #undef MPP_TYPE_
-#define MPP_TYPE_ real(r8_kind)
+#define MPP_TYPE_ real(KIND=r8_kind)
 #include <mpp_read_2Ddecomp.h>
 
 #undef READ_RECORD_CORE_
@@ -50,121 +50,232 @@
 #undef MPP_READ_2DDECOMP_4D_
 #define MPP_READ_2DDECOMP_4D_ mpp_read_2ddecomp_r4d_r4
 #undef MPP_TYPE_
-#define MPP_TYPE_ real(r4_kind)
+#define MPP_TYPE_ real(KIND=r4_kind)
 #include <mpp_read_2Ddecomp.h>
 
+#undef READ_RECORD_
+#define READ_RECORD_ read_record_r8
 #undef MPP_READ_COMPRESSED_1D_
-#define MPP_READ_COMPRESSED_1D_ mpp_read_compressed_r1d
+#define MPP_READ_COMPRESSED_1D_ mpp_read_compressed_r1d_r8
 #undef MPP_READ_COMPRESSED_2D_
-#define MPP_READ_COMPRESSED_2D_ mpp_read_compressed_r2d
+#define MPP_READ_COMPRESSED_2D_ mpp_read_compressed_r2d_r8
 #undef MPP_READ_COMPRESSED_3D_
-#define MPP_READ_COMPRESSED_3D_ mpp_read_compressed_r3d
+#define MPP_READ_COMPRESSED_3D_ mpp_read_compressed_r3d_r8
 #undef MPP_TYPE_
-#define MPP_TYPE_ real
+#define MPP_TYPE_ real(KIND=r8_kind)
+#include <mpp_read_compressed.h>
+
+#undef READ_RECORD_
+#define READ_RECORD_ read_record_r4
+#undef MPP_READ_COMPRESSED_1D_
+#define MPP_READ_COMPRESSED_1D_ mpp_read_compressed_r1d_r4
+#undef MPP_READ_COMPRESSED_2D_
+#define MPP_READ_COMPRESSED_2D_ mpp_read_compressed_r2d_r4
+#undef MPP_READ_COMPRESSED_3D_
+#define MPP_READ_COMPRESSED_3D_ mpp_read_compressed_r3d_r4
+#undef MPP_TYPE_
+#define MPP_TYPE_ real(KIND=r4_kind)
 #include <mpp_read_compressed.h>
 
 #include <mpp_read_distributed_ascii.inc>
 
-! <SUBROUTINE NAME="mpp_read_r4D" INTERFACE="mpp_read">
+! <SUBROUTINE NAME="mpp_read_r4D_r8" INTERFACE="mpp_read">
 !   <IN NAME="unit" TYPE="integer"></IN>
 !   <IN NAME="field" TYPE="type(fieldtype)"></IN>
-!   <INOUT NAME="data" TYPE="real" DIM="(:,:,:,:)"></INOUT>
+!   <INOUT NAME="data" TYPE="real(KIND=r8_kind)" DIM="(:,:,:,:)"></INOUT>
 !   <IN NAME="tindex" TYPE="integer"></IN>
 ! </SUBROUTINE>
-    subroutine mpp_read_r4D( unit, field, data, tindex)
+    subroutine mpp_read_r4D_r8 unit, field, data, tindex)
       integer, intent(in) :: unit
       type(fieldtype), intent(in) :: field
-      real, intent(inout) :: data(:,:,:,:)
+      real(KIND=r8_kind), intent(inout) :: data(:,:,:,:)
       integer, intent(in), optional :: tindex
 
-      call read_record( unit, field, size(data(:,:,:,:)), data, tindex )
-    end subroutine mpp_read_r4D
+      call read_record_r8( unit, field, size(data(:,:,:,:)), data, tindex )
+    end subroutine mpp_read_r4D_r8
 
 
-! <SUBROUTINE NAME="mpp_read_r3D" INTERFACE="mpp_read">
+! <SUBROUTINE NAME="mpp_read_r3D_r8" INTERFACE="mpp_read">
 !   <IN NAME="unit" TYPE="integer"></IN>
 !   <IN NAME="field" TYPE="type(fieldtype)"></IN>
-!   <INOUT NAME="data" TYPE="real" DIM="(:,:,:)"></INOUT>
+!   <INOUT NAME="data" TYPE="real(KIND=r8_kind)" DIM="(:,:,:)"></INOUT>
 !   <IN NAME="tindex" TYPE="integer"></IN>
 ! </SUBROUTINE>
-    subroutine mpp_read_r3D( unit, field, data, tindex)
+    subroutine mpp_read_r3D_r8( unit, field, data, tindex)
       integer, intent(in) :: unit
       type(fieldtype), intent(in) :: field
-      real, intent(inout) :: data(:,:,:)
+      real(KIND=r8_kind), intent(inout) :: data(:,:,:)
       integer, intent(in), optional :: tindex
 
-      call read_record( unit, field, size(data(:,:,:)), data, tindex )
-    end subroutine mpp_read_r3D
+      call read_record_r8( unit, field, size(data(:,:,:)), data, tindex )
+    end subroutine mpp_read_r3D_r8
 
-    subroutine mpp_read_r2D( unit, field, data, tindex )
+! <SUBROUTINE NAME="mpp_read_r2D_r8" INTERFACE="mpp_read">
+!   <IN NAME="unit" TYPE="integer"></IN>
+!   <IN NAME="field" TYPE="type(fieldtype)"></IN>
+!   <INOUT NAME="data" TYPE="real(KIND=r8_kind)" DIM="(:,:,:)"></INOUT>
+!   <IN NAME="tindex" TYPE="integer"></IN>
+! </SUBROUTINE>
+    subroutine mpp_read_r2D_r8( unit, field, data, tindex )
       integer, intent(in) :: unit
       type(fieldtype), intent(in) :: field
-      real, intent(inout) :: data(:,:)
+      real(KIND=r8_kind), intent(inout) :: data(:,:)
       integer, intent(in), optional :: tindex
 
-      call read_record( unit, field, size(data(:,:)), data, tindex )
-    end subroutine mpp_read_r2D
+      call read_record_r8( unit, field, size(data(:,:)), data, tindex )
+    end subroutine mpp_read_r2D_r8
 
-    subroutine mpp_read_r1D( unit, field, data, tindex )
+! <SUBROUTINE NAME="mpp_read_r1D_r8" INTERFACE="mpp_read">
+!   <IN NAME="unit" TYPE="integer"></IN>
+!   <IN NAME="field" TYPE="type(fieldtype)"></IN>
+!   <INOUT NAME="data" TYPE="real(KIND=r8_kind)" DIM="(:,:,:)"></INOUT>
+!   <IN NAME="tindex" TYPE="integer"></IN>
+! </SUBROUTINE>
+    subroutine mpp_read_r1D_r8( unit, field, data, tindex )
       integer, intent(in) :: unit
       type(fieldtype), intent(in) :: field
-      real, intent(inout) :: data(:)
+      real(KIND=r8_kind), intent(inout) :: data(:)
       integer, intent(in), optional :: tindex
 
-      call read_record( unit, field, size(data(:)), data, tindex )
-    end subroutine mpp_read_r1D
+      call read_record_r8( unit, field, size(data(:)), data, tindex )
+    end subroutine mpp_read_r1D_r8
 
-    subroutine mpp_read_r0D( unit, field, data, tindex )
+! <SUBROUTINE NAME="mpp_read_r0D_r8" INTERFACE="mpp_read">
+!   <IN NAME="unit" TYPE="integer"></IN>
+!   <IN NAME="field" TYPE="type(fieldtype)"></IN>
+!   <INOUT NAME="data" TYPE="real(KIND=r8_kind)" DIM="(:,:,:)"></INOUT>
+!   <IN NAME="tindex" TYPE="integer"></IN>
+! </SUBROUTINE>
+    subroutine mpp_read_r0D_r8( unit, field, data, tindex )
       integer, intent(in) :: unit
       type(fieldtype), intent(in) :: field
-      real, intent(inout) :: data
+      real(KIND=r8_kind), intent(inout) :: data
       integer, intent(in), optional :: tindex
       real, dimension(1) :: data_tmp
 
       data_tmp(1)=data
-      call read_record( unit, field, 1, data_tmp, tindex )
+      call read_record_r8( unit, field, 1, data_tmp, tindex )
       data=data_tmp(1)
-    end subroutine mpp_read_r0D
+    end subroutine mpp_read_r0D_r8
 
-    subroutine mpp_read_region_r2D(unit, field, data, start, nread)
+! <SUBROUTINE NAME="mpp_read_r4D_r4" INTERFACE="mpp_read">
+!   <IN NAME="unit" TYPE="integer"></IN>
+!   <IN NAME="field" TYPE="type(fieldtype)"></IN>
+!   <INOUT NAME="data" TYPE="real(KIND=r8_kind)" DIM="(:,:,:,:)"></INOUT>
+!   <IN NAME="tindex" TYPE="integer"></IN>
+! </SUBROUTINEr4
+    subroutine mpp_read_r4D_r4 unit, field, data, tindex)
+      integer, intent(in) :: unit
+      type(fieldtype), intent(in) :: field
+      real(KIND=r4_kind), intent(inout) :: data(:,:,:,:)
+      integer, intent(in), optional :: tindex
+
+      call read_record_r4( unit, field, size(data(:,:,:,:)), data, tindex )
+    end subroutine mpp_read_r4D_r4
+
+
+! <SUBROUTINE NAME="mpp_read_r3D_r4" INTERFACE="mpp_read">
+!   <IN NAME="unit" TYPE="integer"></IN>
+!   <IN NAME="field" TYPE="type(fieldtype)"></IN>
+!   <INOUT NAME="data" TYPE="real(KIND=r4_kind)" DIM="(:,:,:)"></INOUT>
+!   <IN NAME="tindex" TYPE="integer"></IN>
+! </SUBROUTINE>
+    subroutine mpp_read_r3D_r4( unit, field, data, tindex)
+      integer, intent(in) :: unit
+      type(fieldtype), intent(in) :: field
+      real(KIND=r4_kind), intent(inout) :: data(:,:,:)
+      integer, intent(in), optional :: tindex
+
+      call read_record_r4( unit, field, size(data(:,:,:)), data, tindex )
+    end subroutine mpp_read_r3D_r4
+
+! <SUBROUTINE NAME="mpp_read_r2D_r4" INTERFACE="mpp_read">
+!   <IN NAME="unit" TYPE="integer"></IN>
+!   <IN NAME="field" TYPE="type(fieldtype)"></IN>
+!   <INOUT NAME="data" TYPE="real(KIND=r4_kind)" DIM="(:,:,:)"></INOUT>
+!   <IN NAME="tindex" TYPE="integer"></IN>
+! </SUBROUTINE>
+    subroutine mpp_read_r2D_r4( unit, field, data, tindex )
+      integer, intent(in) :: unit
+      type(fieldtype), intent(in) :: field
+      real(KIND=r4_kind), intent(inout) :: data(:,:)
+      integer, intent(in), optional :: tindex
+
+      call read_record_r4( unit, field, size(data(:,:)), data, tindex )
+    end subroutine mpp_read_r2D_r4
+
+! <SUBROUTINE NAME="mpp_read_r1D_r4" INTERFACE="mpp_read">
+!   <IN NAME="unit" TYPE="integer"></IN>
+!   <IN NAME="field" TYPE="type(fieldtype)"></IN>
+!   <INOUT NAME="data" TYPE="real(KIND=r4_kind)" DIM="(:,:,:)"></INOUT>
+!   <IN NAME="tindex" TYPE="integer"></IN>
+! </SUBROUTINE>
+    subroutine mpp_read_r1D_r4( unit, field, data, tindex )
+      integer, intent(in) :: unit
+      type(fieldtype), intent(in) :: field
+      real(KIND=r4_kind), intent(inout) :: data(:)
+      integer, intent(in), optional :: tindex
+
+      call read_record_r4( unit, field, size(data(:)), data, tindex )
+    end subroutine mpp_read_r1D_r4
+
+! <SUBROUTINE NAME="mpp_read_r0D_r4" INTERFACE="mpp_read">
+!   <IN NAME="unit" TYPE="integer"></IN>
+!   <IN NAME="field" TYPE="type(fieldtype)"></IN>
+!   <INOUT NAME="data" TYPE="real(KIND=r4_kind)" DIM="(:,:,:)"></INOUT>
+!   <IN NAME="tindex" TYPE="integer"></IN>
+! </SUBROUTINE>
+    subroutine mpp_read_r0D_r4( unit, field, data, tindex )
+      integer, intent(in) :: unit
+      type(fieldtype), intent(in) :: field
+      real(KIND=r4_kind), intent(inout) :: data
+      integer, intent(in), optional :: tindex
+      real, dimension(1) :: data_tmp
+
+      data_tmp(1)=data
+      call read_record_r4( unit, field, 1, data_tmp, tindex )
+      data=data_tmp(1)
+    end subroutine mpp_read_r0D_r4
+
+    subroutine mpp_read_region_r2D_r4(unit, field, data, start, nread)
       integer,         intent(in) :: unit
       type(fieldtype), intent(in) :: field
-      real(r4_kind),         intent(inout) :: data(:,:)
+      real(KIND=r4_kind),         intent(inout) :: data(:,:)
       integer,         intent(in) :: start(:), nread(:)
 
       if(size(start(:)) .NE. 4 .OR. size(nread(:)) .NE. 4) call mpp_error(FATAL, &
-          "mpp_io_read.inc(mpp_read_region_r2D): size of start and nread must be 4")
+          "mpp_io_read.inc(mpp_read_region_r2D_r4): size of start and nread must be 4")
 
       if(size(data,1) .NE. nread(1) .OR. size(data,2) .NE. nread(2)) then
-         call mpp_error( FATAL, 'mpp_io_read.inc(mpp_read_block_r2D): size mismatch between data and nread')
+         call mpp_error( FATAL, 'mpp_io_read.inc(mpp_read_region_r2D_r4): size mismatch between data and nread')
       endif
       if(nread(3) .NE. 1 .OR. nread(4) .NE. 1) call mpp_error(FATAL, &
-          "mpp_io_read.inc(mpp_read_region_r2D): nread(3) and nread(4) must be 1")
+          "mpp_io_read.inc(mpp_read_region_r2D_r4): nread(3) and nread(4) must be 1")
       call read_record_core_r4(unit, field, nread(1)*nread(2), data, start, nread)
 
       return
 
 
-    end subroutine mpp_read_region_r2D
+    end subroutine mpp_read_region_r2D_r4
 
-    subroutine mpp_read_region_r3D(unit, field, data, start, nread)
+    subroutine mpp_read_region_r3D_r4(unit, field, data, start, nread)
       integer,         intent(in) :: unit
       type(fieldtype), intent(in) :: field
-      real(r4_kind),         intent(inout) :: data(:,:,:)
+      real(KIND=r4_kind),         intent(inout) :: data(:,:,:)
       integer,         intent(in) :: start(:), nread(:)
 
       if(size(start(:)) .NE. 4 .OR. size(nread(:)) .NE. 4) call mpp_error(FATAL, &
-          "mpp_io_read.inc(mpp_read_region_r3D): size of start and nread must be 4")
+          "mpp_io_read.inc(mpp_read_region_r3D_r4): size of start and nread must be 4")
 
       if(size(data,1) .NE. nread(1) .OR. size(data,2) .NE. nread(2) .OR. size(data,3) .NE. nread(3) ) then
-         call mpp_error( FATAL, 'mpp_io_read.inc(mpp_read_block_r3D): size mismatch between data and nread')
+         call mpp_error( FATAL, 'mpp_io_read.inc(mpp_read_region_r3D_r4): size mismatch between data and nread')
       endif
       if(nread(4) .NE. 1) call mpp_error(FATAL, &
-          "mpp_io_read.inc(mpp_read_region_r3D): nread(4) must be 1")
+          "mpp_io_read.inc(mpp_read_region_r3D_r4): nread(4) must be 1")
       call read_record_core_r4(unit, field, nread(1)*nread(2)*nread(3), data, start, nread)
 
       return
-    end subroutine mpp_read_region_r3D
+    end subroutine mpp_read_region_r3D_r4
 
     subroutine mpp_read_region_r2D_r8(unit, field, data, start, nread)
       integer,                intent(in) :: unit
@@ -176,7 +287,7 @@
           "mpp_io_read.inc(mpp_read_region_r2D_r8): size of start and nread must be 4")
 
       if(size(data,1).NE.nread(1) .OR. size(data,2).NE.nread(2)) then
-         call mpp_error( FATAL, 'mpp_io_read.inc(mpp_read_block_r2D_r8): size mismatch between data and nread')
+         call mpp_error( FATAL, 'mpp_io_read.inc(mpp_read_region_r2D_r8): size mismatch between data and nread')
       endif
       if(nread(3) .NE. 1 .OR. nread(4) .NE. 1) call mpp_error(FATAL, &
           "mpp_io_read.inc(mpp_read_region_r2D_r8): nread(3) and nread(4) must be 1")
@@ -195,7 +306,7 @@
           "mpp_io_read.inc(mpp_read_region_r3D_r8): size of start and nread must be 4")
 
       if(size(data,1).NE.nread(1) .OR. size(data,2).NE.nread(2) .OR. size(data,3).NE.nread(3) ) then
-         call mpp_error( FATAL, 'mpp_io_read.inc(mpp_read_block_r3D_r8): size mismatch between data and nread')
+         call mpp_error( FATAL, 'mpp_io_read.inc(mpp_read_region_r3D_r8): size mismatch between data and nread')
       endif
       if(nread(4) .NE. 1) call mpp_error(FATAL, &
           "mpp_io_read.inc(mpp_read_region_r3D_r8): nread(4) must be 1")
@@ -324,8 +435,8 @@
 
       integer(i2_kind), allocatable :: i2vals(:)
       integer(i4_kind), allocatable :: ivals(:)
-      real(r4_kind), allocatable  :: rvals(:)
-      real(r8_kind), allocatable :: r8vals(:)
+      real(KIND=r4_kind), allocatable  :: rvals(:)
+      real(KIND=r8_kind), allocatable :: r8vals(:)
 
       get_time_info = .TRUE.
       if(present(read_time)) get_time_info = read_time

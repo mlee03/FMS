@@ -582,23 +582,27 @@ type :: atttype
 !  </NOTE>
 ! </INTERFACE>
   interface mpp_read
-     module procedure mpp_read_2ddecomp_r2d
-     module procedure mpp_read_2ddecomp_r3d
-     module procedure mpp_read_2ddecomp_r4d
-     module procedure mpp_read_r0D
-     module procedure mpp_read_r1D
-     module procedure mpp_read_r2D
-     module procedure mpp_read_r3D
-     module procedure mpp_read_r4D
-     module procedure mpp_read_text
-     module procedure mpp_read_region_r2D
-     module procedure mpp_read_region_r3D
-     module procedure mpp_read_region_r2D_r8
-     module procedure mpp_read_region_r3D_r8
-     !! added for mixed prec
      module procedure mpp_read_2ddecomp_r2d_r4
      module procedure mpp_read_2ddecomp_r3d_r4
      module procedure mpp_read_2ddecomp_r4d_r4
+     module procedure mpp_read_2ddecomp_r2d_r8
+     module procedure mpp_read_2ddecomp_r3d_r8
+     module procedure mpp_read_2ddecomp_r4d_r8
+     module procedure mpp_read_region_r2D_r4
+     module procedure mpp_read_region_r3D_r4
+     module procedure mpp_read_region_r2D_r8
+     module procedure mpp_read_region_r3D_r8
+     module procedure mpp_read_r0D_r4
+     module procedure mpp_read_r1D_r4
+     module procedure mpp_read_r2D_r4
+     module procedure mpp_read_r3D_r4
+     module procedure mpp_read_r4D_r4
+     module procedure mpp_read_r0D_r8
+     module procedure mpp_read_r1D_r8
+     module procedure mpp_read_r2D_r8
+     module procedure mpp_read_r3D_r8
+     module procedure mpp_read_r4D_r8
+     module procedure mpp_read_text
   end interface
 
 !***********************************************************************
@@ -673,9 +677,12 @@ type :: atttype
 !  </NOTE>
 ! </INTERFACE>
   interface mpp_read_compressed
-     module procedure mpp_read_compressed_r1d
-     module procedure mpp_read_compressed_r2d
-     module procedure mpp_read_compressed_r3d
+     module procedure mpp_read_compressed_r1d_r4
+     module procedure mpp_read_compressed_r2d_r4
+     module procedure mpp_read_compressed_r3d_r4
+     module procedure mpp_read_compressed_r1d_r8
+     module procedure mpp_read_compressed_r2d_r8
+     module procedure mpp_read_compressed_r3d_r8
   end interface mpp_read_compressed
 
 
