@@ -85,7 +85,7 @@
 !   <INOUT NAME="data" TYPE="real(KIND=r8_kind)" DIM="(:,:,:,:)"></INOUT>
 !   <IN NAME="tindex" TYPE="integer"></IN>
 ! </SUBROUTINE>
-    subroutine mpp_read_r4D_r8 unit, field, data, tindex)
+    subroutine mpp_read_r4D_r8(unit, field, data, tindex)
       integer, intent(in) :: unit
       type(fieldtype), intent(in) :: field
       real(KIND=r8_kind), intent(inout) :: data(:,:,:,:)
@@ -164,7 +164,7 @@
 !   <INOUT NAME="data" TYPE="real(KIND=r8_kind)" DIM="(:,:,:,:)"></INOUT>
 !   <IN NAME="tindex" TYPE="integer"></IN>
 ! </SUBROUTINEr4
-    subroutine mpp_read_r4D_r4 unit, field, data, tindex)
+    subroutine mpp_read_r4D_r4(unit, field, data, tindex)
       integer, intent(in) :: unit
       type(fieldtype), intent(in) :: field
       real(KIND=r4_kind), intent(inout) :: data(:,:,:,:)
