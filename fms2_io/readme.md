@@ -3,15 +3,13 @@
 This guide helps covert fms_io/mpp_io code to fms2_io
 
 ### A. FMS2_io Fileobjs
+FMS2_io rovides three new derived types, which target the different I/O paradigms used in GFDL models. 
 
-#### 1. FmsNetcdfFile_t
-This type provides a thin wrapper over the netCDF4 library, but allows the user to assign a “pelist” to the file. If a pelist is assigned, only the first rank on the list directly interacts with the netCDF library, and performs broadcasts to relay the information to the rest of the ranks on the list.
+**1. FmsNetcdfFile_t:** This type provides a thin wrapper over the netCDF4 library, but allows the user to assign a “pelist” to the file. If a pelist is assigned, only the first rank on the list directly interacts with the netCDF library, and performs broadcasts to relay the information to the rest of the ranks on the list.
 
-#### 2. FmsNetcdfDomainFile_t
-This type extends the FmsNetcdfFile_t type to support “domain-decomposed” reads/writes on a user-defined mpp_domains two-dimensional lon-lat or cubed-sphere grid. This fileobj can write/read non-domain-decomposed variables as well. 
+**2. FmsNetcdfDomainFile_t:** This type extends the FmsNetcdfFile_t type to support “domain-decomposed” reads/writes on a user-defined mpp_domains two-dimensional lon-lat or cubed-sphere grid. This fileobj can write/read non-domain-decomposed variables as well. 
 
-#### 3. FmsNetcdfUnstructuredDomainFile_t
-This type extends the FmsNetcdfFile_t type to support “domain-decomposed” reads/writes on a user defined mpp_domains unstructured grid. This fileobj can write/read non-domain-decomposed variables as well.
+**3. FmsNetcdfUnstructuredDomainFile_t:** This type extends the FmsNetcdfFile_t type to support “domain-decomposed” reads/writes on a user defined mpp_domains unstructured grid. This fileobj can write/read non-domain-decomposed variables as well.
 
 ### B. Writing Restarts
  
@@ -46,7 +44,7 @@ Metadata:
 
 use fms2_io_mod,        only: FmsNetcdfDomainFile_t, register_restart_field, register_axis, unlimited
 use fms2_io_mod,        only: open_file, close_file, write_restart
-use mpp_domains_mod,    only: domain, center
+use mpp_domains_mod,    only: domain2d, center
 
 type(FmsNetcdfDomainFile_t) :: fileobj        !< Fms2_io domain decomposed fileobj
 real, dimension(:,:,:,:)    :: variable_data  !< Variable data in the compute or data domain
@@ -146,9 +144,102 @@ call register_global_attribute(fileobj, "global_attribute_name", value)
 The restarts can be read the same way as the writes. The only difference is that "read" is used in the `open_file` call and `read_restart` is used instead of `write restart`. 
 
 #### Other helpful information:
+- **Variable attributes** can be read by calling `get_variable_attribute` scalar and 1d real and integers (32 and 64 bit) and string values are supported. To check if a variable attribute exists before reading, the logical function `variable_att_exists` can be used
+```F90
+if (variable_att_exists(fileobj, "varname", "attribute_name")) then
+   call get_variable_attribute(fileobj, "varname", "attribute_name", value)
+endif
+```
+The fms_io equivalent of this is `get_var_att_value`. The mpp_io equivalent is `mpp_get_att_value`
+- **Global attributes** can be read by calling `get_global_attribute` scalar and 1d real and integers (32 and 64 bit) and scalar string values are supported. To check if a global attribute exist before reading, the logical function `global_att_exists` can be used.
+```F90
+if (global_att_exists(fileobj, "global_attribute_name)) then
+   call get_global_attribute(fileobj, "global_attribute_name", value)
+endif
+```
+The fms_io equivalent of this is `get_global_att_value`. 
 
-### D. Reading non-restarts
+- **Dimensions** 
+  - `get_num_dimensions` can be used to get the total number of dimensions in a file
+  - `get_dimension_names` can be used to get the dimension names in a file
+  - `dimension_exists` is a logical function that can be used to check if a dimension exists
+  - `get_unlimited_dimension_name` can be used to get the name of the unlimited dimension in a file
+  - `is_dimension_unlimited` is a logical function that can be used to determine if a dimension is unlimited
+  - `get_dimension_size` can be used to get the size of a dimension
+ 
+ Sample usage:
+ ```F90
+ ndims_file = get_num_dimensions(fileobj)
+ allocate(dim_names_file(ndims_file))
+ call get_dimension_names(fileobj, dim_names_file)
+ 
+ call get_unlimited_dimension_name(fileobj, dimension_name)
+ if (is_dimension_unlimited(fileobj, "dimension_name")) call mpp_error(FATAL, "dimension_name is not an unlimited dimension")
+ 
+ if (dimension_exists(fileobj, "dimension_name")) then
+     call get_dimension_size(fileobj, "dimension_name", dimsize)
+ endif
+ ```
+- **Variables**
+  - `` can be used to get the number of variables in a file
+  - `` can be used to get the variables names in a file
+  - `` is a logical function that can be used to check if a variable exists
+  - `` can be used to get the number of dimensions in a variable
+  - `` can be used to get the size of the variable.
+  - `` can be used to get the names of the dimensions in a variable
 
-### E. Coupler type restarts
+Sample usage:
 
-### F. Boundary conditions restarts
+### D. Reading/Writting Non-restarts
+Reading and writing netcdf files can also be accomplished using `read_data` and `write_data` calls.
+
+#### 1. Domain decomposed read/write:
+```F90
+
+use fms2_io_mod,        only: FmsNetcdfDomainFile_t, register_field, register_axis, unlimited
+use fms2_io_mod,        only: open_file, close_file, write_data
+use mpp_domains_mod,    only: domain2d, center
+
+type(FmsNetcdfDomainFile_t) :: fileobj        !< Fms2_io domain decomposed fileobj
+real, dimension(:,:,:,:)    :: variable_data  !< Variable data in the compute or data domain
+type (domain2d)             :: domain         !< 2d mpp domain
+character(len=8),           :: dim_names(4)   !< Array of dimension names
+
+dim_names(1) = "xaxis_1"
+dim_names(2) = "yaxis_1"
+dim_names(3) = "zaxis_1"
+dim_names(4) = "Time"
+
+if (open_file(fileobj, "filename", "ovewrite", domain, is_restart=.true.)) then
+  call register_axis(fileobj, dim_names(1), "x", position=center)
+  call register_axis(fileobj, dim_names(2), "y", position=center)
+  call register_axis(fileobj, dim_names(3), dimsize)
+  call register_axis(fileobj, dim_names(4), unlimited)
+  
+  call register_field(fileobj, 'variable_name', variable_data, dim_names)
+  call read_data(fileobj, 'variable_name', variable_data)
+  call close_file(fileobj)
+endif
+```
+Similarly for domain reads:
+```F90
+if (open_file(fileobj, "filename", "read", domain, is_restart=.true.)) then
+  call register_axis(fileobj, dim_names(1), "x", position=center)
+  call register_axis(fileobj, dim_names(2), "y", position=center)
+  call register_axis(fileobj, dim_names(3), dimsize)
+  call register_axis(fileobj, dim_names(4), unlimited)
+  
+  call register_field(fileobj, 'variable_name', variable_data, dim_names)
+  call read_data(fileobj, 'variable_name', variable_data)
+  call close_file(fileobj)
+endif
+```
+
+#### 2. Unstructured Domain non-restart read/writes
+
+#### 3. Non-domain decomposed read/writes
+
+
+### E. Coupler Type Restarts
+
+### F. Boundary Conditions Restarts
