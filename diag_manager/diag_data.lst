@@ -1,0 +1,1133 @@
+Page 1           Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54                                 /tmp/ifortXaQmeC.i90
+
+      1 # 1 "diag_data.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 !> @file
+     22 !! @brief Type descriptions and global variables for the diag_manager modules.
+     23 !! @author Seth Underwood
+     24 !! @email gfdl.climate.model.info@noaa.gov
+     25 !!
+     26 !!   Notation:
+     27 !!   <DL>
+     28 !!     <DT>input field</DT>
+     29 !!     <DD>The data structure describing the field as
+     30 !!       registered by the model code.</DD>
+     31 !!
+     32 !!     <DT>output field</DT>
+     33 !!     <DD>The data structure describing the actual
+     34 !!       diagnostic output with requested frequency and
+     35 !!       other options.</DD>
+     36 !!   </DL>
+     37 !!
+     38 !!   Input fields, output fields, and output files are gathered in arrays called
+     39 !!   "input_fields", "output_fields", and "files", respectively. Indices in these
+     40 !!   arrays are used as pointers to create associations between various data
+     41 !!   structures.
+     42 !!
+     43 !!   Each input field associated with one or several output fields via array of
+     44 !!   indices output_fields; each output field points to the single "parent" input
+     45 !!   field with the input_field index, and to the output file with the output_file
+     46 !!   index.
+     47 MODULE diag_data_mod
+     48 use platform_mod
+     49 ! <CONTACT EMAIL="seth.underwood@noaa.gov">
+     50 !   Seth Underwood
+     51 ! </CONTACT>
+     52 
+     53 ! <OVERVIEW>
+     54 !   Type descriptions and global variables for the diag_manager modules.
+     55 ! </OVERVIEW>
+     56 
+     57 ! <DESCRIPTION>
+
+Page 2           Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54                                 diag_data.F90
+
+     58 !   Notation:
+     59 !   <DL>
+     60 !     <DT>input field</DT>
+     61 !     <DD>The data structure describing the field as
+     62 !       registered by the model code.</DD>
+     63 !
+     64 !     <DT>output field</DT>
+     65 !     <DD>The data structure describing the actual
+     66 !       diagnostic output with requested frequency and
+     67 !       other options.</DD>
+     68 !   </DL>
+     69 !
+     70 !   Input fields, output fields, and output files are gathered in arrays called
+     71 !   "input_fields", "output_fields", and "files", respectively. Indices in these
+     72 !   arrays are used as pointers to create associations between various data
+     73 !   structures.
+     74 !
+     75 !   Each input field associated with one or several output fields via array of
+     76 !   indices output_fields; each output field points to the single "parent" input
+     77 !   field with the input_field index, and to the output file with the output_file
+     78 !   index
+     79 ! </DESCRIPTION>
+     80 
+     81   USE time_manager_mod, ONLY: time_type
+     82   USE mpp_domains_mod, ONLY: domain1d, domain2d, domainUG
+     83   USE mpp_io_mod, ONLY: fieldtype
+     84   USE fms_mod, ONLY: WARNING, write_version_number
+     85 
+     86 ! NF90_FILL_REAL has value of 9.9692099683868690e+36.
+     87   USE netcdf, ONLY: NF_FILL_REAL => NF90_FILL_REAL
+     88 
+     89   use fms2_io_mod
+     90 
+     91   IMPLICIT NONE
+     92 
+     93   PUBLIC
+     94 
+     95 
+     96 ! <!-- PARAMETERS for diag_data.F90 -->
+     97 ! <DATA NAME="MAX_FIELDS_PER_FILE" TYPE="INTEGER, PARAMETER" DEFAULT="300">
+     98 !   Maximum number of fields per file.
+     99 ! </DATA>
+    100 ! <DATA NAME="DIAG_OTHER" TYPE="INTEGER, PARAMETER" DEFAULT="0" />
+    101 ! <DATA NAME="DIAG_OCEAN" TYPE="INTEGER, PARAMETER" DEFAULT="1" />
+    102 ! <DATA NAME="DIAG_ALL" TYPE="INTEGER, PARAMETER" DEFAULT="2" />
+    103 ! <DATA NAME="VERY_LARGE_FILE_FREQ" TYPE="INTEGER, PARAMETER" DEFAULT="100000" />
+    104 ! <DATA NAME="VERY_LARGE_AXIS_LENGTH" TYPE="INTEGER, PARAMETER" DEFAUTL="10000" />
+    105 ! <DATA NAME="EVERY_TIME" TYPE="INTEGER, PARAMETER" DEFAULT="0" />
+    106 ! <DATA NAME="END_OF_RUN" TYPE="INTEGER, PARAMETER" DEFAULT="-1" />
+    107 ! <DATA NAME="DIAG_SECONDS" TYPE="INTEGER, PARAMETER" DEFAULT="1" />
+    108 ! <DATA NAME="DIAG_MINUTES" TYPE="INTEGER, PARAMETER" DEFAULT="2" />
+    109 ! <DATA NAME="DIAG_HOURS" TYPE="INTEGER, PARAMETER" DEFAULT="3" />
+    110 ! <DATA NAME="DIAG_DAYS" TYPE="INTEGER, PARAMETER" DEFAULT="4" />
+    111 ! <DATA NAME="DIAG_MONTHS" TYPE="INTEGER, PARAMETER" DEFAULT="5" />
+    112 ! <DATA NAME="DIAG_YEARS" TYPE="INTEGER, PARAMETER" DEFAULT="6" />
+    113 ! <DATA NAME="MAX_SUBAXES" TYPE="INTEGER, PARAMETER" DEFAULT="10" />
+    114 ! <DATA NAME="CMOR_MISSING_VALUE" TYPE="REAL, PARAMETER" DEFAULT="1.0e20" />
+
+Page 3           Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54                                 diag_data.F90
+
+    115 ! <DATA NAME="GLO_REG_VAL" TYPE="INTEGER, PARAMETER" DEFAULT="-999">
+    116 !   Value used in the region specification of the diag_table to indicate to use the full axis instead of a sub-axis
+    117 ! </DATA>
+    118 ! <DATA NAME="GLO_REG_VAL_ALT" TYPE="INTEGER, PARAMETER" DEFAULT="-1">
+    119 !   Alternate value used in the region specification of the diag_table to indicate to use the full axis instead of a sub-axi
+    119 s
+    120 ! </DATA>
+    121 ! <DATA NAME="DIAG_FIELD_NOT_FOUND" TYPE="INTEGER, PARAMETER" DEFAULT="-1">
+    122 !   Return value for a diag_field that isn't found in the diag_table
+    123 ! </DATA>
+    124 ! Specify storage limits for fixed size tables used for pointers, etc.
+    125   INTEGER, PARAMETER :: MAX_FIELDS_PER_FILE = 300 !< Maximum number of fields per file.
+    126   INTEGER, PARAMETER :: DIAG_OTHER = 0
+    127   INTEGER, PARAMETER :: DIAG_OCEAN = 1
+    128   INTEGER, PARAMETER :: DIAG_ALL   = 2
+    129   INTEGER, PARAMETER :: VERY_LARGE_FILE_FREQ = 100000
+    130   INTEGER, PARAMETER :: VERY_LARGE_AXIS_LENGTH = 10000
+    131   INTEGER, PARAMETER :: EVERY_TIME =  0
+    132   INTEGER, PARAMETER :: END_OF_RUN = -1
+    133   INTEGER, PARAMETER :: DIAG_SECONDS = 1, DIAG_MINUTES = 2, DIAG_HOURS = 3
+    134   INTEGER, PARAMETER :: DIAG_DAYS = 4, DIAG_MONTHS = 5, DIAG_YEARS = 6
+    135   INTEGER, PARAMETER :: MAX_SUBAXES = 10
+    136   INTEGER, PARAMETER :: GLO_REG_VAL = -999 !< Value used in the region specification of the diag_table
+    137 !! to indicate to use the full axis instead of a sub-axis
+    138   INTEGER, PARAMETER :: GLO_REG_VAL_ALT = -1 !< Alternate value used in the region specification of the
+    139 !! diag_table to indicate to use the full axis instead of a sub-axis
+    140   REAL, PARAMETER :: CMOR_MISSING_VALUE = 1.0e20 !< CMOR standard missing value
+    141   INTEGER, PARAMETER :: DIAG_FIELD_NOT_FOUND = -1 !< Return value for a diag_field that isn't found in the diag_table
+    142 
+    143 !> @brief Contains the coordinates of the local domain to output.
+    144   TYPE diag_grid
+    145      REAL, DIMENSION(3) :: start !< start coordinates (lat,lon,depth) of local domain to output
+    146      REAL, DIMENSION(3) :: END !< end coordinates (lat,lon,depth) of local domain to output
+    147      INTEGER, DIMENSION(3) :: l_start_indx !< start indices at each LOCAL PE
+    148      INTEGER, DIMENSION(3) :: l_end_indx !< end indices at each LOCAL PE
+    149      INTEGER, DIMENSION(3) :: subaxes !< id returned from diag_subaxes_init of 3 subaxes
+    150   END TYPE diag_grid
+    151 
+    152 !> @brief Diagnostic field type
+    153   TYPE diag_fieldtype
+    154      TYPE(fieldtype) :: Field
+    155      TYPE(domain2d) :: Domain
+    156      TYPE(domainUG) :: DomainU
+    157      REAL :: miss, miss_pack
+    158      LOGICAL :: miss_present, miss_pack_present
+    159      INTEGER :: tile_count
+    160   END TYPE diag_fieldtype
+    161 
+    162 !> @brief Attribute type for diagnostic fields
+    163   type :: diag_atttype
+    164      INTEGER             :: type !< Data type of attribute values (NF_INT, NF_FLOAT, NF_CHAR)
+    165      INTEGER             :: len !< Number of values in attribute, or if a character string then
+    166 !! length of the string.
+    167      CHARACTER(len=128)  :: name !< Name of the attribute
+    168      CHARACTER(len=1280) :: catt !< Character string to hold character value of attribute
+    169      REAL, allocatable, DIMENSION(:)    :: fatt !< REAL array to hold value of REAL attributes
+    170      INTEGER, allocatable, DIMENSION(:) :: iatt !< INTEGER array to hold value of INTEGER attributes
+
+Page 4           Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54                                 diag_data.F90
+
+    171   end type diag_atttype
+    172 
+    173 !> @brief Define the region for field output
+    174   TYPE coord_type
+    175      REAL :: xbegin
+    176      REAL :: xend
+    177      REAL :: ybegin
+    178      REAL :: yend
+    179      REAL :: zbegin
+    180      REAL :: zend
+    181   END TYPE coord_type
+    182 
+    183 !> @brief Type to define the diagnostic files that will be written as defined by the diagnostic table.
+    184   TYPE file_type
+    185      CHARACTER(len=128) :: name !< Name of the output file.
+    186      CHARACTER(len=128) :: long_name
+    187      INTEGER, DIMENSION(max_fields_per_file) :: fields
+    188      INTEGER :: num_fields
+    189      INTEGER :: output_freq
+    190      INTEGER :: output_units
+    191      INTEGER :: FORMAT
+    192      INTEGER :: time_units
+    193      INTEGER :: file_unit
+    194      INTEGER :: bytes_written
+    195      INTEGER :: time_axis_id, time_bounds_id
+    196      INTEGER :: new_file_freq !< frequency to create new file
+    197      INTEGER :: new_file_freq_units !< time units of new_file_freq (days, hours, years, ...)
+    198      INTEGER :: duration
+    199      INTEGER :: duration_units
+    200      INTEGER :: tile_count
+    201      LOGICAL :: local !< .TRUE. if fields are output in a region instead of global.
+    202      TYPE(time_type) :: last_flush
+    203      TYPE(time_type) :: next_open !< Time to open a new file.
+    204      TYPE(time_type) :: start_time !< Time file opened.
+    205      TYPE(time_type) :: close_time !< Time file closed.  File does not allow data after close time
+    206      TYPE(diag_fieldtype):: f_avg_start, f_avg_end, f_avg_nitems, f_bounds
+    207      TYPE(diag_atttype), allocatable, dimension(:) :: attributes !< Array to hold user definable attributes
+    208      INTEGER :: num_attributes !< Number of defined attibutes
+    209 !----------
+    210 !ug support
+    211      logical(I4_KIND) :: use_domainUG = .false.
+    212      logical(I4_KIND) :: use_domain2D = .false.
+    213 !----------
+    214 !Check if time axis was already registered
+    215      logical, allocatable :: is_time_axis_registered
+    216 !Support for fms2_io time
+    217      real :: rtime_current
+    218      integer :: time_index
+    219      CHARACTER(len=10) :: filename_time_bounds
+    220   END TYPE file_type
+    221 
+    222 !> @brief Type to hold the input field description
+    223   TYPE input_field_type
+    224      CHARACTER(len=128) :: module_name, field_name, long_name, units
+    225      CHARACTER(len=256) :: standard_name
+    226      CHARACTER(len=64) :: interp_method
+    227      INTEGER, DIMENSION(3) :: axes
+
+Page 5           Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54                                 diag_data.F90
+
+    228      INTEGER :: num_axes
+    229      LOGICAL :: missing_value_present, range_present
+    230      REAL :: missing_value
+    231      REAL, DIMENSION(2) :: range
+    232      INTEGER, allocatable, dimension(:) :: output_fields
+    233      INTEGER :: num_output_fields
+    234      INTEGER, DIMENSION(3) :: size
+    235      LOGICAL :: static, register, mask_variant, local
+    236      INTEGER :: numthreads
+    237      INTEGER :: active_omp_level !< The current level of OpenMP nesting
+    238      INTEGER :: tile_count
+    239      TYPE(coord_type) :: local_coord
+    240      TYPE(time_type)  :: time
+    241      LOGICAL :: issued_mask_ignore_warning !< Indicates if the mask_ignore_warning
+    242 !! has been issued for this input
+    243 !! field.  Once .TRUE. the warning message
+    244 !! is suppressed on all subsequent
+    245 !! send_data calls.
+    246   END TYPE input_field_type
+    247 
+    248 !> @brief Type to hold the output field description.
+    249   TYPE output_field_type
+    250      INTEGER :: input_field !< index of the corresponding input field in the table
+    251      INTEGER :: output_file !< index of the output file in the table
+    252      CHARACTER(len=128) :: output_name
+    253      LOGICAL :: time_average !< true if the output field is averaged over time interval
+    254      LOGICAL :: time_rms !< true if the output field is the rms.  If true, then time_average is also
+    255      LOGICAL :: static
+    256      LOGICAL :: time_max !< true if the output field is maximum over time interval
+    257      LOGICAL :: time_min !< true if the output field is minimum over time interval
+    258      LOGICAL :: time_sum !< true if the output field is summed over time interval
+    259      LOGICAL :: time_ops !< true if any of time_min, time_max, time_rms or time_average is true
+    260      INTEGER  :: pack
+    261      INTEGER :: pow_value !< Power value to use for mean_pow(n) calculations
+    262      CHARACTER(len=50) :: time_method !< time method field from the input file
+    263 ! coordinates of the buffer and counter are (x, y, z, time-of-day)
+    264      REAL, allocatable, DIMENSION(:,:,:,:) :: buffer !< coordinates of the buffer and counter are (x, y, z, time-of-day)
+    265      REAL, allocatable, DIMENSION(:,:,:,:) :: counter !< coordinates of the buffer and counter are (x, y, z, time-of-day)
+    266 ! the following two counters are used in time-averaging for some
+    267 ! combination of the field options. Their size is the length of the
+    268 ! diurnal axis; the counters must be tracked separately for each of
+    269 ! the diurnal interval, because the number of time slices accumulated
+    270 ! in each can be different, depending on time step and the number of
+    271 ! diurnal samples.
+    272      REAL, allocatable, DIMENSION(:)  :: count_0d !< the following two counters are used in time-averaging for some
+    273 !! combination of the field options. Their size is the length of the
+    274 !! diurnal axis; the counters must be tracked separately for each of
+    275 !! the diurnal interval, because the number of time slices accumulated
+    276 !! in each can be different, depending on time step and the number of
+    277 !! diurnal samples.
+    278      INTEGER, allocatable, dimension(:) :: num_elements !< the following two counters are used in time-averaging for some
+    279 !! combination of the field options. Their size is the length of the
+    280 !! diurnal axis; the counters must be tracked separately for each of
+    281 !! the diurnal interval, because the number of time slices accumulated
+    282 !! in each can be different, depending on time step and the number of
+    283 !! diurnal samples.
+    284 
+
+Page 6           Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54                                 diag_data.F90
+
+    285      TYPE(time_type) :: last_output, next_output, next_next_output
+    286      TYPE(diag_fieldtype) :: f_type
+    287      INTEGER, DIMENSION(4) :: axes
+    288      INTEGER :: num_axes, total_elements, region_elements
+    289      INTEGER :: n_diurnal_samples !< number of diurnal sample intervals, 1 or more
+    290      TYPE(diag_grid) :: output_grid
+    291      LOGICAL :: local_output, need_compute, phys_window, written_once
+    292      LOGICAL :: reduced_k_range
+    293      INTEGER :: imin, imax, jmin, jmax, kmin, kmax
+    294      TYPE(time_type) :: Time_of_prev_field_data
+    295      TYPE(diag_atttype), allocatable, dimension(:) :: attributes
+    296      INTEGER :: num_attributes
+    297 !----------
+    298 !ug support
+    299      logical :: reduced_k_unstruct = .false.
+    300 !----------
+    301   END TYPE output_field_type
+    302 
+    303 !> @brief Type to hold the diagnostic axis description.
+    304   TYPE diag_axis_type
+    305      CHARACTER(len=128) :: name
+    306      CHARACTER(len=256) :: units, long_name
+    307      CHARACTER(len=1) :: cart_name
+    308      REAL, DIMENSION(:), POINTER :: data
+    309      INTEGER, DIMENSION(MAX_SUBAXES) :: start
+    310      INTEGER, DIMENSION(MAX_SUBAXES) :: end
+    311      CHARACTER(len=128), DIMENSION(MAX_SUBAXES) :: subaxis_name
+    312      INTEGER :: length, direction, edges, set, shift
+    313      TYPE(domain1d) :: Domain
+    314      TYPE(domain2d) :: Domain2
+    315      TYPE(domain2d), dimension(MAX_SUBAXES) :: subaxis_domain2
+    316      type(domainUG) :: DomainUG
+    317      CHARACTER(len=128) :: aux, req
+    318      INTEGER :: tile_count
+    319      TYPE(diag_atttype), allocatable, dimension(:) :: attributes !< Array to hold user definable attributes
+    320      INTEGER :: num_attributes !< Number of defined attibutes
+    321      INTEGER :: domain_position !< The position in the doman (NORTH or EAST or CENTER)
+    322   END TYPE diag_axis_type
+    323 ! </TYPE>
+    324 
+    325 ! <TYPE NAME="diag_global_att_type">
+    326 !   <DESCRIPTION>
+    327 !   </DESCRIPTION>
+    328 !   <DATA NAME="grid_type" TYPE="CHARACTER(len=128)" DEFAULT="regular">
+    329 !   </DATA>
+    330 !   <DATA NAME="tile_name" TYPE="CHARACTER(len=128)" DEFAULT="N/A">
+    331 !   </DATA>
+    332   TYPE diag_global_att_type
+    333      CHARACTER(len=128)   :: grid_type='regular'
+    334      CHARACTER(len=128)   :: tile_name='N/A'
+    335   END TYPE diag_global_att_type
+    336 ! </TYPE>
+    337 
+    338 ! Include variable "version" to be written to log file.
+    339 # 1 "../include/file_version.h" 1 
+    340 ! -*-f90-*-
+    341 !***********************************************************************
+
+Page 7           Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54                                 ../include/file_version.h
+
+    342 !*                   GNU Lesser General Public License
+    343 !*
+    344 !* This file is part of the GFDL Flexible Modeling System (FMS).
+    345 !*
+    346 !* FMS is free software: you can redistribute it and/or modify it under
+    347 !* the terms of the GNU Lesser General Public License as published by
+    348 !* the Free Software Foundation, either version 3 of the License, or (at
+    349 !* your option) any later version.
+    350 !*
+    351 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+    352 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+    353 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+    354 !* for more details.
+    355 !*
+    356 !* You should have received a copy of the GNU Lesser General Public
+    357 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+    358 !***********************************************************************
+    359 
+    360 # 23
+    361 
+    362   character(len=*), parameter :: version = 'unknown'
+    363 
+    364 # 339 "diag_data.F90" 2 
+    365 
+    366 ! <!-- Other public variables -->
+    367 ! <DATA NAME="num_files" TYPE="INTEGER" DEFAULT="0">
+    368 !   Number of output files currenly in use by the diag_manager.
+    369 ! </DATA>
+    370 ! <DATA NAME="num_input_fields" TYPE="INTEGER" DEFAULT="0">
+    371 !   Number of input fields in use.
+    372 ! </DATA>
+    373 ! <DATA NAME="num_output_fields" TYPE="INTEGER" DEFAULT="0">
+    374 !   Number of output fields in use.
+    375 ! </DATA>
+    376 ! <DATA NAME="null_axis_id" TYPE="INTEGER" />
+    377   INTEGER :: num_files = 0 !< Number of output files currenly in use by the diag_manager.
+    378   INTEGER :: num_input_fields = 0 !< Number of input fields in use.
+    379   INTEGER :: num_output_fields = 0 !< Number of output fields in use.
+    380   INTEGER :: null_axis_id
+    381 
+    382 ! <!-- Namelist variables -->
+    383 ! <DATA NAME="append_pelist_name" TYPE="LOGICAL" DEFAULT=".FALSE." />
+    384 ! <DATA NAME="mix_snapshot_average_fields" TYPE="LOGICAL" DEFAULT=".FALSE." />
+    385 ! <DATA NAME="max_files" TYPE="INTEGER" DEFAULT="31">
+    386 !   Maximum number of output files allowed.  Increase via the diag_manager_nml namelist.
+    387 ! </DATA>
+    388 ! <DATA NAME="max_output_fields" TYPE="INTEGER" DEFAULT="300">
+    389 !   Maximum number of output fields.  Increase via the diag_manager_nml namelist.
+    390 ! </DATA>
+    391 ! <DATA NAME="max_input_fields" TYPE="INTEGER" DEFAULT="600">
+    392 !   Maximum number of input fields.  Increase via the diag_manager_nml namelist.
+    393 ! </DATA>
+    394 ! <DATA NAME="max_out_per_in_field" TYPE="INTEGER" DEFAULT="150">
+    395 !   Maximum number of output_fields per input_field.
+    396 ! </DATA>
+    397 ! <DATA NAME="max_axes" TYPE="INTEGER" DEFAULT="60">
+    398 !   Maximum number of independent axes.
+
+Page 8           Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54                                 diag_data.F90
+
+    399 ! </DATA>
+    400 ! <DATA NAME="do_diag_field_log" TYPE="LOGICAL" DEFAULT=".FALSE." />
+    401 ! <DATA NAME="write_bytes_in_file" TYPE="LOGICAL" DEFAULT=".FALSE." />
+    402 ! <DATA NAME="flush_nc_files" TYPE="LOGICAL" DEFAULT=".FALSE.">
+    403 !   Indicate if diag_manager should force the flush of the netCDF diagnostic
+    404 !   files to disk Note: changing this to .TRUE. can greatly reduce the model
+    405 !   performance as at each write to the netCDF diagnostic file, the model must
+    406 !   wait until the flush to disk finishes.
+    407 ! </DATA>
+    408 ! <DATA NAME="debug_diag_manager" TYPE="LOGICAL" DEFAULT=".FALSE." />
+    409 ! <DATA NAME="max_num_axis_sets" TYPE="INTEGER" DEFAULT="25" />
+    410 ! <DATA NAME="use_cmor" TYPE="LOGICAL" DEFAULT=".FALSE.">
+    411 !   Indicates if we should overwrite the MISSING_VALUE to use the CMOR missing value.
+    412 ! </DATA>
+    413 ! <DATA NAME="issue_oor_warnings" TYPE="LOGICAL" DEFAULT=".TRUE.">
+    414 !   Issue warnings if the output field has values outside the given
+    415 !   range for a variable.
+    416 ! </DATA>
+    417 ! <DATA NAME="oor_warnings_fatal" TYPE="LOGICAL" DEFAULT=".FALSE.">
+    418 !   Cause a fatal error if the output field has a value outside the
+    419 !   given range for a variable.
+    420 ! </DATA>
+    421 ! <DATA NAME="max_field_attributes" TYPE="INTEGER" DEFAULT="4">
+    422 !   Maximum number of user definable attributes per field.
+    423 ! </DATA>
+    424 ! <DATA NAME="max_file_attributes" TYPE="INTEGER" DEFAULT="2">
+    425 !   Maximum number of user definable global attributes per file.
+    426 ! </DATA>
+    427 ! <DATA NAME="max_axis_attributes" TYPE="INTEGER" DEFAULT="2">
+    428 !   Maximum number of user definable attributes per axis.
+    429 ! </DATA>
+    430 ! <DATA NAME="prepend_date" TYPE="LOGICAL" DEFAULT=".TRUE.">
+    431 !   Indicates if the file start date will be prepended to the file name.  <TT>.TRUE.</TT> is
+    432 !   only supported if the diag_manager_init routine is called with the optional time_init parameter.
+    433 !   This was usually done by FRE after the model run.
+    434 ! </DATA>
+    435 ! <DATA NAME="region_out_use_alt_value" TYPE="LOGICAL" DEFAULT=".TRUE.">
+    436 !   Will determine which value to use when checking a regional output if the region is the full axis or a sub-axis.
+    437 !   The values are defined as <TT>GLO_REG_VAL</TT> (-999) and <TT>GLO_REG_VAL_ALT</TT> (-1) in <TT>diag_data_mod</TT>.
+    438 ! </DATA>
+    439   LOGICAL :: append_pelist_name = .FALSE.
+    440   LOGICAL :: mix_snapshot_average_fields =.FALSE.
+    441   INTEGER :: max_files = 31 !< Maximum number of output files allowed.  Increase via diag_manager_nml.
+    442   INTEGER :: max_output_fields = 300 !< Maximum number of output fields.  Increase via diag_manager_nml.
+    443   INTEGER :: max_input_fields = 600 !< Maximum number of input fields.  Increase via diag_manager_nml.
+    444   INTEGER :: max_out_per_in_field = 150 !< Maximum number of output_fields per input_field.  Increase via diag_manager_nml.
+    445   INTEGER :: max_axes = 60 !< Maximum number of independent axes.
+    446   LOGICAL :: do_diag_field_log = .FALSE.
+    447   LOGICAL :: write_bytes_in_file = .FALSE.
+    448   LOGICAL :: debug_diag_manager = .FALSE.
+    449   LOGICAL :: flush_nc_files = .FALSE. !< Control if diag_manager will force a
+    450 !! flush of the netCDF file on each write.
+    451 !! Note: changing this to .TRUE. can greatly
+    452 !! reduce the performance of the model, as the
+    453 !! model must wait until the flush to disk has
+    454 !! completed.
+    455   INTEGER :: max_num_axis_sets = 25
+
+Page 9           Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54                                 diag_data.F90
+
+    456   LOGICAL :: use_cmor = .FALSE. !< Indicates if we should overwrite the MISSING_VALUE to use the CMOR missing value.
+    457   LOGICAL :: issue_oor_warnings = .TRUE. !< Issue warnings if the output field has values outside the given
+    458 !! range for a variable.
+    459   LOGICAL :: oor_warnings_fatal = .FALSE. !< Cause a fatal error if the output field has a value outside the
+    460 !! given range for a variable.
+    461   LOGICAL :: region_out_use_alt_value = .TRUE. !< Will determine which value to use when checking a regional
+    462 !! output if the region is the full axis or a sub-axis.
+    463 !! The values are defined as <TT>GLO_REG_VAL</TT>
+    464 !! (-999) and <TT>GLO_REG_VAL_ALT</TT> (-1) in <TT>diag_data_mod</TT>.
+    465 
+    466   INTEGER :: max_field_attributes = 4 !< Maximum number of user definable attributes per field. Liptak: Changed from 2 to 4 
+    466 20170718
+    467   INTEGER :: max_file_attributes = 2 !< Maximum number of user definable global attributes per file.
+    468   INTEGER :: max_axis_attributes = 4 !< Maximum number of user definable attributes per axis.
+    469   LOGICAL :: prepend_date = .TRUE. !< Should the history file have the start date prepended to the file name
+    470   LOGICAL :: use_mpp_io = .false. !< false is fms2_io (default); true is mpp_io
+    471 
+    472 ! <!-- netCDF variable -->
+    473 ! <DATA NAME="FILL_VALUE" TYPE="REAL" DEFAULT="NF90_FILL_REAL">
+    474 !   Fill value used.  Value will be <TT>NF90_FILL_REAL</TT> if using the
+    475 !   netCDF module, otherwise will be 9.9692099683868690e+36.
+    476 ! </DATA>
+    477 
+    478   REAL :: FILL_VALUE = NF_FILL_REAL !< Fill value used.  Value will be <TT>NF90_FILL_REAL</TT> if using the
+    479 !! netCDF module, otherwise will be 9.9692099683868690e+36.
+    480 ! from file /usr/local/include/netcdf.inc
+    481 # 457
+    482 
+    483 
+    484   INTEGER :: pack_size = 1 !< 1 for double and 2 for float
+    485 
+    486 ! <!-- REAL public variables -->
+    487 ! <DATA NAME="EMPTY" TYPE="REAL" DEFAULT="0.0" />
+    488 ! <DATA NAME="MAX_VALUE" TYPE="REAL" />
+    489 ! <DATA NAME="MIN_VALUE" TYPE="REAL" />
+    490   REAL :: EMPTY = 0.0
+    491   REAL :: MAX_VALUE, MIN_VALUE
+    492 
+    493 ! <!-- Global data for all files -->
+    494 ! <DATA NAME="diag_init_time" TYPE="TYPE(time_type)">
+    495 !   Time diag_manager_init called.  If init_time not included in
+    496 !   diag_manager_init call, then same as base_time
+    497 ! </DATA>
+    498 ! <DATA NAME="base_time" TYPE="TYPE(time_type)" />
+    499 ! <DATA NAME="base_year" TYPE="INTEGER" />
+    500 ! <DATA NAME="base_month" TYPE="INTEGER" />
+    501 ! <DATA NAME="base_day" TYPE="INTEGER" />
+    502 ! <DATA NAME="base_hour" TYPE="INTEGER" />
+    503 ! <DATA NAME="base_minute" TYPE="INTEGER" />
+    504 ! <DATA NAME="base_second" TYPE="INTEGER" />
+    505 ! <DATA NAME="global_descriptor" TYPE="CHARACTER(len=256)" />
+    506   TYPE(time_type) :: diag_init_time !< Time diag_manager_init called.  If init_time not included in
+    507 !! diag_manager_init call, then same as base_time
+    508   TYPE(time_type) :: base_time
+    509   INTEGER :: base_year, base_month, base_day, base_hour, base_minute, base_second
+    510   CHARACTER(len = 256):: global_descriptor
+    511 
+
+Page 10          Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54                                 diag_data.F90
+
+    512 ! <!-- ALLOCATABLE variables -->
+    513 ! <DATA NAME="files" TYPE="TYPE(file_type), DIMENSION(:), SAVE, ALLOCATABLE" />
+    514 ! <DATA NAME="input_fields" TYPE="TYPE(input_field_type), DIMENSION(:), ALLOCATABLE" />
+    515 ! <DATA NAME="output_fields" TYPE="TYPE(output_field_type), DIMENSION(:), ALLOCATABLE" />
+    516   TYPE(file_type), SAVE, ALLOCATABLE :: files(:)
+    517   TYPE(input_field_type), ALLOCATABLE :: input_fields(:)
+    518   TYPE(output_field_type), ALLOCATABLE :: output_fields(:)
+    519 !> used if use_mpp_io = .false.
+    520     type(FmsNetcdfUnstructuredDomainFile_t),allocatable, target :: fileobjU(:)
+    521     type(FmsNetcdfDomainFile_t),allocatable, target :: fileobj(:)
+    522     type(FmsNetcdfFile_t),allocatable, target :: fileobjND(:)
+    523     character(len=2),allocatable :: fnum_for_domain(:) !< If this file number in the array is for the "unstructured" or "2d"
+    523  domain
+    524 ! <!-- Even More Variables -->
+    525 ! <DATA NAME="time_zero" TYPE="TYPE(time_type)" />
+    526 ! <DATA NAME="first_send_data_call" TYPE="LOGICAL" DEFAULT=".TRUE." />
+    527 ! <DATA NAME="module_is_initialized" TYPE="LOGICAL" DEFAULT=".FALSE.">
+    528 !   Indicate if diag_manager has been initialized
+    529 ! </DATA>
+    530 ! <DATA NAME="diag_log_unit" TYPE="INTEGER" />
+    531 ! <DATA NAME="time_unit_list" TYPE="CHARACTER(len=10), DIMENSION(6)"
+    532 !       DEFAULT="(/'seconds   ', 'minutes   ', 'hours     ', 'days      ', 'months    ', 'years     '/)" />
+    533 ! <DATA NAME="pelist_name" TYPE="CHARACTER(len=32)" />
+    534   TYPE(time_type) :: time_zero
+    535   LOGICAL :: first_send_data_call = .TRUE.
+    536   LOGICAL :: module_is_initialized = .FALSE. !< Indicate if diag_manager has been initialized
+    537   INTEGER :: diag_log_unit
+    538   CHARACTER(len=10), DIMENSION(6) :: time_unit_list = (/'seconds   ', 'minutes   ',&
+    539        & 'hours     ', 'days      ', 'months    ', 'years     '/)
+    540   CHARACTER(len=32) :: pelist_name
+    541   INTEGER :: oor_warning = WARNING
+    542 
+    543 CONTAINS
+    544 
+    545 ! <SUBROUTINE NAME="diag_data_init">
+    546 !   <OVERVIEW>
+    547 !     Write the version number of this file
+    548 !   </OVERVIEW>
+    549 !   <TEMPLATE>
+    550 !     SUBROUTINE diag_util_init
+    551 !   </TEMPLATE>
+    552 !   <DESCRIPTION>
+    553 !     Write the version number of this file to the log file.
+    554 !   </DESCRIPTION>
+    555 !> @brief Write the version number of this file to the log file.
+    556   SUBROUTINE diag_data_init()
+    557     IF (module_is_initialized) THEN
+    558        RETURN
+    559     END IF
+    560 
+    561 ! Write version number out to log file
+    562     call write_version_number("DIAG_DATA_MOD", version)
+    563   END SUBROUTINE diag_data_init
+
+Page 11          Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54 Entry Points                    diag_data.F90
+
+
+
+ENTRY POINTS
+
+  Name                                        
+                                              
+ diag_data_mod_mp_diag_data_init_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DIAG_DATA_INIT             Subr   556                                                                                              
+ MODULE_IS_INITIALIZED      Local  557      L(4)            4           scalar                    536,557                           
+ VERSION                    Param  562      CHAR            7           scalar                    562                               
+ WRITE_VERSION_NUMBER       Subr   562                                                            84,562                            
+
+Page 12          Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54                                 diag_data.F90
+
+    564 ! </SUBROUTINE>
+    565 END MODULE diag_data_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ APPEND_PELIST_NAME         Local  439      L(4)            4           scalar                    439                               
+ BASE_DAY                   Local  509      I(4)            4           scalar                                                      
+ BASE_HOUR                  Local  509      I(4)            4           scalar                                                      
+ BASE_MINUTE                Local  509      I(4)            4           scalar                                                      
+ BASE_MONTH                 Local  509      I(4)            4           scalar                                                      
+ BASE_SECOND                Local  509      I(4)            4           scalar                                                      
+ BASE_TIME                  Local  508      TIME_TYPE       16          scalar                                                      
+ BASE_YEAR                  Local  509      I(4)            4           scalar                                                      
+ CMOR_MISSING_VALUE         Param  140      R(8)            8           scalar                                                      
+ COORD_TYPE                 Type   174                      48          scalar                    181,239                           
+ DEBUG_DIAG_MANAGER         Local  448      L(4)            4           scalar                    448                               
+ DIAG_ALL                   Param  128      I(4)            4           scalar                                                      
+ DIAG_ATTTYPE               Type   163                      1560        scalar                    171,207,295,319                   
+ DIAG_AXIS_TYPE             Type   304                      11440       scalar                    322                               
+ DIAG_DATA_MOD              Module 47                                                                                               
+ DIAG_DAYS                  Param  134      I(4)            4           scalar                                                      
+ DIAG_FIELDTYPE             Type   153                      2424        scalar                    160,206,286                       
+ DIAG_FIELD_NOT_FOUND       Param  141      I(4)            4           scalar                                                      
+ DIAG_GLOBAL_ATT_TYPE       Type   332                      256         scalar                    335                               
+ DIAG_GRID                  Type   144                      88          scalar                    150,290                           
+ DIAG_HOURS                 Param  133      I(4)            4           scalar                                                      
+ DIAG_INIT_TIME             Local  506      TIME_TYPE       16          scalar                                                      
+ DIAG_LOG_UNIT              Local  537      I(4)            4           scalar                                                      
+ DIAG_MINUTES               Param  133      I(4)            4           scalar                                                      
+ DIAG_MONTHS                Param  134      I(4)            4           scalar                                                      
+ DIAG_OCEAN                 Param  127      I(4)            4           scalar                                                      
+ DIAG_OTHER                 Param  126      I(4)            4           scalar                                                      
+ DIAG_SECONDS               Param  133      I(4)            4           scalar                                                      
+ DIAG_YEARS                 Param  134      I(4)            4           scalar                                                      
+ DOMAIN1D                   Type   82                                   scalar                    82,313                            
+ DOMAIN2D                   Type   82                                   scalar                    82,155,314,315                    
+ DOMAINUG                   Type   82                                   scalar                    82,156,316                        
+ DO_DIAG_FIELD_LOG          Local  446      L(4)            4           scalar                    446                               
+ EMPTY                      Local  490      R(8)            8           scalar                    490                               
+ END_OF_RUN                 Param  132      I(4)            4           scalar                                                      
+ EVERY_TIME                 Param  131      I(4)            4           scalar                                                      
+ FIELDTYPE                  Type   83                                   scalar                    83,154                            
+ FILEOBJ                    Local  521      RECORD          2040  1     1        ALC,TGT                                            
+ FILEOBJND                  Local  522      RECORD          872   1     1        ALC,TGT                                            
+ FILEOBJU                   Local  520      RECORD          1672  1     1        ALC,TGT                                            
+ FILES                      Local  516      RECORD          11400 1     1        ALC,SAVE                                           
+ FILE_TYPE                  Type   184                      11400       scalar                    220,516                           
+ FILL_VALUE                 Local  478      R(8)            8           scalar                    478                               
+ FIRST_SEND_DATA_CALL       Local  535      L(4)            4           scalar                    535                               
+ FLUSH_NC_FILES             Local  449      L(4)            4           scalar                    449                               
+ FMS2_IO_MOD                Module 89                                                             89                                
+ FMSNETCDFDOMAINFILE_T      Type   521                                  scalar                    521                               
+ FMSNETCDFFILE_T            Type   522                                  scalar                    522                               
+ FMSNETCDFUNSTRUCTUREDDOMAI                                                                                                         
+
+Page 13          Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54 Symbol Table                    diag_data.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ NFILE_T                    Type   520                                  scalar                    520                               
+ FMS_MOD                    Module 84                                                             84                                
+ FNUM_FOR_DOMAIN            Local  523      CHAR            2     1     1        ALC                                                
+ GLOBAL_DESCRIPTOR          Local  510      CHAR            256         scalar                                                      
+ GLO_REG_VAL                Param  136      I(4)            4           scalar                                                      
+ GLO_REG_VAL_ALT            Param  138      I(4)            4           scalar                                                      
+ I4_KIND                    Param  211      I(4)            4           scalar                    211,212                           
+ INPUT_FIELDS               Local  517      RECORD          1072  1     1        ALC                                                
+ INPUT_FIELD_TYPE           Type   223                      1072        scalar                    246,517                           
+ ISSUE_OOR_WARNINGS         Local  457      L(4)            4           scalar                    457                               
+ MAX_AXES                   Local  445      I(4)            4           scalar                    445                               
+ MAX_AXIS_ATTRIBUTES        Local  468      I(4)            4           scalar                    468                               
+ MAX_FIELDS_PER_FILE        Param  125      I(4)            4           scalar                    187                               
+ MAX_FIELD_ATTRIBUTES       Local  466      I(4)            4           scalar                    466                               
+ MAX_FILES                  Local  441      I(4)            4           scalar                    441                               
+ MAX_FILE_ATTRIBUTES        Local  467      I(4)            4           scalar                    467                               
+ MAX_INPUT_FIELDS           Local  443      I(4)            4           scalar                    443                               
+ MAX_NUM_AXIS_SETS          Local  455      I(4)            4           scalar                    455                               
+ MAX_OUTPUT_FIELDS          Local  442      I(4)            4           scalar                    442                               
+ MAX_OUT_PER_IN_FIELD       Local  444      I(4)            4           scalar                    444                               
+ MAX_SUBAXES                Param  135      I(4)            4           scalar                    309,310,311,315                   
+ MAX_VALUE                  Local  491      R(8)            8           scalar                                                      
+ MIN_VALUE                  Local  491      R(8)            8           scalar                                                      
+ MIX_SNAPSHOT_AVERAGE_FIELD                                                                                                         
+ S                          Local  440      L(4)            4           scalar                    440                               
+ MPP_DOMAINS_MOD            Module 82                                                             82                                
+ MPP_IO_MOD                 Module 83                                                             83                                
+ NETCDF                     Module 87                                                             87                                
+ NF_FILL_REAL               Param  87       R(4)            4           scalar                    478                               
+ NULL_AXIS_ID               Local  380      I(4)            4           scalar                                                      
+ NUM_FILES                  Local  377      I(4)            4           scalar                    377                               
+ NUM_INPUT_FIELDS           Local  378      I(4)            4           scalar                    378                               
+ NUM_OUTPUT_FIELDS          Local  379      I(4)            4           scalar                    379                               
+ OOR_WARNING                Local  541      I(4)            4           scalar                    541                               
+ OOR_WARNINGS_FATAL         Local  459      L(4)            4           scalar                    459                               
+ OUTPUT_FIELDS              Local  518      RECORD          3392  1     1        ALC                                                
+ OUTPUT_FIELD_TYPE          Type   249                      3392        scalar                    301,518                           
+ PACK_SIZE                  Local  484      I(4)            4           scalar                    484                               
+ PELIST_NAME                Local  540      CHAR            32          scalar                                                      
+ PLATFORM_MOD               Module 48                                                             48                                
+ PREPEND_DATE               Local  469      L(4)            4           scalar                    469                               
+ REGION_OUT_USE_ALT_VALUE   Local  461      L(4)            4           scalar                    461                               
+ TIME_MANAGER_MOD           Module 81                                                             81                                
+ TIME_TYPE                  Type   81                                   scalar                    81,202,203,204,205,240,285,294,506
+                                                                                                  ,508,534                          
+ TIME_UNIT_LIST             Local  538      CHAR            10    1     6                         538                               
+ TIME_ZERO                  Local  534      TIME_TYPE       16          scalar                                                      
+ USE_CMOR                   Local  456      L(4)            4           scalar                    456                               
+ USE_MPP_IO                 Local  470      L(4)            4           scalar                    470                               
+ VERY_LARGE_AXIS_LENGTH     Param  130      I(4)            4           scalar                                                      
+ VERY_LARGE_FILE_FREQ       Param  129      I(4)            4           scalar                                                      
+ WARNING                    Param  84       I(4)            4           scalar                    84,541                            
+ WRITE_BYTES_IN_FILE        Local  447      L(4)            4           scalar                    447                               
+
+
+
+Page 14          Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54 Symbol Table                    diag_data.F90
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ COORD_TYPE.XBEGIN          R(8)            8     0              scalar                                                       
+ COORD_TYPE.XEND            R(8)            8     8              scalar                                                       
+ COORD_TYPE.YBEGIN          R(8)            8     16             scalar                                                       
+ COORD_TYPE.YEND            R(8)            8     24             scalar                                                       
+ COORD_TYPE.ZBEGIN          R(8)            8     32             scalar                                                       
+ COORD_TYPE.ZEND            R(8)            8     40             scalar                                                       
+ DIAG_ATTTYPE.CATT          CHAR            1280  136            scalar                                                       
+ DIAG_ATTTYPE.FATT          R(8)            8     1416     1     1        ALC                                                 
+ DIAG_ATTTYPE.IATT          I(4)            4     1488     1     1        ALC                                                 
+ DIAG_ATTTYPE.LEN           I(4)            4     4              scalar                                                       
+ DIAG_ATTTYPE.NAME          CHAR            128   8              scalar                                                       
+ DIAG_ATTTYPE.TYPE          I(4)            4     0              scalar                                                       
+ DIAG_AXIS_TYPE.ATTRIBUTES  RECORD          1560  11360    1     1        ALC                                                 
+ DIAG_AXIS_TYPE.AUX         CHAR            128   11096          scalar                                                       
+ DIAG_AXIS_TYPE.CART_NAME   CHAR            1     640            scalar                                                       
+ DIAG_AXIS_TYPE.DATA        R(8)            8     648      1     1        PTR                                                 
+ DIAG_AXIS_TYPE.DIRECTION   I(4)            4     2084           scalar                                                       
+ DIAG_AXIS_TYPE.DOMAIN      DOMAIN1D        176   2104           scalar                                                       
+ DIAG_AXIS_TYPE.DOMAIN2     DOMAIN2D        752   2280           scalar                                                       
+ DIAG_AXIS_TYPE.DOMAINUG    DOMAINUG        544   10552          scalar                                                       
+ DIAG_AXIS_TYPE.DOMAIN_POSITION                                                                                            ...
+                            I(4)            4     11436          scalar                                                       
+ DIAG_AXIS_TYPE.EDGES       I(4)            4     2088           scalar                                                       
+ DIAG_AXIS_TYPE.END         I(4)            4     760      1     10                                                           
+ DIAG_AXIS_TYPE.LENGTH      I(4)            4     2080           scalar                                                       
+ DIAG_AXIS_TYPE.LONG_NAME   CHAR            256   384            scalar                                                       
+ DIAG_AXIS_TYPE.NAME        CHAR            128   0              scalar                                                       
+ DIAG_AXIS_TYPE.NUM_ATTRIBUTES                                                                                             ...
+                            I(4)            4     11432          scalar                                                       
+ DIAG_AXIS_TYPE.REQ         CHAR            128   11224          scalar                                                       
+ DIAG_AXIS_TYPE.SET         I(4)            4     2092           scalar                                                       
+ DIAG_AXIS_TYPE.SHIFT       I(4)            4     2096           scalar                                                       
+ DIAG_AXIS_TYPE.START       I(4)            4     720      1     10                                                           
+ DIAG_AXIS_TYPE.SUBAXIS_DOMAIN2                                                                                            ...
+                            RECORD          752   3032     1     10                                                           
+ DIAG_AXIS_TYPE.SUBAXIS_NAME                                                                                               ...
+                            CHAR            128   800      1     10                                                           
+ DIAG_AXIS_TYPE.TILE_COUNT  I(4)            4     11352          scalar                                                       
+ DIAG_AXIS_TYPE.UNITS       CHAR            256   128            scalar                                                       
+ DIAG_FIELDTYPE.DOMAIN      DOMAIN2D        752   1096           scalar                                                       
+ DIAG_FIELDTYPE.DOMAINU     DOMAINUG        544   1848           scalar                                                       
+ DIAG_FIELDTYPE.FIELD       FIELDTYPE       1096  0              scalar                                                       
+ DIAG_FIELDTYPE.MISS        R(8)            8     2392           scalar                                                       
+ DIAG_FIELDTYPE.MISS_PACK   R(8)            8     2400           scalar                                                       
+ DIAG_FIELDTYPE.MISS_PACK_PRESENT                                                                                          ...
+                            L(4)            4     2412           scalar                                                       
+ DIAG_FIELDTYPE.MISS_PRESENT                                                                                               ...
+                            L(4)            4     2408           scalar                                                       
+ DIAG_FIELDTYPE.TILE_COUNT  I(4)            4     2416           scalar                                                       
+ DIAG_GLOBAL_ATT_TYPE.GRID_TYPE                                                                                            ...
+                            CHAR            128   0              scalar                                                       
+ DIAG_GLOBAL_ATT_TYPE.TILE_NAME                                                                                            ...
+                            CHAR            128   128            scalar                                                       
+
+Page 15          Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54 Symbol Table                    diag_data.F90
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DIAG_GRID.END              R(8)            8     24       1     3                                                            
+ DIAG_GRID.L_END_INDX       I(4)            4     60       1     3                                                            
+ DIAG_GRID.L_START_INDX     I(4)            4     48       1     3                                                            
+ DIAG_GRID.START            R(8)            8     0        1     3                                                            
+ DIAG_GRID.SUBAXES          I(4)            4     72       1     3                                                            
+ FILE_TYPE.ATTRIBUTES       RECORD          1560  11280    1     1        ALC                                                 
+ FILE_TYPE.BYTES_WRITTEN    I(4)            4     1480           scalar                                                       
+ FILE_TYPE.CLOSE_TIME       TIME_TYPE       16    1564           scalar                                                       
+ FILE_TYPE.DURATION         I(4)            4     1500           scalar                                                       
+ FILE_TYPE.DURATION_UNITS   I(4)            4     1504           scalar                                                       
+ FILE_TYPE.FIELDS           I(4)            4     256      1     300                                                          
+ FILE_TYPE.FILENAME_TIME_BOUNDS                                                                                            ...
+                            CHAR            10    11388          scalar                                                       
+ FILE_TYPE.FILE_UNIT        I(4)            4     1476           scalar                                                       
+ FILE_TYPE.FORMAT           I(4)            4     1468           scalar                                                       
+ FILE_TYPE.F_AVG_END        DIAG_FIELDTYPE  2424  4008           scalar                                                       
+ FILE_TYPE.F_AVG_NITEMS     DIAG_FIELDTYPE  2424  6432           scalar                                                       
+ FILE_TYPE.F_AVG_START      DIAG_FIELDTYPE  2424  1584           scalar                                                       
+ FILE_TYPE.F_BOUNDS         DIAG_FIELDTYPE  2424  8856           scalar                                                       
+ FILE_TYPE.IS_TIME_AXIS_REGISTERED                                                                                         ...
+                            L(4)            4     11368          scalar   ALC                                                 
+ FILE_TYPE.LAST_FLUSH       TIME_TYPE       16    1516           scalar                                                       
+ FILE_TYPE.LOCAL            L(4)            4     1512           scalar                                                       
+ FILE_TYPE.LONG_NAME        CHAR            128   128            scalar                                                       
+ FILE_TYPE.NAME             CHAR            128   0              scalar                                                       
+ FILE_TYPE.NEW_FILE_FREQ    I(4)            4     1492           scalar                                                       
+ FILE_TYPE.NEW_FILE_FREQ_UNITS                                                                                             ...
+                            I(4)            4     1496           scalar                                                       
+ FILE_TYPE.NEXT_OPEN        TIME_TYPE       16    1532           scalar                                                       
+ FILE_TYPE.NUM_ATTRIBUTES   I(4)            4     11352          scalar                                                       
+ FILE_TYPE.NUM_FIELDS       I(4)            4     1456           scalar                                                       
+ FILE_TYPE.OUTPUT_FREQ      I(4)            4     1460           scalar                                                       
+ FILE_TYPE.OUTPUT_UNITS     I(4)            4     1464           scalar                                                       
+ FILE_TYPE.RTIME_CURRENT    R(8)            8     11376          scalar                                                       
+ FILE_TYPE.START_TIME       TIME_TYPE       16    1548           scalar                                                       
+ FILE_TYPE.TILE_COUNT       I(4)            4     1508           scalar                                                       
+ FILE_TYPE.TIME_AXIS_ID     I(4)            4     1484           scalar                                                       
+ FILE_TYPE.TIME_BOUNDS_ID   I(4)            4     1488           scalar                                                       
+ FILE_TYPE.TIME_INDEX       I(4)            4     11384          scalar                                                       
+ FILE_TYPE.TIME_UNITS       I(4)            4     1472           scalar                                                       
+ FILE_TYPE.USE_DOMAIN2D     L(4)            4     11360          scalar                                                       
+ FILE_TYPE.USE_DOMAINUG     L(4)            4     11356          scalar                                                       
+ INPUT_FIELD_TYPE.ACTIVE_OMP_LEVEL                                                                                         ...
+                            I(4)            4     988            scalar                                                       
+ INPUT_FIELD_TYPE.AXES      I(4)            4     832      1     3                                                            
+ INPUT_FIELD_TYPE.FIELD_NAME                                                                                               ...
+                            CHAR            128   128            scalar                                                       
+ INPUT_FIELD_TYPE.INTERP_METHOD                                                                                            ...
+                            CHAR            64    768            scalar                                                       
+ INPUT_FIELD_TYPE.ISSUED_MASK_IGNORE_WARNING                                                                               ...
+                            L(4)            4     1064           scalar                                                       
+ INPUT_FIELD_TYPE.LOCAL     L(4)            4     980            scalar                                                       
+ INPUT_FIELD_TYPE.LOCAL_COORD                                                                                              ...
+                            COORD_TYPE      48    1000           scalar                                                       
+ INPUT_FIELD_TYPE.LONG_NAME CHAR            128   256            scalar                                                       
+
+Page 16          Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54 Symbol Table                    diag_data.F90
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ INPUT_FIELD_TYPE.MASK_VARIANT                                                                                             ...
+                            L(4)            4     976            scalar                                                       
+ INPUT_FIELD_TYPE.MISSING_VALUE                                                                                            ...
+                            R(8)            8     856            scalar                                                       
+ INPUT_FIELD_TYPE.MISSING_VALUE_PRESENT                                                                                    ...
+                            L(4)            4     848            scalar                                                       
+ INPUT_FIELD_TYPE.MODULE_NAME                                                                                              ...
+                            CHAR            128   0              scalar                                                       
+ INPUT_FIELD_TYPE.NUMTHREADS                                                                                               ...
+                            I(4)            4     984            scalar                                                       
+ INPUT_FIELD_TYPE.NUM_AXES  I(4)            4     844            scalar                                                       
+ INPUT_FIELD_TYPE.NUM_OUTPUT_FIELDS                                                                                        ...
+                            I(4)            4     952            scalar                                                       
+ INPUT_FIELD_TYPE.OUTPUT_FIELDS                                                                                            ...
+                            I(4)            4     880      1     1        ALC                                                 
+ INPUT_FIELD_TYPE.RANGE     R(8)            8     864      1     2                                                            
+ INPUT_FIELD_TYPE.RANGE_PRESENT                                                                                            ...
+                            L(4)            4     852            scalar                                                       
+ INPUT_FIELD_TYPE.REGISTER  L(4)            4     972            scalar                                                       
+ INPUT_FIELD_TYPE.SIZE      I(4)            4     956      1     3                                                            
+ INPUT_FIELD_TYPE.STANDARD_NAME                                                                                            ...
+                            CHAR            256   512            scalar                                                       
+ INPUT_FIELD_TYPE.STATIC    L(4)            4     968            scalar                                                       
+ INPUT_FIELD_TYPE.TILE_COUNT                                                                                               ...
+                            I(4)            4     992            scalar                                                       
+ INPUT_FIELD_TYPE.TIME      TIME_TYPE       16    1048           scalar                                                       
+ INPUT_FIELD_TYPE.UNITS     CHAR            128   384            scalar                                                       
+ OUTPUT_FIELD_TYPE.ATTRIBUTES                                                                                              ...
+                            RECORD          1560  3312     1     1        ALC                                                 
+ OUTPUT_FIELD_TYPE.AXES     I(4)            4     3128     1     4                                                            
+ OUTPUT_FIELD_TYPE.BUFFER   R(8)            8     224      4     1        ALC                                                 
+ OUTPUT_FIELD_TYPE.COUNTER  R(8)            8     368      4     1        ALC                                                 
+ OUTPUT_FIELD_TYPE.COUNT_0D R(8)            8     512      1     1        ALC                                                 
+ OUTPUT_FIELD_TYPE.F_TYPE   DIAG_FIELDTYPE  2424  704            scalar                                                       
+ OUTPUT_FIELD_TYPE.IMAX     I(4)            4     3272           scalar                                                       
+ OUTPUT_FIELD_TYPE.IMIN     I(4)            4     3268           scalar                                                       
+ OUTPUT_FIELD_TYPE.INPUT_FIELD                                                                                             ...
+                            I(4)            4     0              scalar                                                       
+ OUTPUT_FIELD_TYPE.JMAX     I(4)            4     3280           scalar                                                       
+ OUTPUT_FIELD_TYPE.JMIN     I(4)            4     3276           scalar                                                       
+ OUTPUT_FIELD_TYPE.KMAX     I(4)            4     3288           scalar                                                       
+ OUTPUT_FIELD_TYPE.KMIN     I(4)            4     3284           scalar                                                       
+ OUTPUT_FIELD_TYPE.LAST_OUTPUT                                                                                             ...
+                            TIME_TYPE       16    656            scalar                                                       
+ OUTPUT_FIELD_TYPE.LOCAL_OUTPUT                                                                                            ...
+                            L(4)            4     3248           scalar                                                       
+ OUTPUT_FIELD_TYPE.NEED_COMPUTE                                                                                            ...
+                            L(4)            4     3252           scalar                                                       
+ OUTPUT_FIELD_TYPE.NEXT_NEXT_OUTPUT                                                                                        ...
+                            TIME_TYPE       16    688            scalar                                                       
+ OUTPUT_FIELD_TYPE.NEXT_OUTPUT                                                                                             ...
+                            TIME_TYPE       16    672            scalar                                                       
+ OUTPUT_FIELD_TYPE.NUM_ATTRIBUTES                                                                                          ...
+                            I(4)            4     3384           scalar                                                       
+ OUTPUT_FIELD_TYPE.NUM_AXES I(4)            4     3144           scalar                                                       
+
+Page 17          Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54 Symbol Table                    diag_data.F90
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ OUTPUT_FIELD_TYPE.NUM_ELEMENTS                                                                                            ...
+                            I(4)            4     584      1     1        ALC                                                 
+ OUTPUT_FIELD_TYPE.N_DIURNAL_SAMPLES                                                                                       ...
+                            I(4)            4     3156           scalar                                                       
+ OUTPUT_FIELD_TYPE.OUTPUT_FILE                                                                                             ...
+                            I(4)            4     4              scalar                                                       
+ OUTPUT_FIELD_TYPE.OUTPUT_GRID                                                                                             ...
+                            DIAG_GRID       88    3160           scalar                                                       
+ OUTPUT_FIELD_TYPE.OUTPUT_NAME                                                                                             ...
+                            CHAR            128   8              scalar                                                       
+ OUTPUT_FIELD_TYPE.PACK     I(4)            4     164            scalar                                                       
+ OUTPUT_FIELD_TYPE.PHYS_WINDOW                                                                                             ...
+                            L(4)            4     3256           scalar                                                       
+ OUTPUT_FIELD_TYPE.POW_VALUE                                                                                               ...
+                            I(4)            4     168            scalar                                                       
+ OUTPUT_FIELD_TYPE.REDUCED_K_RANGE                                                                                         ...
+                            L(4)            4     3264           scalar                                                       
+ OUTPUT_FIELD_TYPE.REDUCED_K_UNSTRUCT                                                                                      ...
+                            L(4)            4     3388           scalar                                                       
+ OUTPUT_FIELD_TYPE.REGION_ELEMENTS                                                                                         ...
+                            I(4)            4     3152           scalar                                                       
+ OUTPUT_FIELD_TYPE.STATIC   L(4)            4     144            scalar                                                       
+ OUTPUT_FIELD_TYPE.TIME_AVERAGE                                                                                            ...
+                            L(4)            4     136            scalar                                                       
+ OUTPUT_FIELD_TYPE.TIME_MAX L(4)            4     148            scalar                                                       
+ OUTPUT_FIELD_TYPE.TIME_METHOD                                                                                             ...
+                            CHAR            50    172            scalar                                                       
+ OUTPUT_FIELD_TYPE.TIME_MIN L(4)            4     152            scalar                                                       
+ OUTPUT_FIELD_TYPE.TIME_OF_PREV_FIELD_DATA                                                                                 ...
+                            TIME_TYPE       16    3292           scalar                                                       
+ OUTPUT_FIELD_TYPE.TIME_OPS L(4)            4     160            scalar                                                       
+ OUTPUT_FIELD_TYPE.TIME_RMS L(4)            4     140            scalar                                                       
+ OUTPUT_FIELD_TYPE.TIME_SUM L(4)            4     156            scalar                                                       
+ OUTPUT_FIELD_TYPE.TOTAL_ELEMENTS                                                                                          ...
+                            I(4)            4     3148           scalar                                                       
+ OUTPUT_FIELD_TYPE.WRITTEN_ONCE                                                                                            ...
+                            L(4)            4     3260           scalar                                                       
+
+Page 18          Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54 Subprograms/Common Blocks       diag_data.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DIAG_DATA_INIT             Subr   556                                                                                              
+ DIAG_DATA_MOD              Module 47                                                                                               
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+
+Page 19          Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54                                 diag_data.F90
+
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+
+Page 20          Source Listing                  DIAG_DATA_INIT
+2021-06-01 08:54                                 diag_data.F90
+
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : diag_data.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

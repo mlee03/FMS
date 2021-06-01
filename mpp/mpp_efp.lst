@@ -1,0 +1,1512 @@
+Page 1           Source Listing                  MPP_REPRODUCING_SUM_R8_2D
+2021-06-01 08:53                                 /tmp/ifort2oWfqX.i90
+
+      1 # 1 "mpp_efp.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 !> This module provides interfaces to the non-domain-oriented communication
+     21 !! subroutines.
+     22 module mpp_efp_mod
+     23 
+     24 use mpp_mod, only : mpp_error, FATAL, WARNING, NOTE
+     25 use mpp_mod, only : mpp_pe, mpp_root_pe, mpp_npes
+     26 use mpp_mod, only : mpp_sum
+     27 use platform_mod
+     28 
+     29 implicit none ; private
+     30 
+     31 public :: mpp_reproducing_sum, mpp_efp_list_sum_across_PEs
+     32 public :: mpp_efp_plus, mpp_efp_minus, mpp_efp_to_real, mpp_real_to_efp, mpp_efp_real_diff
+     33 public :: operator(+), operator(-), assignment(=)
+     34 public :: mpp_query_efp_overflow_error, mpp_reset_efp_overflow_error
+     35 
+     36 integer, parameter :: NUMBIT = 46  !< number of bits used in the 64-bit signed integer representation.
+     37 integer, parameter :: NUMINT = 6   !< The number of long integers to use to represent
+     38 !! a real number.
+     39 
+     40 integer(i8_kind), parameter :: prec=2_8**NUMBIT !< The precision of each integer.
+     41 real(r8_kind), parameter :: r_prec=2.0_8**NUMBIT !< A real version of prec.
+     42 real(r8_kind), parameter :: I_prec=1.0_8/(2.0_8**NUMBIT) !< The inverse of prec.
+     43 integer, parameter :: max_count_prec=2**(63-NUMBIT)-1  !< The number of values that can be added together
+     44 !! with the current value of prec before there will
+     45 !! be roundoff problems.
+     46 
+     47 real(r8_kind), parameter, dimension(NUMINT) :: &
+     48   pr = (/ r_prec**2, r_prec, 1.0_8, 1.0_8/r_prec, 1.0_8/r_prec**2, 1.0_8/r_prec**3 /)
+     49 real(r8_kind), parameter, dimension(NUMINT) :: &
+     50   I_pr = (/ 1.0_8/r_prec**2, 1.0_8/r_prec, 1.0_8, r_prec, r_prec**2, r_prec**3 /)
+     51 
+     52 logical :: overflow_error = .false., NaN_error = .false.
+     53 logical :: debug = .false.    !< Making this true enables debugging output.
+     54 
+     55 interface mpp_reproducing_sum
+     56   module procedure mpp_reproducing_sum_r8_2d
+     57   module procedure mpp_reproducing_sum_r8_3d
+
+Page 2           Source Listing                  MPP_REPRODUCING_SUM_R8_2D
+2021-06-01 08:53                                 mpp_efp.F90
+
+     58   module procedure mpp_reproducing_sum_r4_2d
+     59 end interface mpp_reproducing_sum
+     60 
+     61 !> The Extended Fixed Point (mpp_efp) type provides a public interface for doing
+     62 !! sums and taking differences with this type.
+     63 type, public :: mpp_efp_type ; private
+     64   integer(i8_kind), dimension(NUMINT) :: v
+     65 end type mpp_efp_type
+     66 
+     67 interface operator (+); module procedure mpp_efp_plus  ; end interface
+     68 interface operator (-); module procedure mpp_efp_minus ; end interface
+     69 interface assignment(=); module procedure mpp_efp_assign ; end interface
+     70 
+     71 contains
+     72 
+     73 !> This subroutine uses a conversion to an integer representation
+     74 !! of real numbers to give order-invariant sums that will reproduce
+     75 !! across PE count.
+     76 !> @note This idea comes from R. Hallberg and A. Adcroft.
+     77 function mpp_reproducing_sum_r8_2d(array, isr, ier, jsr, jer, EFP_sum, reproducing, &
+     78                             overflow_check, err) result(sum)
+     79   real(r8_kind), dimension(:,:), intent(in) :: array
+     80   integer,        optional,          intent(in) :: isr, ier, jsr, jer
+     81   type(mpp_efp_type), optional,     intent(out) :: EFP_sum
+     82   logical,        optional,          intent(in) :: reproducing
+     83   logical,        optional,          intent(in) :: overflow_check
+     84   integer,        optional,         intent(out) :: err
+     85   real(r8_kind)                             :: sum  ! Result
+     86 
+     87   integer(i8_kind), dimension(NUMINT)  :: ints_sum
+     88   integer(i8_kind) :: ival, prec_error
+     89   real(r8_kind)  :: rsum(1), rs
+     90   real(r8_kind)  :: max_mag_term
+     91   logical :: repro, over_check
+     92   character(len=256) :: mesg
+     93   integer :: i, j, n, is, ie, js, je, sgn
+     94 
+     95   if (mpp_npes() > max_count_prec) call mpp_error(FATAL, &
+     96     "mpp_reproducing_sum: Too many processors are being used for the value of "//&
+     97     "prec.  Reduce prec to (2^63-1)/mpp_npes.")
+     98 
+     99   prec_error = (2_8**62 + (2_8**62 - 1)) / mpp_npes()
+    100 
+    101   is = 1 ; ie = size(array,1) ; js = 1 ; je = size(array,2 )
+    102   if (present(isr)) then
+    103     if (isr < is) call mpp_error(FATAL, &
+    104       "Value of isr too small in mpp_reproducing_sum_2d.")
+    105     is = isr
+    106   endif
+    107   if (present(ier)) then
+    108     if (ier > ie) call mpp_error(FATAL, &
+    109       "Value of ier too large in mpp_reproducing_sum_2d.")
+    110     ie = ier
+    111   endif
+    112   if (present(jsr)) then
+    113     if (jsr < js) call mpp_error(FATAL, &
+    114       "Value of jsr too small in mpp_reproducing_sum_2d.")
+
+Page 3           Source Listing                  MPP_REPRODUCING_SUM_R8_2D
+2021-06-01 08:53                                 mpp_efp.F90
+
+    115     js = jsr
+    116   endif
+    117   if (present(jer)) then
+    118     if (jer > je) call mpp_error(FATAL, &
+    119       "Value of jer too large in mpp_reproducing_sum_2d.")
+    120     je = jer
+    121   endif
+    122 
+    123   repro = .true. ; if (present(reproducing)) repro = reproducing
+    124   over_check = .true. ; if (present(overflow_check)) over_check = overflow_check
+    125 
+    126   if (repro) then
+    127     overflow_error = .false. ; NaN_error = .false. ; max_mag_term = 0.0
+    128     ints_sum(:) = 0
+    129     if (over_check) then
+    130       if ((je+1-js)*(ie+1-is) < max_count_prec) then
+    131         do j=js,je ; do i=is,ie
+    132           call increment_ints_faster(ints_sum, array(i,j), max_mag_term);
+    133         enddo ; enddo
+    134         call carry_overflow(ints_sum, prec_error)
+    135       elseif ((ie+1-is) < max_count_prec) then
+    136         do j=js,je
+    137           do i=is,ie
+    138             call increment_ints_faster(ints_sum, array(i,j), max_mag_term);
+    139           enddo
+    140           call carry_overflow(ints_sum, prec_error)
+    141         enddo
+    142       else
+    143         do j=js,je ; do i=is,ie
+    144           call increment_ints(ints_sum, real_to_ints(array(i,j), prec_error), &
+    145                               prec_error);
+    146         enddo ; enddo
+    147       endif
+    148     else
+    149       do j=js,je ; do i=is,ie
+    150         sgn = 1 ; if (array(i,j)<0.0) sgn = -1
+    151         rs = abs(array(i,j))
+    152         do n=1,NUMINT
+    153           ival = int(rs*I_pr(n), 8)
+    154           rs = rs - ival*pr(n)
+    155           ints_sum(n) = ints_sum(n) + sgn*ival
+    156         enddo
+    157       enddo ; enddo
+    158       call carry_overflow(ints_sum, prec_error)
+    159     endif
+    160 
+    161     if (present(err)) then
+    162       err = 0
+    163       if (overflow_error) &
+    164         err = err+2
+    165       if (NaN_error) &
+    166         err = err+4
+    167       if (err > 0) then ; do n=1,NUMINT ; ints_sum(n) = 0 ; enddo ; endif
+    168     else
+    169       if (NaN_error) then
+    170         call mpp_error(FATAL, "NaN in input field of mpp_reproducing_sum(_2d), this indicates numerical instability")
+    171       endif
+
+Page 4           Source Listing                  MPP_REPRODUCING_SUM_R8_2D
+2021-06-01 08:53                                 mpp_efp.F90
+
+    172       if (abs(max_mag_term) >= prec_error*pr(1)) then
+    173         write(mesg, '(ES13.5)') max_mag_term
+    174         call mpp_error(FATAL,"Overflow in mpp_reproducing_sum(_2d) conversion of "//trim(mesg))
+    175       endif
+    176       if (overflow_error) then
+    177         call mpp_error(FATAL, "Overflow in mpp_reproducing_sum(_2d).")
+    178       endif
+    179     endif
+    180 
+    181     call mpp_sum(ints_sum, NUMINT)
+    182 
+    183     call regularize_ints(ints_sum)
+    184     sum = ints_to_real(ints_sum)
+    185   else
+    186     rsum(1) = 0.0
+    187     do j=js,je ; do i=is,ie
+    188       rsum(1) = rsum(1) + array(i,j);
+    189     enddo ; enddo
+    190     call mpp_sum(rsum,1)
+    191     sum = rsum(1)
+    192 
+    193     if (present(err)) then ; err = 0 ; endif
+    194 
+    195     if (debug .or. present(EFP_sum)) then
+    196       overflow_error = .false.
+    197       ints_sum = real_to_ints(sum, prec_error, overflow_error)
+    198       if (overflow_error) then
+    199         if (present(err)) then
+    200           err = err + 2
+    201         else
+    202           write(mesg, '(ES13.5)') sum
+    203           call mpp_error(FATAL,"Repro_sum_2d: Overflow in real_to_ints conversion of "//trim(mesg))
+    204         endif
+    205       endif
+    206     endif
+    207   endif
+    208 
+    209   if (present(EFP_sum)) EFP_sum%v(:) = ints_sum(:)
+    210 
+    211   if (debug) then
+    212     write(mesg,'("2d RS: ", ES24.16, 6 Z17.16)') sum, ints_sum(1:NUMINT)
+    213     if(mpp_pe() == mpp_root_pe()) call mpp_error(NOTE, mesg)
+    214   endif
+    215 
+    216 end function mpp_reproducing_sum_r8_2d
+
+Page 5           Source Listing                  MPP_REPRODUCING_SUM_R8_2D
+2021-06-01 08:53 Entry Points                    mpp_efp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ mpp_efp_mod_mp_mpp_reproducing_sum_r8_2d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ABS                        Func   151                                  scalar                    151,172                           
+ ARRAY                      Dummy  77       R(8)            8     2     1        ARG,IN           101,132,138,144,150,151,188       
+ DEBUG                      Local  195      L(4)            4           scalar                    53,195,211,343,395                
+ EFP_SUM                    Dummy  77       MPP_EFP_TYPE    48          scalar   ARG,OUT          195,209                           
+ ERR                        Dummy  78       I(4)            4           scalar   ARG,OUT          161,162,164,166,167,193,199,200   
+ FATAL                      Param  95       I(4)            4           scalar   PRIV             24,95,103,108,113,118,170,174,177,
+                                                                                                  203,258,267,272,277,282,289,320,32
+                                                                                                  4,326,379,383,385,428,632,651,677 
+ I                          Local  93       I(4)            4           scalar                    131,132,137,138,143,144,149,150,15
+                                                                                                  1,187,188                         
+ I8_KIND                    Param  87       I(4)            4           scalar   PRIV             40,64,87,88,252,253,254,407,409,41
+                                                                                                  3,441,453,454,455,483,488,506,507,
+                                                                                                  525,645,646                       
+ IE                         Local  93       I(4)            4           scalar                    101,108,110,130,131,135,137,143,14
+                                                                                                  9,187                             
+ IER                        Dummy  77       I(4)            4           scalar   ARG,IN           107,108,110                       
+ INT                        Func   153                                  scalar                    153                               
+ INTS_SUM                   Local  87       I(8)            8     1     6                         128,132,134,138,140,144,155,158,16
+                                                                                                  7,181,183,184,197,209,212         
+ IS                         Local  93       I(4)            4           scalar                    101,103,105,130,131,135,137,143,14
+                                                                                                  9,187                             
+ ISR                        Dummy  77       I(4)            4           scalar   ARG,IN           102,103,105                       
+ IVAL                       Local  88       I(8)            8           scalar                    153,154,155                       
+ I_PR                       Param  153      R(8)            8     1     6                         153,432,497                       
+ J                          Local  93       I(4)            4           scalar                    131,132,136,138,143,144,149,150,15
+                                                                                                  1,187,188                         
+ JE                         Local  93       I(4)            4           scalar                    101,118,120,130,131,136,143,149,18
+                                                                                                  7                                 
+ JER                        Dummy  77       I(4)            4           scalar   ARG,IN           117,118,120                       
+ JS                         Local  93       I(4)            4           scalar                    101,113,115,130,131,136,143,149,18
+                                                                                                  7                                 
+ JSR                        Dummy  77       I(4)            4           scalar   ARG,IN           112,113,115                       
+ MAX_COUNT_PREC             Param  95       I(4)            4           scalar                    95,130,135,258,293,300,352,359,651
+ MAX_MAG_TERM               Local  90       R(8)            8           scalar                    127,132,138,172,173               
+ MESG                       Local  92       CHAR            256         scalar                    173,174,202,203,212,213           
+ MPP_EFP_TYPE               Type   81                       48          scalar                    65,81,222,247,569,570,578,579,591,
+                                                                                                  592,599,607,610,620,641           
+ MPP_ERROR                  Local  95                                   scalar   PRIV             24,95,103,108,113,118,170,174,177,
+                                                                                                  203,213,258,267,272,277,282,289,32
+                                                                                                  0,324,326,347,379,383,385,397,428,
+                                                                                                  632,651,672,677                   
+ MPP_ERROR_BASIC            Subr   95                                            PRIV             95,103,108,113,118,170,174,177,203
+                                                                                                  ,213,258,267,272,277,282,289,320,3
+                                                                                                  24,326,347,379,383,385,397,428,632
+
+Page 6           Source Listing                  MPP_REPRODUCING_SUM_R8_2D
+2021-06-01 08:53 Symbol Table                    mpp_efp.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+                                                                                                  ,651,672,677                      
+ MPP_NPES                   Func   95       I(4)            4           scalar   PRIV             25,95,99,258,262,651,655          
+ MPP_PE                     Func   213      I(4)            4           scalar   PRIV             25,213,347,397,672                
+ MPP_REPRODUCING_SUM_R8_2D  Func   77       R(8)            8           scalar   PRIV             232                               
+ MPP_ROOT_PE                Func   213      I(4)            4           scalar   PRIV             25,213,347,397,672                
+ MPP_SUM                    Local  181                                  scalar   PRIV             26,181,190,329,388,661            
+ MPP_SUM_INT8               Subr   181                                           PRIV             181,388                           
+ MPP_SUM_REAL8              Subr   190                                           PRIV             190                               
+ N                          Local  93       I(4)            4           scalar                    152,153,154,155,167               
+ NAN_ERROR                  Local  127      L(4)            4           scalar                    52,127,165,169,292,317,320,351,376
+                                                                                                  ,379,418,491                      
+ NOTE                       Param  213      I(4)            4           scalar   PRIV             24,213,347,397                    
+ NUMINT                     Param  87       I(4)            4           scalar                    47,49,64,87,152,167,181,212,252,25
+                                                                                                  3,318,329,344,345,346,377,388,396,
+                                                                                                  409,431,441,447,453,454,459,483,49
+                                                                                                  6,506,511,525,530,538,546,551,582,
+                                                                                                  595,645,659,661,667               
+ OVERFLOW_CHECK             Dummy  78       L(4)            4           scalar   ARG,IN           124                               
+ OVERFLOW_ERROR             Local  127      L(4)            4           scalar                    52,127,163,176,196,197,198,292,316
+                                                                                                  ,326,351,375,385,472,474,517,561,5
+                                                                                                  65,657,665,668,669,674            
+ OVER_CHECK                 Local  91       L(4)            4           scalar                    124,129                           
+ PR                         Param  154      R(8)            8     1     6                         154,172,315,322,374,381,424,426,43
+                                                                                                  3,447,498                         
+ PREC_ERROR                 Local  88       I(8)            8           scalar                    99,134,140,144,145,158,172,197    
+ PRESENT                    Func   102                                  scalar                    102,107,112,117,123,124,161,193,19
+                                                                                                  5,199,209                         
+ R8_KIND                    Param  79       I(4)            4           scalar   PRIV             41,42,47,49,79,85,89,90,228,244,24
+                                                                                                  6,249,251,406,411,442,484,485,487,
+                                                                                                  600,608,618                       
+ REPRO                      Local  91       L(4)            4           scalar                    123,126                           
+ REPRODUCING                Dummy  77       L(4)            4           scalar   ARG,IN           123                               
+ RS                         Local  89       R(8)            8           scalar                    151,153,154                       
+ RSUM                       Local  89       R(8)            8     1     1                         186,188,190,191                   
+ SGN                        Local  93       I(4)            4           scalar                    150,155                           
+ SIZE                       Func   101                                  scalar                    101                               
+ SUM                        Local  85       R(8)            8           scalar                    184,191,197,202,212               
+ TRIM                       Func   174                                  scalar                    174,203                           
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ MPP_EFP_TYPE.V             I(8)            8     0        1     6        PRIV             209,339,340,393,574,582,584,595,60 
+                                                                                           2,603,626,629,659,667              
+
+Page 7           Source Listing                  MPP_REPRODUCING_SUM_R8_2D
+2021-06-01 08:53                                 mpp_efp.F90
+
+    217 
+    218 function mpp_reproducing_sum_r4_2d(array, isr, ier, jsr, jer, EFP_sum, reproducing, &
+    219                             overflow_check, err) result(sum)
+    220   real(r4_kind), dimension(:,:), intent(in) :: array
+    221   integer,        optional,          intent(in) :: isr, ier, jsr, jer
+    222   type(mpp_efp_type), optional,     intent(out) :: EFP_sum
+    223   logical,        optional,          intent(in) :: reproducing
+    224   logical,        optional,          intent(in) :: overflow_check
+    225   integer,        optional,         intent(out) :: err
+    226   real(r4_kind)                             :: sum  !< Result
+    227 
+    228   real(r8_kind) :: array_r8(size(array,1), size(array,2))
+    229 
+    230   array_r8 = array
+    231 
+    232   sum = mpp_reproducing_sum_r8_2d(array_r8, isr, ier, jsr, jer, EFP_sum, reproducing, &
+    233                             overflow_check, err)
+    234 
+    235   return
+    236 
+    237 end function mpp_reproducing_sum_r4_2d
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ mpp_efp_mod_mp_mpp_reproducing_sum_r4_2d_             
+
+Page 8           Source Listing                  MPP_REPRODUCING_SUM_R4_2D
+2021-06-01 08:53 Symbol Table                    mpp_efp.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ARRAY                      Dummy  218      R(4)            4     2     1        ARG,IN           228,230                           
+ ARRAY_R8                   Local  228      R(8)            8     2     0        TGT              230,232                           
+ EFP_SUM                    Dummy  218      MPP_EFP_TYPE    48          scalar   ARG,OUT          232                               
+ ERR                        Dummy  219      I(4)            4           scalar   ARG,OUT          233                               
+ IER                        Dummy  218      I(4)            4           scalar   ARG,IN           232                               
+ ISR                        Dummy  218      I(4)            4           scalar   ARG,IN           232                               
+ JER                        Dummy  218      I(4)            4           scalar   ARG,IN           232                               
+ JSR                        Dummy  218      I(4)            4           scalar   ARG,IN           232                               
+ MPP_REPRODUCING_SUM_R4_2D  Func   218      R(4)            4           scalar   PRIV                                               
+ OVERFLOW_CHECK             Dummy  219      L(4)            4           scalar   ARG,IN           233                               
+ R4_KIND                    Param  220      I(4)            4           scalar   PRIV             220,226                           
+ REPRODUCING                Dummy  218      L(4)            4           scalar   ARG,IN           232                               
+ SIZE                       Func   228                                  scalar                    228                               
+ SUM                        Local  226      R(4)            4           scalar                    232                               
+
+Page 9           Source Listing                  MPP_REPRODUCING_SUM_R4_2D
+2021-06-01 08:53                                 mpp_efp.F90
+
+    238 
+    239 !> This function uses a conversion to an integer representation
+    240 !! of real numbers to give order-invariant sums that will reproduce
+    241 !! across PE count.  This idea comes from R. Hallberg and A. Adcroft.
+    242 function mpp_reproducing_sum_r8_3d(array, isr, ier, jsr, jer, sums, EFP_sum, err) &
+    243                             result(sum)
+    244   real(r8_kind), dimension(:,:,:),        intent(in) :: array
+    245   integer,    optional,                       intent(in) :: isr, ier, jsr, jer
+    246   real(r8_kind), dimension(:), optional, intent(out) :: sums
+    247   type(mpp_efp_type),     optional,          intent(out) :: EFP_sum
+    248   integer,            optional,              intent(out) :: err
+    249   real(r8_kind)                                      :: sum  !< Result
+    250 
+    251   real(r8_kind)    :: max_mag_term
+    252   integer(i8_kind), dimension(NUMINT)  :: ints_sum
+    253   integer(i8_kind), dimension(NUMINT,size(array,3))  :: ints_sums
+    254   integer(i8_kind) :: prec_error
+    255   character(len=256) :: mesg
+    256   integer :: i, j, k, is, ie, js, je, ke, isz, jsz, n
+    257 
+    258   if (mpp_npes() > max_count_prec) call mpp_error(FATAL, &
+    259     "mpp_reproducing_sum: Too many processors are being used for the value of "//&
+    260     "prec.  Reduce prec to (2^63-1)/mpp_npes.")
+    261 
+    262   prec_error = (2_8**62 + (2_8**62 - 1)) / mpp_npes()
+    263   max_mag_term = 0.0
+    264 
+    265   is = 1 ; ie = size(array,1) ; js = 1 ; je = size(array,2) ; ke = size(array,3)
+    266   if (present(isr)) then
+    267     if (isr < is) call mpp_error(FATAL, &
+    268       "Value of isr too small in mpp_reproducing_sum(_3d).")
+    269     is = isr
+    270   endif
+    271   if (present(ier)) then
+    272     if (ier > ie) call mpp_error(FATAL, &
+    273       "Value of ier too large in mpp_reproducing_sum(_3d).")
+    274     ie = ier
+    275   endif
+    276   if (present(jsr)) then
+    277     if (jsr < js) call mpp_error(FATAL, &
+    278       "Value of jsr too small in mpp_reproducing_sum(_3d).")
+    279     js = jsr
+    280   endif
+    281   if (present(jer)) then
+    282     if (jer > je) call mpp_error(FATAL, &
+    283       "Value of jer too large in mpp_reproducing_sum(_3d).")
+    284     je = jer
+    285   endif
+    286   jsz = je+1-js; isz = ie+1-is
+    287 
+    288   if (present(sums)) then
+    289     if (size(sums) > ke) call mpp_error(FATAL, "Sums is smaller than "//&
+    290       "the vertical extent of array in mpp_reproducing_sum(_3d).")
+    291     ints_sums(:,:) = 0
+    292     overflow_error = .false. ; NaN_error = .false. ; max_mag_term = 0.0
+    293     if (jsz*isz < max_count_prec) then
+    294       do k=1,ke
+
+Page 10          Source Listing                  MPP_REPRODUCING_SUM_R8_3D
+2021-06-01 08:53                                 mpp_efp.F90
+
+    295         do j=js,je ; do i=is,ie
+    296           call increment_ints_faster(ints_sums(:,k), array(i,j,k), max_mag_term);
+    297         enddo ; enddo
+    298         call carry_overflow(ints_sums(:,k), prec_error)
+    299       enddo
+    300     elseif (isz < max_count_prec) then
+    301       do k=1,ke ; do j=js,je
+    302         do i=is,ie
+    303           call increment_ints_faster(ints_sums(:,k), array(i,j,k), max_mag_term);
+    304         enddo
+    305         call carry_overflow(ints_sums(:,k), prec_error)
+    306       enddo ; enddo
+    307     else
+    308       do k=1,ke ; do j=js,je ; do i=is,ie
+    309         call increment_ints(ints_sums(:,k), &
+    310                             real_to_ints(array(i,j,k), prec_error), prec_error);
+    311       enddo ; enddo ; enddo
+    312     endif
+    313     if (present(err)) then
+    314       err = 0
+    315       if (abs(max_mag_term) >= prec_error*pr(1)) err = err+1
+    316       if (overflow_error) err = err+2
+    317       if (NaN_error) err = err+2
+    318       if (err > 0) then ; do k=1,ke ; do n=1,NUMINT ; ints_sums(n,k) = 0 ; enddo ; enddo ; endif
+    319     else
+    320       if (NaN_error) call mpp_error(FATAL, &
+    321              "NaN in input field of mpp_reproducing_sum(_3d), this indicates numerical instability")
+    322       if (abs(max_mag_term) >= prec_error*pr(1)) then
+    323         write(mesg, '(ES13.5)') max_mag_term
+    324         call mpp_error(FATAL,"Overflow in mpp_reproducing_sum(_3d) conversion of "//trim(mesg))
+    325       endif
+    326       if (overflow_error) call mpp_error(FATAL, "Overflow in mpp_reproducing_sum(_3d).")
+    327     endif
+    328 
+    329     call mpp_sum(ints_sums(:,1:ke), NUMINT*ke)
+    330 
+    331     sum = 0.0
+    332     do k=1,ke
+    333       call regularize_ints(ints_sums(:,k))
+    334       sums(k) = ints_to_real(ints_sums(:,k))
+    335       sum = sum + sums(k)
+    336     enddo
+    337 
+    338     if (present(EFP_sum)) then
+    339       EFP_sum%v(:) = 0
+    340       do k=1,ke ; call increment_ints(EFP_sum%v(:), ints_sums(:,k)) ; enddo
+    341     endif
+    342 
+    343     if (debug) then
+    344       do n=1,NUMINT ; ints_sum(n) = 0 ; enddo
+    345       do k=1,ke ; do n=1,NUMINT ; ints_sum(n) = ints_sum(n) + ints_sums(n,k) ; enddo ; enddo
+    346       write(mesg,'("3D RS: ", ES24.16, 6 Z17.16)') sum, ints_sum(1:NUMINT)
+    347       if(mpp_pe()==mpp_root_pe()) call mpp_error(NOTE, mesg)
+    348     endif
+    349   else
+    350     ints_sum(:) = 0
+    351     overflow_error = .false. ; NaN_error = .false. ; max_mag_term = 0.0
+
+Page 11          Source Listing                  MPP_REPRODUCING_SUM_R8_3D
+2021-06-01 08:53                                 mpp_efp.F90
+
+    352     if (jsz*isz < max_count_prec) then
+    353       do k=1,ke
+    354         do j=js,je ; do i=is,ie
+    355           call increment_ints_faster(ints_sum, array(i,j,k), max_mag_term);
+    356         enddo ; enddo
+    357         call carry_overflow(ints_sum, prec_error)
+    358       enddo
+    359     elseif (isz < max_count_prec) then
+    360       do k=1,ke ; do j=js,je
+    361         do i=is,ie
+    362           call increment_ints_faster(ints_sum, array(i,j,k), max_mag_term);
+    363         enddo
+    364         call carry_overflow(ints_sum, prec_error)
+    365       enddo ; enddo
+    366     else
+    367       do k=1,ke ; do j=js,je ; do i=is,ie
+    368         call increment_ints(ints_sum, real_to_ints(array(i,j,k), prec_error), &
+    369                             prec_error);
+    370       enddo ; enddo ; enddo
+    371     endif
+    372     if (present(err)) then
+    373       err = 0
+    374       if (abs(max_mag_term) >= prec_error*pr(1)) err = err+1
+    375       if (overflow_error) err = err+2
+    376       if (NaN_error) err = err+2
+    377       if (err > 0) then ; do n=1,NUMINT ; ints_sum(n) = 0 ; enddo ; endif
+    378     else
+    379       if (NaN_error) call mpp_error(FATAL, &
+    380           "NaN in input field of mpp_reproducing_sum(_3d), this indicates numerical instability")
+    381       if (abs(max_mag_term) >= prec_error*pr(1)) then
+    382         write(mesg, '(ES13.5)') max_mag_term
+    383         call mpp_error(FATAL,"Overflow in mpp_reproducing_sum(_3d) conversion of "//trim(mesg))
+    384       endif
+    385       if (overflow_error) call mpp_error(FATAL, "Overflow in mpp_reproducing_sum(_3d).")
+    386     endif
+    387 
+    388     call mpp_sum(ints_sum, NUMINT)
+    389 
+    390     call regularize_ints(ints_sum)
+    391     sum = ints_to_real(ints_sum)
+    392 
+    393     if (present(EFP_sum)) EFP_sum%v(:) = ints_sum(:)
+    394 
+    395     if (debug) then
+    396       write(mesg,'("3d RS: ", ES24.16, 6 Z17.16)') sum, ints_sum(1:NUMINT)
+    397       if(mpp_pe()==mpp_root_pe()) call mpp_error(NOTE, mesg)
+    398     endif
+    399   endif
+    400 
+    401 end function mpp_reproducing_sum_r8_3d
+
+Page 12          Source Listing                  MPP_REPRODUCING_SUM_R8_3D
+2021-06-01 08:53 Entry Points                    mpp_efp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ mpp_efp_mod_mp_mpp_reproducing_sum_r8_3d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ABS                        Func   315                                  scalar                    315,322,374,381                   
+ ARRAY                      Dummy  242      R(8)            8     3     1        ARG,IN           253,265,296,303,310,355,362,368   
+ EFP_SUM                    Dummy  242      MPP_EFP_TYPE    48          scalar   ARG,OUT          338,339,340,393                   
+ ERR                        Dummy  242      I(4)            4           scalar   ARG,OUT          313,314,315,316,317,318,372,373,37
+                                                                                                  4,375,376,377                     
+ I                          Local  256      I(4)            4           scalar                    295,296,302,303,308,310,354,355,36
+                                                                                                  1,362,367,368                     
+ IE                         Local  256      I(4)            4           scalar                    265,272,274,286,295,302,308,354,36
+                                                                                                  1,367                             
+ IER                        Dummy  242      I(4)            4           scalar   ARG,IN           271,272,274                       
+ INTS_SUM                   Local  252      I(8)            8     1     6                         344,345,346,350,355,357,362,364,36
+                                                                                                  8,377,388,390,391,393,396         
+ INTS_SUMS                  Local  253      I(8)            8     2     0        TGT              291,296,298,303,305,309,318,329,33
+                                                                                                  3,334,340,345                     
+ IS                         Local  256      I(4)            4           scalar                    265,267,269,286,295,302,308,354,36
+                                                                                                  1,367                             
+ ISR                        Dummy  242      I(4)            4           scalar   ARG,IN           266,267,269                       
+ ISZ                        Local  256      I(4)            4           scalar                    286,293,300,352,359               
+ J                          Local  256      I(4)            4           scalar                    295,296,301,303,308,310,354,355,36
+                                                                                                  0,362,367,368                     
+ JE                         Local  256      I(4)            4           scalar                    265,282,284,286,295,301,308,354,36
+                                                                                                  0,367                             
+ JER                        Dummy  242      I(4)            4           scalar   ARG,IN           281,282,284                       
+ JS                         Local  256      I(4)            4           scalar                    265,277,279,286,295,301,308,354,36
+                                                                                                  0,367                             
+ JSR                        Dummy  242      I(4)            4           scalar   ARG,IN           276,277,279                       
+ JSZ                        Local  256      I(4)            4           scalar                    286,293,352                       
+ K                          Local  256      I(4)            4           scalar                    294,296,298,301,303,305,308,309,31
+                                                                                                  0,318,332,333,334,335,340,345,353,
+                                                                                                  355,360,362,367,368               
+ KE                         Local  256      I(4)            4           scalar                    265,289,294,301,308,318,329,332,34
+                                                                                                  0,345,353,360,367                 
+ MAX_MAG_TERM               Local  251      R(8)            8           scalar                    263,292,296,303,315,322,323,351,35
+                                                                                                  5,362,374,381,382                 
+ MESG                       Local  255      CHAR            256         scalar                    323,324,346,347,382,383,396,397   
+ MPP_REPRODUCING_SUM_R8_3D  Func   242      R(8)            8           scalar   PRIV                                               
+ MPP_SUM_INT8_2D            Subr   329                                           PRIV             329,661                           
+ N                          Local  256      I(4)            4           scalar                    318,344,345,377                   
+ PREC_ERROR                 Local  254      I(8)            8           scalar                    262,298,305,310,315,322,357,364,36
+                                                                                                  8,369,374,381                     
+ PRESENT                    Func   266                                  scalar                    266,271,276,281,288,313,338,372,39
+                                                                                                  3                                 
+ SIZE                       Func   253                                  scalar                    253,265,289                       
+ SUM                        Local  249      R(8)            8           scalar                    331,335,346,391,396               
+
+Page 13          Source Listing                  MPP_REPRODUCING_SUM_R8_3D
+2021-06-01 08:53 Symbol Table                    mpp_efp.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ SUMS                       Dummy  242      R(8)            8     1     1        ARG,OUT          288,289,334,335                   
+ TRIM                       Func   324                                  scalar                    324,383                           
+
+Page 14          Source Listing                  MPP_REPRODUCING_SUM_R8_3D
+2021-06-01 08:53                                 mpp_efp.F90
+
+    402 
+    403 !> This function converts a real number to an equivalent representation
+    404 !! using several long integers.
+    405 function real_to_ints(r, prec_error, overflow) result(ints)
+    406   real(r8_kind),            intent(in) :: r
+    407   integer(i8_kind), optional, intent(in) :: prec_error
+    408   logical,   optional,       intent(inout) :: overflow
+    409   integer(i8_kind),    dimension(NUMINT) :: ints
+    410 
+    411   real(r8_kind) :: rs
+    412   character(len=80) :: mesg
+    413   integer(i8_kind) :: ival, prec_err
+    414   integer :: sgn, i
+    415 
+    416   prec_err = prec ; if (present(prec_error)) prec_err = prec_error
+    417   ints(:) = 0_8
+    418   if ((r >= 1e30) .eqv. (r < 1e30)) then ; NaN_error = .true. ; return ; endif
+    419 
+    420   sgn = 1 ; if (r<0.0) sgn = -1
+    421   rs = abs(r)
+    422 
+    423   if (present(overflow)) then
+    424     if (.not.(rs < prec_err*pr(1))) overflow = .true.
+    425     if ((r >= 1e30) .eqv. (r < 1e30)) overflow = .true.
+    426   elseif (.not.(rs < prec_err*pr(1))) then
+    427     write(mesg, '(ES13.5)') r
+    428     call mpp_error(FATAL,"Overflow in real_to_ints conversion of "//trim(mesg))
+    429   endif
+    430 
+    431   do i=1,NUMINT
+    432     ival = int(rs*I_pr(i), 8)
+    433     rs = rs - ival*pr(i)
+    434     ints(i) = sgn*ival
+    435   enddo
+    436 
+    437 end function real_to_ints
+
+Page 15          Source Listing                  REAL_TO_INTS
+2021-06-01 08:53 Entry Points                    mpp_efp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                    
+                                          
+ mpp_efp_mod_mp_real_to_ints_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ABS                        Func   421                                  scalar                    421                               
+ I                          Local  414      I(4)            4           scalar                    431,432,433,434                   
+ INT                        Func   432                                  scalar                    432                               
+ INTS                       Local  409      I(8)            8     1     6                         417,434                           
+ IVAL                       Local  413      I(8)            8           scalar                    432,433,434                       
+ MESG                       Local  412      CHAR            80          scalar                    427,428                           
+ OVERFLOW                   Dummy  405      L(4)            4           scalar   ARG,INOUT        423,424,425                       
+ PREC                       Param  416      I(8)            8           scalar                    416,462,463,465,466,474,511,513,53
+                                                                                                  0,532,547,552                     
+ PREC_ERR                   Local  413      I(8)            8           scalar                    416,424,426                       
+ PREC_ERROR                 Dummy  405      I(8)            8           scalar   ARG,IN           416                               
+ PRESENT                    Func   416                                  scalar                    416,423                           
+ R                          Dummy  405      R(8)            8           scalar   ARG,IN           418,420,421,425,427               
+ REAL_TO_INTS               Func   405      I(8)            8     1     6                         144,197,310,368,626,629           
+ RS                         Local  411      R(8)            8           scalar                    421,424,426,432,433               
+ SGN                        Local  414      I(4)            4           scalar                    420,434                           
+ TRIM                       Func   428                                  scalar                    428                               
+
+Page 16          Source Listing                  REAL_TO_INTS
+2021-06-01 08:53                                 mpp_efp.F90
+
+    438 
+    439 !> This function reverses the conversion in real_to_ints.
+    440 function ints_to_real(ints) result(r)
+    441   integer(i8_kind), dimension(NUMINT), intent(in) :: ints
+    442   real(r8_kind) :: r
+    443 
+    444   integer :: i
+    445 
+    446   r = 0.0
+    447   do i=1,NUMINT ; r = r + pr(i)*ints(i) ; enddo
+    448 end function ints_to_real
+
+
+ENTRY POINTS
+
+  Name                                    
+                                          
+ mpp_efp_mod_mp_ints_to_real_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ I                          Local  444      I(4)            4           scalar                    447                               
+ INTS                       Dummy  440      I(8)            8     1     6        ARG,IN           447                               
+ INTS_TO_REAL               Func   440      R(8)            8           scalar                    184,334,391,603                   
+ R                          Local  442      R(8)            8           scalar                    446,447                           
+
+Page 17          Source Listing                  INTS_TO_REAL
+2021-06-01 08:53                                 mpp_efp.F90
+
+    449 
+    450 !> This subroutine increments a number with another, both using the integer
+    451 !! representation in real_to_ints.
+    452 subroutine increment_ints(int_sum, int2, prec_error)
+    453   integer(i8_kind), dimension(NUMINT), intent(inout) :: int_sum
+    454   integer(i8_kind), dimension(NUMINT), intent(in)    :: int2
+    455   integer(i8_kind), optional,      intent(in)    :: prec_error
+    456 
+    457   integer :: i
+    458 
+    459   do i=NUMINT,2,-1
+    460     int_sum(i) = int_sum(i) + int2(i)
+    461 ! Carry the local overflow.
+    462     if (int_sum(i) > prec) then
+    463       int_sum(i) = int_sum(i) - prec
+    464       int_sum(i-1) = int_sum(i-1) + 1
+    465     elseif (int_sum(i) < -prec) then
+    466       int_sum(i) = int_sum(i) + prec
+    467       int_sum(i-1) = int_sum(i-1) - 1
+    468     endif
+    469   enddo
+    470   int_sum(1) = int_sum(1) + int2(1)
+    471   if (present(prec_error)) then
+    472     if (abs(int_sum(1)) > prec_error) overflow_error = .true.
+    473   else
+    474     if (abs(int_sum(1)) > prec) overflow_error = .true.
+    475   endif
+    476 
+    477 end subroutine increment_ints
+
+Page 18          Source Listing                  INCREMENT_INTS
+2021-06-01 08:53 Entry Points                    mpp_efp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                      
+                                            
+ mpp_efp_mod_mp_increment_ints_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ABS                        Func   472                                  scalar                    472,474                           
+ I                          Local  457      I(4)            4           scalar                    459,460,462,463,464,465,466,467   
+ INCREMENT_INTS             Subr   452                                                            144,309,340,368,574,584           
+ INT2                       Dummy  452      I(8)            8     1     6        ARG,IN           460,470                           
+ INT_SUM                    Dummy  452      I(8)            8     1     6        ARG,INOUT        460,462,463,464,465,466,467,470,47
+                                                                                                  2,474                             
+ PREC_ERROR                 Dummy  452      I(8)            8           scalar   ARG,IN           471,472                           
+ PRESENT                    Func   471                                  scalar                    471                               
+
+Page 19          Source Listing                  INCREMENT_INTS
+2021-06-01 08:53                                 mpp_efp.F90
+
+    478 
+    479 !> This subroutine increments a number with another, both using the integer
+    480 !! representation in real_to_ints, but without doing any carrying of overflow.
+    481 !! The entire operation is embedded in a single call for greater speed.
+    482 subroutine increment_ints_faster(int_sum, r, max_mag_term)
+    483   integer(i8_kind), dimension(NUMINT), intent(inout) :: int_sum
+    484   real(r8_kind),                        intent(in) :: r
+    485   real(r8_kind),                     intent(inout) :: max_mag_term
+    486 
+    487   real(r8_kind) :: rs
+    488   integer(i8_kind) :: ival
+    489   integer :: sgn, i
+    490 
+    491   if ((r >= 1e30) .eqv. (r < 1e30)) then ; NaN_error = .true. ; return ; endif
+    492   sgn = 1 ; if (r<0.0) sgn = -1
+    493   rs = abs(r)
+    494   if (rs > abs(max_mag_term)) max_mag_term = r
+    495 
+    496   do i=1,NUMINT
+    497     ival = int(rs*I_pr(i), 8)
+    498     rs = rs - ival*pr(i)
+    499     int_sum(i) = int_sum(i) + sgn*ival
+    500   enddo
+    501 
+    502 end subroutine increment_ints_faster
+
+
+ENTRY POINTS
+
+  Name                                             
+                                                   
+ mpp_efp_mod_mp_increment_ints_faster_             
+
+Page 20          Source Listing                  INCREMENT_INTS_FASTER
+2021-06-01 08:53 Symbol Table                    mpp_efp.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ABS                        Func   493                                  scalar                    493,494                           
+ I                          Local  489      I(4)            4           scalar                    496,497,498,499                   
+ INCREMENT_INTS_FASTER      Subr   482                                                            132,138,296,303,355,362           
+ INT                        Func   497                                  scalar                    497                               
+ INT_SUM                    Dummy  482      I(8)            8     1     6        ARG,INOUT        499                               
+ IVAL                       Local  488      I(8)            8           scalar                    497,498,499                       
+ MAX_MAG_TERM               Dummy  482      R(8)            8           scalar   ARG,INOUT        494                               
+ R                          Dummy  482      R(8)            8           scalar   ARG,IN           491,492,493,494                   
+ RS                         Local  487      R(8)            8           scalar                    493,494,497,498                   
+ SGN                        Local  489      I(4)            4           scalar                    492,499                           
+
+Page 21          Source Listing                  INCREMENT_INTS_FASTER
+2021-06-01 08:53                                 mpp_efp.F90
+
+    503 
+    504 !> This subroutine handles carrying of the overflow.
+    505 subroutine carry_overflow(int_sum, prec_error)
+    506   integer(i8_kind), dimension(NUMINT), intent(inout) :: int_sum
+    507   integer(i8_kind),                intent(in)    :: prec_error
+    508 
+    509   integer :: i, num_carry
+    510 
+    511   do i=NUMINT,2,-1 ; if (abs(int_sum(i)) > prec) then
+    512     num_carry = int(int_sum(i) * I_prec)
+    513     int_sum(i) = int_sum(i) - num_carry*prec
+    514     int_sum(i-1) = int_sum(i-1) + num_carry
+    515   endif ; enddo
+    516   if (abs(int_sum(1)) > prec_error) then
+    517     overflow_error = .true.
+    518   endif
+    519 
+    520 end subroutine carry_overflow
+
+
+ENTRY POINTS
+
+  Name                                      
+                                            
+ mpp_efp_mod_mp_carry_overflow_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ABS                        Func   511                                  scalar                    511,516                           
+ CARRY_OVERFLOW             Subr   505                                                            134,140,158,298,305,357,364,666   
+ I                          Local  509      I(4)            4           scalar                    511,512,513,514                   
+ INT                        Func   512                                  scalar                    512                               
+ INT_SUM                    Dummy  505      I(8)            8     1     6        ARG,INOUT        511,512,513,514,516               
+ I_PREC                     Param  512      R(8)            8           scalar                    512,531                           
+ NUM_CARRY                  Local  509      I(4)            4           scalar                    512,513,514                       
+ PREC_ERROR                 Dummy  505      I(8)            8           scalar   ARG,IN           516                               
+
+Page 22          Source Listing                  CARRY_OVERFLOW
+2021-06-01 08:53                                 mpp_efp.F90
+
+    521 
+    522 !> This subroutine carries the overflow, and then makes sure that
+    523 !! all integers are of the same sign as the overall value.
+    524 subroutine regularize_ints(int_sum)
+    525   integer(i8_kind), dimension(NUMINT), intent(inout) :: int_sum
+    526 
+    527   logical :: positive
+    528   integer :: i, num_carry
+    529 
+    530   do i=NUMINT,2,-1 ; if (abs(int_sum(i)) > prec) then
+    531     num_carry = int(int_sum(i) * I_prec)
+    532     int_sum(i) = int_sum(i) - num_carry*prec
+    533     int_sum(i-1) = int_sum(i-1) + num_carry
+    534   endif ; enddo
+    535 
+    536 ! Determine the sign of the final number.
+    537   positive = .true.
+    538   do i=1,NUMINT
+    539     if (abs(int_sum(i)) > 0) then
+    540       if (int_sum(i) < 0) positive = .false.
+    541       exit
+    542     endif
+    543   enddo
+    544 
+    545   if (positive) then
+    546     do i=NUMINT,2,-1 ; if (int_sum(i) < 0) then
+    547       int_sum(i) = int_sum(i) + prec
+    548       int_sum(i-1) = int_sum(i-1) - 1
+    549     endif ; enddo
+    550   else
+    551     do i=NUMINT,2,-1 ; if (int_sum(i) > 0) then
+    552       int_sum(i) = int_sum(i) - prec
+    553       int_sum(i-1) = int_sum(i-1) + 1
+    554     endif ; enddo
+    555   endif
+    556 
+    557 end subroutine regularize_ints
+
+Page 23          Source Listing                  REGULARIZE_INTS
+2021-06-01 08:53 Entry Points                    mpp_efp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                       
+                                             
+ mpp_efp_mod_mp_regularize_ints_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ABS                        Func   530                                  scalar                    530,539                           
+ I                          Local  528      I(4)            4           scalar                    530,531,532,533,538,539,540,546,54
+                                                                                                  7,548,551,552,553                 
+ INT                        Func   531                                  scalar                    531                               
+ INT_SUM                    Dummy  524      I(8)            8     1     6        ARG,INOUT        530,531,532,533,539,540,546,547,54
+                                                                                                  8,551,552,553                     
+ NUM_CARRY                  Local  528      I(4)            4           scalar                    531,532,533                       
+ POSITIVE                   Local  527      L(4)            4           scalar                    537,540,545                       
+ REGULARIZE_INTS            Subr   524                                                            183,333,390,602                   
+
+Page 24          Source Listing                  REGULARIZE_INTS
+2021-06-01 08:53                                 mpp_efp.F90
+
+    558 
+    559 function mpp_query_efp_overflow_error()
+    560   logical :: mpp_query_efp_overflow_error
+    561   mpp_query_efp_overflow_error = overflow_error
+    562 end function mpp_query_efp_overflow_error
+
+
+ENTRY POINTS
+
+  Name                                                    
+                                                          
+ mpp_efp_mod_mp_mpp_query_efp_overflow_error_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ MPP_QUERY_EFP_OVERFLOW_ERR                                                                                                         
+ OR                         Func   559      L(4)            4           scalar                                                      
+
+Page 25          Source Listing                  MPP_QUERY_EFP_OVERFLOW_ERROR
+2021-06-01 08:53                                 mpp_efp.F90
+
+    563 
+    564 subroutine mpp_reset_efp_overflow_error()
+    565   overflow_error = .false.
+    566 end subroutine mpp_reset_efp_overflow_error
+
+
+ENTRY POINTS
+
+  Name                                                    
+                                                          
+ mpp_efp_mod_mp_mpp_reset_efp_overflow_error_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ MPP_RESET_EFP_OVERFLOW_ERR                                                                                                         
+ OR                         Subr   564                                                                                              
+
+Page 26          Source Listing                  MPP_RESET_EFP_OVERFLOW_ERROR
+2021-06-01 08:53                                 mpp_efp.F90
+
+    567 
+    568 function mpp_efp_plus(EFP1, EFP2)
+    569   type(mpp_efp_type)             :: mpp_efp_plus
+    570   type(mpp_efp_type), intent(in) :: EFP1, EFP2
+    571 
+    572   mpp_efp_plus = EFP1
+    573 
+    574   call increment_ints(mpp_efp_plus%v(:), EFP2%v(:))
+    575 end function mpp_efp_plus
+
+
+ENTRY POINTS
+
+  Name                                    
+                                          
+ mpp_efp_mod_mp_mpp_efp_plus_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ EFP1                       Dummy  568      MPP_EFP_TYPE    48          scalar   ARG,IN           572                               
+ EFP2                       Dummy  568      MPP_EFP_TYPE    48          scalar   ARG,IN           574                               
+ MPP_EFP_PLUS               Func   568      MPP_EFP_TYPE    48          scalar                                                      
+
+Page 27          Source Listing                  MPP_EFP_PLUS
+2021-06-01 08:53                                 mpp_efp.F90
+
+    576 
+    577 function mpp_efp_minus(EFP1, EFP2)
+    578   type(mpp_efp_type)             :: mpp_efp_minus
+    579   type(mpp_efp_type), intent(in) :: EFP1, EFP2
+    580   integer :: i
+    581 
+    582   do i=1,NUMINT ; mpp_efp_minus%v(i) = -1*EFP2%v(i) ; enddo
+    583 
+    584   call increment_ints(mpp_efp_minus%v(:), EFP1%v(:))
+    585 end function mpp_efp_minus
+
+
+ENTRY POINTS
+
+  Name                                     
+                                           
+ mpp_efp_mod_mp_mpp_efp_minus_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ EFP1                       Dummy  577      MPP_EFP_TYPE    48          scalar   ARG,IN           584                               
+ EFP2                       Dummy  577      MPP_EFP_TYPE    48          scalar   ARG,IN           582                               
+ I                          Local  580      I(4)            4           scalar                    582                               
+ MPP_EFP_MINUS              Func   577      MPP_EFP_TYPE    48          scalar                                                      
+
+Page 28          Source Listing                  MPP_EFP_MINUS
+2021-06-01 08:53                                 mpp_efp.F90
+
+    586 
+    587 !> This subroutine assigns all components of the extended fixed point type
+    588 !! variable on the RHS (EFP2) to the components of the variable on the LHS
+    589 !! (EFP1).
+    590 subroutine mpp_efp_assign(EFP1, EFP2)
+    591   type(mpp_efp_type), intent(out) :: EFP1
+    592   type(mpp_efp_type), intent(in)  :: EFP2
+    593   integer i
+    594 
+    595   do i=1,NUMINT ; EFP1%v(i) = EFP2%v(i) ; enddo
+    596 end subroutine mpp_efp_assign
+
+
+ENTRY POINTS
+
+  Name                                      
+                                            
+ mpp_efp_mod_mp_mpp_efp_assign_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ EFP1                       Dummy  590      MPP_EFP_TYPE    48          scalar   ARG,OUT          595                               
+ EFP2                       Dummy  590      MPP_EFP_TYPE    48          scalar   ARG,IN           595                               
+ I                          Local  593      I(4)            4           scalar                    595                               
+ MPP_EFP_ASSIGN             Subr   590                                           PRIV             572,612                           
+
+Page 29          Source Listing                  MPP_EFP_ASSIGN
+2021-06-01 08:53                                 mpp_efp.F90
+
+    597 
+    598 function mpp_efp_to_real(EFP1)
+    599   type(mpp_efp_type), intent(inout) :: EFP1
+    600   real(r8_kind) :: mpp_efp_to_real
+    601 
+    602   call regularize_ints(EFP1%v)
+    603   mpp_efp_to_real = ints_to_real(EFP1%v)
+    604 end function mpp_efp_to_real
+
+
+ENTRY POINTS
+
+  Name                                       
+                                             
+ mpp_efp_mod_mp_mpp_efp_to_real_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ EFP1                       Dummy  598      MPP_EFP_TYPE    48          scalar   ARG,INOUT        602,603                           
+ MPP_EFP_TO_REAL            Func   598      R(8)            8           scalar                                                      
+
+Page 30          Source Listing                  MPP_EFP_TO_REAL
+2021-06-01 08:53                                 mpp_efp.F90
+
+    605 
+    606 function mpp_efp_real_diff(EFP1, EFP2)
+    607   type(mpp_efp_type), intent(in) :: EFP1, EFP2
+    608   real(r8_kind) :: mpp_efp_real_diff
+    609 
+    610   type(mpp_efp_type)             :: EFP_diff
+    611 
+    612   EFP_diff = EFP1 - EFP2
+    613   mpp_efp_real_diff = mpp_efp_to_real(EFP_diff)
+    614 
+    615 end function mpp_efp_real_diff
+
+
+ENTRY POINTS
+
+  Name                                         
+                                               
+ mpp_efp_mod_mp_mpp_efp_real_diff_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ EFP1                       Dummy  606      MPP_EFP_TYPE    48          scalar   ARG,IN           612                               
+ EFP2                       Dummy  606      MPP_EFP_TYPE    48          scalar   ARG,IN           612                               
+ EFP_DIFF                   Local  610      MPP_EFP_TYPE    48          scalar                    612,613                           
+ MPP_EFP_MINUS              Func   612      RECORD          48          scalar                    32,582,584,612                    
+ MPP_EFP_REAL_DIFF          Func   606      R(8)            8           scalar                                                      
+ MPP_EFP_TO_REAL            Func   613      R(8)            8           scalar                    32,603,613,671                    
+
+Page 31          Source Listing                  MPP_EFP_REAL_DIFF
+2021-06-01 08:53                                 mpp_efp.F90
+
+    616 
+    617 function mpp_real_to_efp(val, overflow)
+    618   real(r8_kind),    intent(in) :: val
+    619   logical, optional, intent(inout) :: overflow
+    620   type(mpp_efp_type)               :: mpp_real_to_efp
+    621 
+    622   logical :: over
+    623   character(len=80) :: mesg
+    624 
+    625   if (present(overflow)) then
+    626     mpp_real_to_efp%v(:) = real_to_ints(val, overflow=overflow)
+    627   else
+    628     over = .false.
+    629     mpp_real_to_efp%v(:) = real_to_ints(val, overflow=over)
+    630     if (over) then
+    631       write(mesg, '(ES13.5)') val
+    632       call mpp_error(FATAL,"Overflow in mpp_real_to_efp conversion of "//trim(mesg))
+    633     endif
+    634   endif
+    635 
+    636 end function mpp_real_to_efp
+
+
+ENTRY POINTS
+
+  Name                                       
+                                             
+ mpp_efp_mod_mp_mpp_real_to_efp_             
+
+Page 32          Source Listing                  MPP_REAL_TO_EFP
+2021-06-01 08:53 Symbol Table                    mpp_efp.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ MESG                       Local  623      CHAR            80          scalar                    631,632                           
+ MPP_REAL_TO_EFP            Func   617      MPP_EFP_TYPE    48          scalar                                                      
+ OVER                       Local  622      L(4)            4           scalar                    628,629,630                       
+ OVERFLOW                   Dummy  617      L(4)            4           scalar   ARG,INOUT        625,626                           
+ PRESENT                    Func   625                                  scalar                    625                               
+ TRIM                       Func   632                                  scalar                    632                               
+ VAL                        Dummy  617      R(8)            8           scalar   ARG,IN           626,629,631                       
+
+Page 33          Source Listing                  MPP_REAL_TO_EFP
+2021-06-01 08:53                                 mpp_efp.F90
+
+    637 
+    638 !> This subroutine does a sum across PEs of a list of EFP variables,
+    639 !! returning the sums in place, with all overflows carried.
+    640 subroutine mpp_efp_list_sum_across_PEs(EFPs, nval, errors)
+    641   type(mpp_efp_type), dimension(:), intent(inout) :: EFPs
+    642   integer, intent(in) :: nval
+    643   logical, dimension(:), optional, intent(out) :: errors
+    644 
+    645   integer(i8_kind), dimension(NUMINT,nval) :: ints
+    646   integer(i8_kind) :: prec_error
+    647   logical :: error_found
+    648   character(len=256) :: mesg
+    649   integer :: i, n
+    650 
+    651   if (mpp_npes() > max_count_prec) call mpp_error(FATAL, &
+    652     "mpp_efp_list_sum_across_PEs: Too many processors are being used for the value of "//&
+    653     "prec.  Reduce prec to (2^63-1)/mpp_npes.")
+    654 
+    655   prec_error = (2_8**62 + (2_8**62 - 1)) / mpp_npes()
+    656 ! overflow_error is an overflow error flag for the whole module.
+    657   overflow_error = .false. ; error_found = .false.
+    658 
+    659   do i=1,nval ; do n=1,NUMINT ; ints(n,i) = EFPs(i)%v(n) ; enddo ; enddo
+    660 
+    661   call mpp_sum(ints(:,:), NUMINT*nval)
+    662 
+    663   if (present(errors)) errors(:) = .false.
+    664   do i=1,nval
+    665     overflow_error = .false.
+    666     call carry_overflow(ints(:,i), prec_error)
+    667     do n=1,NUMINT ; EFPs(i)%v(n) = ints(n,i) ; enddo
+    668     if (present(errors)) errors(i) = overflow_error
+    669     if (overflow_error) then
+    670       write (mesg,'("mpp_efp_list_sum_across_PEs error at ",i6," val was ",ES12.6, ", prec_error = ",ES12.6)') &
+    671              i, mpp_efp_to_real(EFPs(i)), real(prec_error)
+    672       if(mpp_pe()==mpp_root_pe()) call mpp_error(WARNING, mesg)
+    673     endif
+    674     error_found = error_found .or. overflow_error
+    675   enddo
+    676   if (error_found .and. .not.(present(errors))) then
+    677     call mpp_error(FATAL, "Overflow in mpp_efp_list_sum_across_PEs.")
+    678   endif
+    679 
+    680 end subroutine mpp_efp_list_sum_across_PEs
+
+Page 34          Source Listing                  MPP_EFP_LIST_SUM_ACROSS_PES
+2021-06-01 08:53 Entry Points                    mpp_efp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                   
+                                                         
+ mpp_efp_mod_mp_mpp_efp_list_sum_across_pes_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ EFPS                       Dummy  640      RECORD          48    1     1        ARG,INOUT        659,667,671                       
+ ERRORS                     Dummy  640      L(4)            4     1     1        ARG,OUT          663,668,676                       
+ ERROR_FOUND                Local  647      L(4)            4           scalar                    657,674,676                       
+ I                          Local  649      I(4)            4           scalar                    659,664,666,667,668,671           
+ INTS                       Local  645      I(8)            8     2     0        TGT              659,661,666,667                   
+ MESG                       Local  648      CHAR            256         scalar                    670,672                           
+ MPP_EFP_LIST_SUM_ACROSS_PE                                                                                                         
+ S                          Subr   640                                                                                              
+ N                          Local  649      I(4)            4           scalar                    659,667                           
+ NVAL                       Dummy  640      I(4)            4           scalar   ARG,IN           645,659,661,664                   
+ PREC_ERROR                 Local  646      I(8)            8           scalar                    655,666,671                       
+ PRESENT                    Func   663                                  scalar                    663,668,676                       
+ REAL                       Func   671                                  scalar                    671                               
+ WARNING                    Param  672      I(4)            4           scalar   PRIV             24,672                            
+
+Page 35          Source Listing                  MPP_EFP_LIST_SUM_ACROSS_PES
+2021-06-01 08:53                                 mpp_efp.F90
+
+    681 
+    682 end module mpp_efp_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ MPP_EFP_LIST_SUM_ACROSS_PE                                                                                                         
+ S                          Subr   31                                                             31                                
+ MPP_EFP_MINUS@0            Local  577      MPP_EFP_TYPE    48          scalar                                                      
+ MPP_EFP_MOD                Module 22                                                                                               
+ MPP_EFP_PLUS               Func   67       RECORD          48          scalar                    32,572,574                        
+ MPP_EFP_PLUS@0             Local  568      MPP_EFP_TYPE    48          scalar                                                      
+ MPP_EFP_REAL_DIFF@0        Local  606      R(8)            8           scalar                                                      
+ MPP_EFP_TO_REAL@0          Local  598      R(8)            8           scalar                                                      
+ MPP_MOD                    Module 24                                                             24,25,26                          
+ MPP_QUERY_EFP_OVERFLOW_ERR                                                                                                         
+ OR@0                       Local  559      L(4)            4           scalar                                                      
+ MPP_REAL_TO_EFP@0          Local  617      MPP_EFP_TYPE    48          scalar                                                      
+ MPP_REPRODUCING_SUM        Local  55                                   scalar                    31                                
+ MPP_RESET_EFP_OVERFLOW_ERR                                                                                                         
+ OR                         Subr   34                                                             34                                
+ NUMBIT                     Param  36       I(4)            4           scalar                    40,41,42,43                       
+ Operator (+)                      33                                                                                               
+ PLATFORM_MOD               Module 27                                                             27                                
+ R_PREC                     Param  41       R(8)            8           scalar                    48,50                             
+
+Page 36          Source Listing                  MPP_EFP_LIST_SUM_ACROSS_PES
+2021-06-01 08:53 Subprograms/Common Blocks       mpp_efp.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CARRY_OVERFLOW             Subr   505                                                            134,140,158,298,305,357,364,666   
+ INCREMENT_INTS             Subr   452                                                            144,309,340,368,574,584           
+ INCREMENT_INTS_FASTER      Subr   482                                                            132,138,296,303,355,362           
+ INTS_TO_REAL               Func   440      R(8)            8           scalar                    184,334,391,603                   
+ MPP_EFP_ASSIGN             Subr   590                                           PRIV             572,612                           
+ MPP_EFP_LIST_SUM_ACROSS_PE                                                                                                         
+ S                          Subr   640                                                                                              
+ MPP_EFP_MINUS              Func   577      MPP_EFP_TYPE    48          scalar                                                      
+ MPP_EFP_MOD                Module 22                                                                                               
+ MPP_EFP_PLUS               Func   568      MPP_EFP_TYPE    48          scalar                                                      
+ MPP_EFP_REAL_DIFF          Func   606      R(8)            8           scalar                                                      
+ MPP_EFP_TO_REAL            Func   598      R(8)            8           scalar                                                      
+ MPP_QUERY_EFP_OVERFLOW_ERR                                                                                                         
+ OR                         Func   559      L(4)            4           scalar                                                      
+ MPP_REAL_TO_EFP            Func   617      MPP_EFP_TYPE    48          scalar                                                      
+ MPP_REPRODUCING_SUM_R4_2D  Func   218      R(4)            4           scalar   PRIV                                               
+ MPP_REPRODUCING_SUM_R8_2D  Func   77       R(8)            8           scalar   PRIV             232                               
+ MPP_REPRODUCING_SUM_R8_3D  Func   242      R(8)            8           scalar   PRIV                                               
+ MPP_RESET_EFP_OVERFLOW_ERR                                                                                                         
+ OR                         Subr   564                                                                                              
+ REAL_TO_INTS               Func   405      I(8)            8     1     6                         144,197,310,368,626,629           
+ REGULARIZE_INTS            Subr   524                                                            183,333,390,602                   
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+
+Page 37          Source Listing                  MPP_EFP_LIST_SUM_ACROSS_PES
+2021-06-01 08:53                                 mpp_efp.F90
+
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+
+Page 38          Source Listing                  MPP_EFP_LIST_SUM_ACROSS_PES
+2021-06-01 08:53                                 mpp_efp.F90
+
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : ./,/opt/intel/2020/compilers_and_libraries/linux/mkl/include/,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/,
+           /usr/include/,./,./,../include/,../mpp/include/,./,/opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/,/opt/intel/2020/compilers_and_libraries/linux/daal/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,/usr/local/include/,/usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/,
+           /usr/include/,/usr/include/,/usr/include/
+       -list filename : mpp_efp.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

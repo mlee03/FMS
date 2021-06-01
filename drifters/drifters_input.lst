@@ -1,0 +1,926 @@
+Page 1           Source Listing                  DRIFTERS_INPUT_NEW
+2021-06-01 08:54                                 /tmp/iforthN9bzJ.i90
+
+      1 # 1 "drifters_input.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 !> @file
+     22 !! @email gfdl.climate.model.info@noaa.gov
+     23 module drifters_input_mod
+     24   implicit none
+     25   private
+     26 
+     27   public :: drifters_input_type, drifters_input_new, drifters_input_del, drifters_input_save, assignment(=)
+     28 
+     29 ! Globals
+     30   integer, parameter, private   :: MAX_STR_LEN = 128
+     31 ! Include variable "version" to be written to log file.
+     32 # 1 "../include/file_version.h" 1 
+     33 ! -*-f90-*-
+     34 !***********************************************************************
+     35 !*                   GNU Lesser General Public License
+     36 !*
+     37 !* This file is part of the GFDL Flexible Modeling System (FMS).
+     38 !*
+     39 !* FMS is free software: you can redistribute it and/or modify it under
+     40 !* the terms of the GNU Lesser General Public License as published by
+     41 !* the Free Software Foundation, either version 3 of the License, or (at
+     42 !* your option) any later version.
+     43 !*
+     44 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     45 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     46 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     47 !* for more details.
+     48 !*
+     49 !* You should have received a copy of the GNU Lesser General Public
+     50 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     51 !***********************************************************************
+     52 
+     53 # 23
+     54 
+     55   character(len=*), parameter :: version = 'unknown'
+     56 
+     57 # 32 "drifters_input.F90" 2 
+
+Page 2           Source Listing                  DRIFTERS_INPUT_NEW
+2021-06-01 08:54                                 drifters_input.F90
+
+     58   character, parameter, private :: SEPARATOR = ' '
+     59 
+     60 !> @brief Be sure to update drifters_input_new, drifters_input_del and drifters_input_copy_new
+     61 !!   when adding members
+     62   type drifters_input_type
+     63 ! Be sure to update drifters_input_new, drifters_input_del and drifters_input_copy_new
+     64 ! when adding members
+     65      character(len=MAX_STR_LEN), allocatable :: position_names(:)
+     66      character(len=MAX_STR_LEN), allocatable :: position_units(:)
+     67      character(len=MAX_STR_LEN), allocatable :: field_names(:)
+     68      character(len=MAX_STR_LEN), allocatable :: field_units(:)
+     69      character(len=MAX_STR_LEN), allocatable :: velocity_names(:)
+     70      real                      , allocatable :: positions(:,:)
+     71      integer                   , allocatable :: ids(:)
+     72      character(len=MAX_STR_LEN)               :: time_units
+     73      character(len=MAX_STR_LEN)               :: title
+     74      character(len=MAX_STR_LEN)               :: version
+     75   end type drifters_input_type
+     76 
+     77   interface assignment(=)
+     78      module procedure drifters_input_copy_new
+     79   end interface
+     80 
+     81 
+     82   contains
+     83 
+     84 !===============================================================================
+     85 
+     86   subroutine drifters_input_new(self, filename, ermesg)
+     87     use netcdf
+     88     use netcdf_nf_data
+     89     use netcdf_nf_interfaces
+     90     type(drifters_input_type)    :: self
+     91     character(len=*), intent(in) :: filename
+     92     character(len=*), intent(out):: ermesg
+     93 
+     94 ! Local
+     95     integer :: ier, ncid, nd, nf, np, ipos, j, id, i, isz
+     96     character(len=MAX_STR_LEN) :: attribute
+     97 
+     98     ermesg = ''
+     99 
+    100     ier = nf_open(filename, NF_NOWRITE, ncid)
+    101     if(ier/=NF_NOERR) then
+    102        ermesg = 'drifters_input: ERROR could not open netcdf file '//filename
+    103        return
+    104     endif
+    105 
+    106 ! version
+    107     ier = NF_PUT_ATT_TEXT(NCID, NF_GLOBAL, 'version', len(version), version)
+    108 
+    109     ier = NF_INQ_DIMID(NCID, 'nd', id)
+    110     if(ier/=NF_NOERR) then
+    111        ermesg = 'drifters_input: ERROR could not find "nd" (number of dimensions)'
+    112        ier = nf_close(ncid)
+    113        return
+    114     endif
+
+Page 3           Source Listing                  DRIFTERS_INPUT_NEW
+2021-06-01 08:54                                 drifters_input.F90
+
+    115     ier = NF_INQ_DIMLEN(NCID, id, nd)
+    116 
+    117 ! determine number of fields (nf)
+    118     attribute = ''
+    119     ier = nf_get_att_text(ncid, NF_GLOBAL, 'field_names', attribute)
+    120     isz = min(len(attribute), len(trim(attribute))+1)
+    121     attribute(isz:isz) = ' '
+    122     ipos = 1
+    123     nf = 0
+    124     do i = 1, isz
+    125        if(attribute(i:i)==SEPARATOR) then
+    126           nf = nf + 1
+    127        endif
+    128     enddo
+    129 
+    130     ier = NF_INQ_DIMID(NCID, 'np', id)
+    131     if(ier/=NF_NOERR) then
+    132        ermesg = 'drifters_input: ERROR could not find "np" (number of particles)'
+    133        ier = nf_close(ncid)
+    134        return
+    135     endif
+    136     ier = NF_INQ_DIMLEN(NCID, id, np)
+    137 
+    138     allocate(self%position_names(nd))
+    139     allocate(self%position_units(nd))
+    140     allocate(self%field_names(nf))
+    141     allocate(self%field_units(nf))
+    142     allocate(self%velocity_names(nd))
+    143     allocate(self%ids(np))
+    144     allocate(self%positions(nd, np))
+    145 
+    146     ier = NF_INQ_VARID(NCID, 'ids', id)
+    147     if(ier/=NF_NOERR) then
+    148        ermesg = 'drifters_input: ERROR could not find "ids"'
+    149        ier = nf_close(ncid)
+    150        return
+    151     endif
+    152     ier = NF_GET_VAR_INT(NCID, id, self%ids)
+    153 
+    154     ier = NF_INQ_VARID(NCID, 'positions', id)
+    155     if(ier/=NF_NOERR) then
+    156        ermesg = 'drifters_input: ERROR could not find "positions"'
+    157        ier = nf_close(ncid)
+    158        return
+    159     endif
+    160     ier = NF90_GET_VAR(NCID, id, self%positions)
+    161 
+    162     attribute = ''
+    163     ier = nf_get_att_text(ncid, NF_GLOBAL, 'version', attribute)
+    164     self%version = trim(attribute)
+    165 
+    166     attribute = ''
+    167     ier = nf_get_att_text(ncid, NF_GLOBAL, 'time_units', attribute)
+    168     self%time_units = trim(attribute)
+    169 
+    170     attribute = ''
+    171     ier = nf_get_att_text(ncid, NF_GLOBAL, 'title', attribute)
+
+Page 4           Source Listing                  DRIFTERS_INPUT_NEW
+2021-06-01 08:54                                 drifters_input.F90
+
+    172     self%title = trim(attribute)
+    173 
+    174     attribute = ''
+    175     ier = nf_get_att_text(ncid, id, 'names', attribute)
+    176     isz = min(len(attribute), len(trim(attribute))+1)
+    177     attribute(isz:isz) = ' '
+    178     ipos = 1
+    179     j = 1
+    180     do i = 1, isz
+    181        if(attribute(i:i)==SEPARATOR) then
+    182           self%position_names(j)  = trim(adjustl(attribute(ipos:i-1)))
+    183           ipos = i+1
+    184           j = j + 1
+    185           if(j > nd) exit
+    186        endif
+    187     enddo
+    188 
+    189     attribute = ''
+    190     ier = nf_get_att_text(ncid, id, 'units', attribute)
+    191     isz = min(len(attribute), len(trim(attribute))+1)
+    192     attribute(isz:isz) = ' '
+    193     ipos = 1
+    194     j = 1
+    195     do i = 1, isz
+    196        if(attribute(i:i)==SEPARATOR) then
+    197           self%position_units(j)  = trim(adjustl(attribute(ipos:i-1)))
+    198           ipos = i+1
+    199           j = j + 1
+    200           if(j > nd) exit
+    201        endif
+    202     enddo
+    203 
+    204     attribute = ''
+    205     ier = nf_get_att_text(ncid, NF_GLOBAL, 'field_names', attribute)
+    206     isz = min(len(attribute), len(trim(attribute))+1)
+    207     attribute(isz:isz) = ' '
+    208     ipos = 1
+    209     j = 1
+    210     do i = 1, isz
+    211        if(attribute(i:i)==SEPARATOR) then
+    212           self%field_names(j)  = trim(adjustl(attribute(ipos:i-1)))
+    213           ipos = i+1
+    214           j = j + 1
+    215           if(j > nf) exit
+    216        endif
+    217     enddo
+    218 
+    219     attribute = ''
+    220     ier = nf_get_att_text(ncid, NF_GLOBAL, 'field_units', attribute)
+    221     isz = min(len(attribute), len(trim(attribute))+1)
+    222     attribute(isz:isz) = ' '
+    223     ipos = 1
+    224     j = 1
+    225     do i = 1, isz
+    226        if(attribute(i:i)==SEPARATOR) then
+    227           self%field_units(j)  = trim(adjustl(attribute(ipos:i-1)))
+    228           ipos = i+1
+
+Page 5           Source Listing                  DRIFTERS_INPUT_NEW
+2021-06-01 08:54                                 drifters_input.F90
+
+    229           j = j + 1
+    230           if(j > nf) exit
+    231        endif
+    232     enddo
+    233 
+    234     attribute = ''
+    235     ier = nf_get_att_text(ncid, NF_GLOBAL, 'velocity_names', attribute)
+    236     isz = min(len(attribute), len(trim(attribute))+1)
+    237     attribute(isz:isz) = ' '
+    238     ipos = 1
+    239     j = 1
+    240     do i = 1, isz
+    241        if(attribute(i:i)==SEPARATOR) then
+    242           self%velocity_names(j)  = trim(adjustl(attribute(ipos:i-1)))
+    243           ipos = i+1
+    244           j = j + 1
+    245           if(j > nd) exit
+    246        endif
+    247     enddo
+    248 
+    249   end subroutine drifters_input_new
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ drifters_input_mod_mp_drifters_input_new_             
+
+Page 6           Source Listing                  DRIFTERS_INPUT_NEW
+2021-06-01 08:54 Symbol Table                    drifters_input.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ADJUSTL                    Func   182                                  scalar                    182,197,212,227,242               
+ ATTRIBUTE                  Local  96       CHAR            128         scalar                    118,119,120,121,125,162,163,164,16
+                                                                                                  6,167,168,170,171,172,174,175,176,
+                                                                                                  177,181,182,189,190,191,192,196,19
+                                                                                                  7,204,205,206,207,211,212,219,220,
+                                                                                                  221,222,226,227,234,235,236,237,24
+                                                                                                  1,242                             
+ DRIFTERS_INPUT_NEW         Subr   86                                                                                               
+ DRIFTERS_INPUT_TYPE        Type   90                       912         scalar                    27,75,90,253,273,274,303          
+ ERMESG                     Dummy  86       CHAR                        scalar   ARG,OUT          98,102,111,132,148,156            
+ FILENAME                   Dummy  86       CHAR                        scalar   ARG,IN           100,102                           
+ I                          Local  95       I(4)            4           scalar                    124,125,180,181,182,183,195,196,19
+                                                                                                  7,198,210,211,212,213,225,226,227,
+                                                                                                  228,240,241,242,243               
+ ID                         Local  95       I(4)            4           scalar                    109,115,130,136,146,152,154,160,17
+                                                                                                  5,190                             
+ IER                        Local  95       I(4)            4           scalar                    100,101,107,109,110,112,115,119,13
+                                                                                                  0,131,133,136,146,147,149,152,154,
+                                                                                                  155,157,160,163,167,171,175,190,20
+                                                                                                  5,220,235                         
+ IPOS                       Local  95       I(4)            4           scalar                    122,178,182,183,193,197,198,208,21
+                                                                                                  2,213,223,227,228,238,242,243     
+ ISZ                        Local  95       I(4)            4           scalar                    120,121,124,176,177,180,191,192,19
+                                                                                                  5,206,207,210,221,222,225,236,237,
+                                                                                                  240                               
+ J                          Local  95       I(4)            4           scalar                    179,182,184,185,194,197,199,200,20
+                                                                                                  9,212,214,215,224,227,229,230,239,
+                                                                                                  242,244,245                       
+ LEN                        Func   107                                  scalar                    107,120,176,191,206,221,236       
+ MAX_STR_LEN                Param  96       I(4)            4           scalar   PRIV             30,65,66,67,68,69,72,73,74,96,311 
+ MIN                        Func   120                                  scalar                    120,176,191,206,221,236           
+ NCID                       Local  95       I(4)            4           scalar                    100,107,109,112,115,119,130,133,13
+                                                                                                  6,146,149,152,154,157,160,163,167,
+                                                                                                  171,175,190,205,220,235           
+ ND                         Local  95       I(4)            4           scalar                    115,138,139,142,144,185,200,245   
+ NETCDF                     Module 87                                                             87                                
+ NETCDF_NF_DATA             Module 88                                                             88                                
+ NETCDF_NF_INTERFACES       Module 89                                                             89                                
+ NF                         Local  95       I(4)            4           scalar                    123,126,140,141,215,230           
+ NF90_GET_VAR               Local  160                                  scalar                    160                               
+ NF90_GET_VAR_2D_EIGHTBYTER                                                                                                         
+ EAL                        Func   160      I(4)            4           scalar   PRIV             160                               
+ NF_CLOSE                   Func   112      I(4)            4           scalar                    112,133,149,157                   
+ NF_GET_ATT_TEXT            Func   119      I(4)            4           scalar                    119,163,167,171,175,190,205,220,23
+                                                                                                  5                                 
+ NF_GET_VAR_INT             Func   152      I(4)            4           scalar                    152                               
+ NF_GLOBAL                  Param  107      I(4)            4           scalar                    107,119,163,167,171,205,220,235   
+ NF_INQ_DIMID               Func   109      I(4)            4           scalar                    109,130                           
+ NF_INQ_DIMLEN              Func   115      I(4)            4           scalar                    115,136                           
+ NF_INQ_VARID               Func   146      I(4)            4           scalar                    146,154                           
+ NF_NOERR                   Param  101      I(4)            4           scalar                    101,110,131,147,155               
+
+Page 7           Source Listing                  DRIFTERS_INPUT_NEW
+2021-06-01 08:54 Symbol Table                    drifters_input.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ NF_NOWRITE                 Param  100      I(4)            4           scalar                    100                               
+ NF_OPEN                    Func   100      I(4)            4           scalar                    100                               
+ NF_PUT_ATT_TEXT            Func   107      I(4)            4           scalar                    107                               
+ NP                         Local  95       I(4)            4           scalar                    136,143,144                       
+ SELF                       Dummy  86       DRIFTERS_INPUT_TYPE                                                                     
+                                                            912         scalar   ARG,INOUT        138,139,140,141,142,143,144,152,16
+                                                                                                  0,164,168,172,182,197,212,227,242 
+ SEPARATOR                  Param  125      CHAR            1           scalar   PRIV             58,125,181,196,211,226,241        
+ TRIM                       Func   120                                  scalar                    120,164,168,172,176,182,191,197,20
+                                                                                                  6,212,221,227,236,242             
+ VERSION                    Param  107      CHAR            7           scalar                    107                               
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DRIFTERS_INPUT_TYPE.FIELD_NAMES                                                                                           ...
+                            CHAR            128   144      1     1        ALC              140,212,262,278,283,324,357,358    
+ DRIFTERS_INPUT_TYPE.FIELD_UNITS                                                                                           ...
+                            CHAR            128   216      1     1        ALC              141,227,263,279,284,345,346        
+ DRIFTERS_INPUT_TYPE.IDS    I(4)            4     456      1     1        ALC              143,152,265,291,292,441            
+ DRIFTERS_INPUT_TYPE.POSITIONS                                                                                             ...
+                            R(8)            8     360      2     1        ALC              144,160,266,289,290,322,323,437    
+ DRIFTERS_INPUT_TYPE.POSITION_NAMES                                                                                        ...
+                            CHAR            128   0        1     1        ALC              138,182,260,276,281,422,423        
+ DRIFTERS_INPUT_TYPE.POSITION_UNITS                                                                                        ...
+                            CHAR            128   72       1     1        ALC              139,197,261,277,282,410,411        
+ DRIFTERS_INPUT_TYPE.TIME_UNITS                                                                                            ...
+                            CHAR            128   528            scalar                    168,286,338                        
+ DRIFTERS_INPUT_TYPE.TITLE  CHAR            128   656            scalar                    172,287,334                        
+ DRIFTERS_INPUT_TYPE.VELOCITY_NAMES                                                                                        ...
+                            CHAR            128   288      1     1        ALC              142,242,264,280,285,369,370        
+ DRIFTERS_INPUT_TYPE.VERSION                                                                                               ...
+                            CHAR            128   784            scalar                    164,288                            
+
+Page 8           Source Listing                  DRIFTERS_INPUT_NEW
+2021-06-01 08:54                                 drifters_input.F90
+
+    250 
+    251 !===============================================================================
+    252   subroutine drifters_input_del(self, ermesg)
+    253     type(drifters_input_type)    :: self
+    254     character(len=*), intent(out):: ermesg
+    255 
+    256     integer :: iflag
+    257 
+    258     ermesg = ''
+    259 
+    260     deallocate(self%position_names, stat=iflag)
+    261     deallocate(self%position_units, stat=iflag)
+    262     deallocate(self%field_names, stat=iflag)
+    263     deallocate(self%field_units, stat=iflag)
+    264     deallocate(self%velocity_names, stat=iflag)
+    265     deallocate(self%ids, stat=iflag)
+    266     deallocate(self%positions, stat=iflag)
+    267 
+    268   end subroutine drifters_input_del
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ drifters_input_mod_mp_drifters_input_del_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_INPUT_DEL         Subr   252                                                                                              
+ ERMESG                     Dummy  252      CHAR                        scalar   ARG,OUT          258                               
+ IFLAG                      Local  256      I(4)            4           scalar                    260,261,262,263,264,265,266       
+ SELF                       Dummy  252      DRIFTERS_INPUT_TYPE                                                                     
+                                                            912         scalar   ARG,INOUT        260,261,262,263,264,265,266       
+
+Page 9           Source Listing                  DRIFTERS_INPUT_DEL
+2021-06-01 08:54                                 drifters_input.F90
+
+    269 
+    270 !===============================================================================
+    271   subroutine drifters_input_copy_new(new_instance, old_instance)
+    272 
+    273     type(drifters_input_type), intent(inout) :: new_instance
+    274     type(drifters_input_type), intent(in)    :: old_instance
+    275 
+    276     allocate(new_instance%position_names( size(old_instance%position_names) ))
+    277     allocate(new_instance%position_units( size(old_instance%position_units) ))
+    278     allocate(new_instance%field_names( size(old_instance%field_names) ))
+    279     allocate(new_instance%field_units( size(old_instance%field_units) ))
+    280     allocate(new_instance%velocity_names( size(old_instance%velocity_names) ))
+    281     new_instance%position_names = old_instance%position_names
+    282     new_instance%position_units = old_instance%position_units
+    283     new_instance%field_names    = old_instance%field_names
+    284     new_instance%field_units    = old_instance%field_units
+    285     new_instance%velocity_names = old_instance%velocity_names
+    286     new_instance%time_units     = old_instance%time_units
+    287     new_instance%title          = old_instance%title
+    288     new_instance%version        = old_instance%version
+    289     allocate(new_instance%positions( size(old_instance%positions,1),size(old_instance%positions,2) ))
+    290     new_instance%positions      = old_instance%positions
+    291     allocate(new_instance%ids(size(old_instance%ids)))
+    292     new_instance%ids            = old_instance%ids
+    293 
+    294   end subroutine drifters_input_copy_new
+
+
+ENTRY POINTS
+
+  Name                                                      
+                                                            
+ drifters_input_mod_mp_drifters_input_copy_new_             
+
+Page 10          Source Listing                  DRIFTERS_INPUT_COPY_NEW
+2021-06-01 08:54 Symbol Table                    drifters_input.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_INPUT_COPY_NEW    Subr   271                                           PRIV                                               
+ NEW_INSTANCE               Dummy  271      DRIFTERS_INPUT_TYPE                                                                     
+                                                            912         scalar   ARG,INOUT        276,277,278,279,280,281,282,283,28
+                                                                                                  4,285,286,287,288,289,290,291,292 
+ OLD_INSTANCE               Dummy  271      DRIFTERS_INPUT_TYPE                                                                     
+                                                            912         scalar   ARG,IN           276,277,278,279,280,281,282,283,28
+                                                                                                  4,285,286,287,288,289,290,291,292 
+ SIZE                       Func   276                                  scalar                    276,277,278,279,280,289,291       
+
+Page 11          Source Listing                  DRIFTERS_INPUT_COPY_NEW
+2021-06-01 08:54                                 drifters_input.F90
+
+    295 
+    296 !===============================================================================
+    297 !> @brief save state in netcdf file. can be used as restart file.
+    298   subroutine drifters_input_save(self, filename, geolon, geolat, ermesg)
+    299 ! save state in netcdf file. can be used as restart file.
+    300     use netcdf
+    301     use netcdf_nf_data
+    302     use netcdf_nf_interfaces
+    303     type(drifters_input_type)    :: self
+    304     character(len=*), intent(in ):: filename
+    305     real, intent(in), optional   :: geolon(:), geolat(:)
+    306     character(len=*), intent(out):: ermesg
+    307 
+    308 
+    309     integer ncid, nc_nd, nc_np, ier, nd, np, nf, nc_pos, nc_ids, i, j, n
+    310     integer nc_lon, nc_lat
+    311     character(len=MAX_STR_LEN) :: att
+    312 
+    313 
+    314     ermesg = ''
+    315 
+    316     ier = nf_create(filename, NF_CLOBBER, ncid)
+    317     if(ier/=NF_NOERR) then
+    318        ermesg = 'drifters_input: ERROR cannot create '//filename
+    319        return
+    320     endif
+    321 
+    322     nd = size(self%positions, 1)
+    323     np = size(self%positions, 2)
+    324     nf = size(self%field_names)
+    325 
+    326 ! dimensions
+    327     ier = nf_def_dim(ncid, 'nd', nd, nc_nd)
+    328     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR creating dim "nd" '//nf_strerror(ier)
+    329 
+    330     ier = nf_def_dim(ncid, 'np', np, nc_np)
+    331     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR creating dim "np" '//nf_strerror(ier)
+    332 
+    333 ! global attributes
+    334     ier = nf_put_att_text(ncid, NF_GLOBAL, 'title', len_trim(self%title), self%title)
+    335     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR setting global att "title" ' &
+    336          & //nf_strerror(ier)
+    337 
+    338     ier = nf_put_att_text(ncid, NF_GLOBAL, 'time_units', len_trim(self%time_units), self%time_units)
+    339     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR setting global att "time_units" ' &
+    340          & //nf_strerror(ier)
+    341 
+    342     att = ''
+    343     j = 1
+    344     do i = 1, nf
+    345        n = len_trim(self%field_units(i))
+    346        att(j:j+n+1) = trim(self%field_units(i)) // ' '
+    347        j = j + n + 1
+    348     enddo
+    349     ier = nf_put_att_text(ncid, NF_GLOBAL, 'field_units',   len_trim(att), &
+    350          & att)
+    351     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR setting global att "field_units" ' &
+
+Page 12          Source Listing                  DRIFTERS_INPUT_SAVE
+2021-06-01 08:54                                 drifters_input.F90
+
+    352          & //nf_strerror(ier)
+    353 
+    354     att = ''
+    355     j = 1
+    356     do i = 1, nf
+    357        n = len_trim(self%field_names(i))
+    358        att(j:j+n+1) = trim(self%field_names(i)) // ' '
+    359        j = j + n + 1
+    360     enddo
+    361     ier = nf_put_att_text(ncid, NF_GLOBAL, 'field_names',   len_trim(att), &
+    362          & att)
+    363     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR setting global att "field_names" ' &
+    364          & //nf_strerror(ier)
+    365 
+    366     att = ''
+    367     j = 1
+    368     do i = 1, nd
+    369        n = len_trim(self%velocity_names(i))
+    370        att(j:j+n+1) = trim(self%velocity_names(i)) // ' '
+    371        j = j + n + 1
+    372     enddo
+    373     ier = nf_put_att_text(ncid, NF_GLOBAL, 'velocity_names',   len_trim(att), &
+    374          & att)
+    375     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR setting global att "velocity_names" ' &
+    376          & //nf_strerror(ier)
+    377 
+    378 ! variables
+    379     ier = nf_def_var(ncid, 'positions', NF_DOUBLE, 2, (/nc_nd, nc_np/), nc_pos)
+    380     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR creating var "positions" '//nf_strerror(ier)
+    381 
+    382     ier = nf_def_var(ncid, 'ids', NF_INT, 1, (/nc_np/), nc_ids)
+    383     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR creating var "ids" '//nf_strerror(ier)
+    384 
+    385 ! optional: longitudes/latitudes in deg
+    386     if(present(geolon)) then
+    387        ier = nf_def_var(ncid, 'longitude', NF_DOUBLE, 1, (/nc_np/), nc_lon)
+    388        if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR creating var "longitude" ' &
+    389             & //nf_strerror(ier)
+    390        att = 'degrees_east'
+    391        ier = nf_put_att_text(ncid, nc_lon, 'units', len(trim(att)), trim(att))
+    392        if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR setting att "units" to "longitude" ' &
+    393          & //nf_strerror(ier)
+    394     endif
+    395     if(present(geolat)) then
+    396        ier = nf_def_var(ncid, 'latitude', NF_DOUBLE, 1, (/nc_np/), nc_lat)
+    397        if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR creating var "latitude" ' &
+    398             & //nf_strerror(ier)
+    399        att = 'degrees_north'
+    400        ier = nf_put_att_text(ncid, nc_lat, 'units', len(trim(att)), trim(att))
+    401        if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR setting att "units" to "latitude" ' &
+    402          & //nf_strerror(ier)
+    403     endif
+    404 
+    405 ! variable attributes
+    406 
+    407     att = ''
+    408     j = 1
+
+Page 13          Source Listing                  DRIFTERS_INPUT_SAVE
+2021-06-01 08:54                                 drifters_input.F90
+
+    409     do i = 1, nd
+    410        n = len_trim(self%position_units(i))
+    411        att(j:j+n+1) = trim(self%position_units(i)) // ' '
+    412        j = j + n + 1
+    413     enddo
+    414     ier = nf_put_att_text(ncid, nc_pos, 'units',   len_trim(att), &
+    415          & att)
+    416     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR setting att "units" to "positions" ' &
+    417          & //nf_strerror(ier)
+    418 
+    419     att = ''
+    420     j = 1
+    421     do i = 1, nd
+    422        n = len_trim(self%position_names(i))
+    423        att(j:j+n+1) = trim(self%position_names(i)) // ' '
+    424        j = j + n + 1
+    425     enddo
+    426     ier = nf_put_att_text(ncid, nc_pos, 'names',   len_trim(att), &
+    427          & att)
+    428     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR setting att "names" to "positions" ' &
+    429          & //nf_strerror(ier)
+    430 
+    431 ! end of define mode
+    432     ier = nf_enddef(ncid)
+    433     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR could not end define mode ' &
+    434          & //nf_strerror(ier)
+    435 
+    436 ! data
+    437     ier = nf90_put_var(ncid, nc_pos, self%positions)
+    438     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR could not write "positions" ' &
+    439          & //nf_strerror(ier)
+    440 
+    441     ier = nf90_put_var(ncid, nc_ids, self%ids)
+    442     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR could not write "ids" ' &
+    443          & //nf_strerror(ier)
+    444 
+    445     if(present(geolon)) then
+    446        ier = nf90_put_var(ncid, nc_lon, geolon)
+    447        if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR could not write "geolon" ' &
+    448             & //nf_strerror(ier)
+    449     endif
+    450     if(present(geolat)) then
+    451        ier = nf90_put_var(ncid, nc_lat, geolat)
+    452        if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR could not write "geolat" ' &
+    453             & //nf_strerror(ier)
+    454     endif
+    455 
+    456 
+    457     ier = nf_close(ncid)
+    458     if(ier/=NF_NOERR) ermesg = 'drifters_input_save: ERROR could not close file ' &
+    459          & //nf_strerror(ier)
+    460 
+    461   end subroutine drifters_input_save
+
+Page 14          Source Listing                  DRIFTERS_INPUT_SAVE
+2021-06-01 08:54 Entry Points                    drifters_input.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ drifters_input_mod_mp_drifters_input_save_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ATT                        Local  311      CHAR            128         scalar                    342,346,349,350,354,358,361,362,36
+                                                                                                  6,370,373,374,390,391,399,400,407,
+                                                                                                  411,414,415,419,423,426,427       
+ DRIFTERS_INPUT_SAVE        Subr   298                                                                                              
+ ERMESG                     Dummy  298      CHAR                        scalar   ARG,OUT          314,318,328,331,335,339,351,363,37
+                                                                                                  5,380,383,388,392,397,401,416,428,
+                                                                                                  433,438,442,447,452,458           
+ FILENAME                   Dummy  298      CHAR                        scalar   ARG,IN           316,318                           
+ GEOLAT                     Dummy  298      R(8)            8     1     1        ARG,IN           395,450,451                       
+ GEOLON                     Dummy  298      R(8)            8     1     1        ARG,IN           386,445,446                       
+ I                          Local  309      I(4)            4           scalar                    344,345,346,356,357,358,368,369,37
+                                                                                                  0,409,410,411,421,422,423         
+ IER                        Local  309      I(4)            4           scalar                    316,317,327,328,330,331,334,335,33
+                                                                                                  6,338,339,340,349,351,352,361,363,
+                                                                                                  364,373,375,376,379,380,382,383,38
+                                                                                                  7,388,389,391,392,393,396,397,398,
+                                                                                                  400,401,402,414,416,417,426,428,42
+                                                                                                  9,432,433,434,437,438,439,441,442,
+                                                                                                  443,446,447,448,451,452,453,457,45
+                                                                                                  8,459                             
+ J                          Local  309      I(4)            4           scalar                    343,346,347,355,358,359,367,370,37
+                                                                                                  1,408,411,412,420,423,424         
+ LEN                        Func   391                                  scalar                    391,400                           
+ LEN_TRIM                   Func   334                                  scalar                    334,338,345,349,357,361,369,373,41
+                                                                                                  0,414,422,426                     
+ N                          Local  309      I(4)            4           scalar                    345,346,347,357,358,359,369,370,37
+                                                                                                  1,410,411,412,422,423,424         
+ NCID                       Local  309      I(4)            4           scalar                    316,327,330,334,338,349,361,373,37
+                                                                                                  9,382,387,391,396,400,414,426,432,
+                                                                                                  437,441,446,451,457               
+ NC_IDS                     Local  309      I(4)            4           scalar                    382,441                           
+ NC_LAT                     Local  310      I(4)            4           scalar                    396,400,451                       
+ NC_LON                     Local  310      I(4)            4           scalar                    387,391,446                       
+ NC_ND                      Local  309      I(4)            4           scalar                    327,379                           
+ NC_NP                      Local  309      I(4)            4           scalar                    330,379,382,387,396               
+ NC_POS                     Local  309      I(4)            4           scalar                    379,414,426,437                   
+ ND                         Local  309      I(4)            4           scalar                    322,327,368,409,421               
+ NETCDF                     Module 300                                                            300                               
+ NETCDF_NF_DATA             Module 301                                                            301                               
+ NETCDF_NF_INTERFACES       Module 302                                                            302                               
+ NF                         Local  309      I(4)            4           scalar                    324,344,356                       
+ NF90_PUT_VAR               Local  437                                  scalar                    437,441,446,451                   
+ NF90_PUT_VAR_1D_EIGHTBYTER                                                                                                         
+ EAL                        Func   446      I(4)            4           scalar   PRIV             446,451                           
+
+Page 15          Source Listing                  DRIFTERS_INPUT_SAVE
+2021-06-01 08:54 Symbol Table                    drifters_input.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ NF90_PUT_VAR_1D_FOURBYTEIN                                                                                                         
+ T                          Func   441      I(4)            4           scalar   PRIV             441                               
+ NF90_PUT_VAR_2D_EIGHTBYTER                                                                                                         
+ EAL                        Func   437      I(4)            4           scalar   PRIV             437                               
+ NF_CLOBBER                 Param  316      I(4)            4           scalar                    316                               
+ NF_CLOSE                   Func   457      I(4)            4           scalar                    457                               
+ NF_CREATE                  Func   316      I(4)            4           scalar                    316                               
+ NF_DEF_DIM                 Func   327      I(4)            4           scalar                    327,330                           
+ NF_DEF_VAR                 Func   379      I(4)            4           scalar                    379,382,387,396                   
+ NF_DOUBLE                  Param  379      I(4)            4           scalar                    379,387,396                       
+ NF_ENDDEF                  Func   432      I(4)            4           scalar                    432                               
+ NF_GLOBAL                  Param  334      I(4)            4           scalar                    334,338,349,361,373               
+ NF_INT                     Param  382      I(4)            4           scalar                    382                               
+ NF_NOERR                   Param  317      I(4)            4           scalar                    317,328,331,335,339,351,363,375,38
+                                                                                                  0,383,388,392,397,401,416,428,433,
+                                                                                                  438,442,447,452,458               
+ NF_PUT_ATT_TEXT            Func   334      I(4)            4           scalar                    334,338,349,361,373,391,400,414,42
+                                                                                                  6                                 
+ NF_STRERROR                Func   328      CHAR            80          scalar                    328,331,336,340,352,364,376,380,38
+                                                                                                  3,389,393,398,402,417,429,434,439,
+                                                                                                  443,448,453,459                   
+ NP                         Local  309      I(4)            4           scalar                    323,330                           
+ PRESENT                    Func   386                                  scalar                    386,395,445,450                   
+ SELF                       Dummy  298      DRIFTERS_INPUT_TYPE                                                                     
+                                                            912         scalar   ARG,INOUT        322,323,324,334,338,345,346,357,35
+                                                                                                  8,369,370,410,411,422,423,437,441 
+ SIZE                       Func   322                                  scalar                    322,323,324                       
+ TRIM                       Func   346                                  scalar                    346,358,370,391,400,411,423       
+
+Page 16          Source Listing                  DRIFTERS_INPUT_SAVE
+2021-06-01 08:54                                 drifters_input.F90
+
+    462 
+    463 end module drifters_input_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ Assignment (=)                    27                                                                                               
+ DRIFTERS_INPUT_DEL         Subr   27                                                             27                                
+ DRIFTERS_INPUT_MOD         Module 23                                                                                               
+ DRIFTERS_INPUT_NEW         Subr   27                                                             27                                
+ DRIFTERS_INPUT_SAVE        Subr   27                                                             27                                
+
+Page 17          Source Listing                  DRIFTERS_INPUT_SAVE
+2021-06-01 08:54 Subprograms/Common Blocks       drifters_input.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_INPUT_COPY_NEW    Subr   271                                           PRIV                                               
+ DRIFTERS_INPUT_DEL         Subr   252                                                                                              
+ DRIFTERS_INPUT_MOD         Module 23                                                                                               
+ DRIFTERS_INPUT_NEW         Subr   86                                                                                               
+ DRIFTERS_INPUT_SAVE        Subr   298                                                                                              
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+
+Page 18          Source Listing                  DRIFTERS_INPUT_SAVE
+2021-06-01 08:54                                 drifters_input.F90
+
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+
+Page 19          Source Listing                  DRIFTERS_INPUT_SAVE
+2021-06-01 08:54                                 drifters_input.F90
+
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : drifters_input.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

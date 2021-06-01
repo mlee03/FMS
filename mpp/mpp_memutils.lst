@@ -1,0 +1,433 @@
+Page 1           Source Listing                  MPP_MEMUSE_BEGIN
+2021-06-01 08:53                                 /tmp/ifortUFxj8V.i90
+
+      1 # 1 "mpp_memutils.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 !> Routines to initialize and report on memory usage during the model run.
+     22 module mpp_memutils_mod
+     23 
+     24   use mpp_mod, only: mpp_min, mpp_max, mpp_sum, mpp_pe, mpp_root_pe
+     25   use mpp_mod, only: mpp_error, FATAL, stderr, mpp_npes, get_unit
+     26   use platform_mod
+     27 
+     28   implicit none
+     29   private
+     30 
+     31   public :: mpp_print_memuse_stats, mpp_mem_dump
+     32   public :: mpp_memuse_begin, mpp_memuse_end
+     33 
+     34   real    :: begin_memuse
+     35   logical :: memuse_started = .false.
+     36 
+     37 contains
+     38 
+     39 !#######################################################################
+     40 !> Initialize the memory module, and record the initial memory use.
+     41   subroutine mpp_memuse_begin
+     42     if(memuse_started) then
+     43        call mpp_error(FATAL, "mpp_memutils_mod: mpp_memuse_begin was already called")
+     44     endif
+     45     memuse_started = .true.
+     46 
+     47     call mpp_mem_dump(begin_memuse)
+     48   end subroutine mpp_memuse_begin
+
+Page 2           Source Listing                  MPP_MEMUSE_BEGIN
+2021-06-01 08:53 Entry Points                    mpp_memutils.F90
+
+
+
+ENTRY POINTS
+
+  Name                                             
+                                                   
+ mpp_memutils_mod_mp_mpp_memuse_begin_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ BEGIN_MEMUSE               Local  47       R(8)            8           scalar                    47,68                             
+ FATAL                      Param  43       I(4)            4           scalar   PRIV             25,43,61                          
+ MEMUSE_STARTED             Local  42       L(4)            4           scalar                    35,42,45,60,63                    
+ MPP_ERROR                  Local  43                                   scalar   PRIV             25,43,61                          
+ MPP_ERROR_BASIC            Subr   43                                            PRIV             43,61                             
+ MPP_MEMUSE_BEGIN           Subr   41                                                                                               
+ MPP_MEM_DUMP               Subr   47                                                             31,47,65,90                       
+
+Page 3           Source Listing                  MPP_MEMUSE_BEGIN
+2021-06-01 08:53                                 mpp_memutils.F90
+
+     49 
+     50 !#######################################################################
+     51 !> End the memory collection, and report on total memory used during the
+     52 !! execution of the model run.
+     53   subroutine mpp_memuse_end(text, unit)
+     54     character(len=*), intent(in) :: text !< Text to include in memory use statement
+     55     integer, intent(in), optional :: unit !< Fortran unit number where memory report should go.
+     56 !! Default is stderr.
+     57     real    :: m, mmin, mmax, mavg, mstd, end_memuse
+     58     integer :: mu
+     59 
+     60     if(.NOT.memuse_started) then
+     61        call mpp_error(FATAL, "mpp_memutils_mod: mpp_memuse_begin must be called before calling mpp_memuse_being")
+     62     endif
+     63     memuse_started = .false.
+     64 
+     65     call mpp_mem_dump(end_memuse)
+     66 
+     67     mu = stderr(); if( PRESENT(unit) )mu = unit
+     68     m = end_memuse - begin_memuse
+     69     mmin = m; call mpp_min(mmin)
+     70     mmax = m; call mpp_max(mmax)
+     71     mavg = m; call mpp_sum(mavg); mavg = mavg/mpp_npes()
+     72     mstd = (m-mavg)**2; call mpp_sum(mstd); mstd = sqrt( mstd/mpp_npes() )
+     73     if( mpp_pe().EQ.mpp_root_pe() )write( mu,'(a64,4es11.3)' ) &
+     74          'Memory(MB) used in '//trim(text)//'=', mmin, mmax, mstd, mavg
+     75 
+     76     return
+     77   end subroutine mpp_memuse_end
+
+Page 4           Source Listing                  MPP_MEMUSE_END
+2021-06-01 08:53 Entry Points                    mpp_memutils.F90
+
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ mpp_memutils_mod_mp_mpp_memuse_end_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ END_MEMUSE                 Local  57       R(8)            8           scalar                    65,68                             
+ M                          Local  57       R(8)            8           scalar                    68,69,70,71,72                    
+ MAVG                       Local  57       R(8)            8           scalar                    71,72,74                          
+ MMAX                       Local  57       R(8)            8           scalar                    70,74                             
+ MMIN                       Local  57       R(8)            8           scalar                    69,74                             
+ MPP_MAX                    Local  70                                   scalar   PRIV             24,70,93                          
+ MPP_MAX_REAL8_0D           Subr   70                                            PRIV             70,93                             
+ MPP_MEMUSE_END             Subr   53                                                                                               
+ MPP_MIN                    Local  69                                   scalar   PRIV             24,69,92                          
+ MPP_MIN_REAL8_0D           Subr   69                                            PRIV             69,92                             
+ MPP_NPES                   Func   71       I(4)            4           scalar   PRIV             25,71,72,94,95                    
+ MPP_PE                     Func   73       I(4)            4           scalar   PRIV             24,73,96                          
+ MPP_ROOT_PE                Func   73       I(4)            4           scalar   PRIV             24,73,96                          
+ MPP_SUM                    Local  71                                   scalar   PRIV             24,71,72,94,95                    
+ MPP_SUM_REAL8_SCALAR       Subr   71                                            PRIV             71,72,94,95                       
+ MSTD                       Local  57       R(8)            8           scalar                    72,74                             
+ MU                         Local  58       I(4)            4           scalar                    67,73                             
+ PRESENT                    Func   67                                   scalar                    67                                
+ SQRT                       Func   72                                   scalar                    72                                
+ STDERR                     Func   67       I(4)            4           scalar   PRIV             25,67,89                          
+ TEXT                       Dummy  53       CHAR                        scalar   ARG,IN           74                                
+ TRIM                       Func   74                                   scalar                    74                                
+ UNIT                       Dummy  53       I(4)            4           scalar   ARG,IN           67                                
+
+Page 5           Source Listing                  MPP_MEMUSE_END
+2021-06-01 08:53                                 mpp_memutils.F90
+
+     78 
+     79 !#######################################################################
+     80 !> Print the current memory high water mark to stderr, or the unit
+     81 !! specified.
+     82   subroutine mpp_print_memuse_stats(text, unit)
+     83     character(len=*), intent(in) :: text !< Text to include in memory print statement
+     84     integer, intent(in), optional :: unit !< Fortran unit number where print statement should go.
+     85 !! Default is stderr.
+     86     real :: m, mmin, mmax, mavg, mstd
+     87     integer :: mu
+     88 
+     89     mu = stderr(); if( PRESENT(unit) )mu = unit
+     90     call mpp_mem_dump(m)
+     91 
+     92     mmin = m; call mpp_min(mmin)
+     93     mmax = m; call mpp_max(mmax)
+     94     mavg = m; call mpp_sum(mavg); mavg = mavg/mpp_npes()
+     95     mstd = (m-mavg)**2; call mpp_sum(mstd); mstd = sqrt( mstd/mpp_npes() )
+     96     if( mpp_pe().EQ.mpp_root_pe() )write( mu,'(a64,4es11.3)' ) &
+     97          'Memuse(MB) at '//trim(text)//'=', mmin, mmax, mstd, mavg
+     98 
+     99     return
+    100   end subroutine mpp_print_memuse_stats
+
+
+ENTRY POINTS
+
+  Name                                                   
+                                                         
+ mpp_memutils_mod_mp_mpp_print_memuse_stats_             
+
+Page 6           Source Listing                  MPP_PRINT_MEMUSE_STATS
+2021-06-01 08:53 Symbol Table                    mpp_memutils.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ M                          Local  86       R(8)            8           scalar                    90,92,93,94,95                    
+ MAVG                       Local  86       R(8)            8           scalar                    94,95,97                          
+ MMAX                       Local  86       R(8)            8           scalar                    93,97                             
+ MMIN                       Local  86       R(8)            8           scalar                    92,97                             
+ MPP_PRINT_MEMUSE_STATS     Subr   82                                                                                               
+ MSTD                       Local  86       R(8)            8           scalar                    95,97                             
+ MU                         Local  87       I(4)            4           scalar                    89,96                             
+ PRESENT                    Func   89                                   scalar                    89                                
+ SQRT                       Func   95                                   scalar                    95                                
+ TEXT                       Dummy  82       CHAR                        scalar   ARG,IN           97                                
+ TRIM                       Func   97                                   scalar                    97                                
+ UNIT                       Dummy  82       I(4)            4           scalar   ARG,IN           89                                
+
+Page 7           Source Listing                  MPP_PRINT_MEMUSE_STATS
+2021-06-01 08:53                                 mpp_memutils.F90
+
+    101 
+    102 !#######################################################################
+    103 
+    104 !> \brief Return the memory high water mark in MiB
+    105 !!
+    106 !! Query the system for the memory high water mark, return the result in MiB.
+    107   subroutine mpp_mem_dump(memuse)
+    108     real, intent(out) :: memuse !< Memory, high water mark, in MiB
+    109 
+    110     interface
+    111       integer(KIND=c_size_t) function getpeakrss() bind(c, name="getpeakrss")
+    112         use, intrinsic :: iso_c_binding
+    113       end function getpeakrss
+    114     end interface
+    115 
+    116 ! Value of Bytes to Mebibytes
+    117     real, parameter :: B_to_MiB = 1048576.0
+    118 
+    119 ! Get the max memory use, convert to MiB
+    120     memuse = real(getpeakrss())/B_to_MiB
+    121 
+    122     return
+    123   end subroutine mpp_mem_dump
+
+
+ENTRY POINTS
+
+  Name                                         
+                                               
+ mpp_memutils_mod_mp_mpp_mem_dump_             
+
+Page 8           Source Listing                  MPP_MEM_DUMP
+2021-06-01 08:53 Symbol Table                    mpp_memutils.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ B_TO_MIB                   Param  117      R(8)            8           scalar                    120                               
+ GETPEAKRSS@0               Local  111      I(8)            8           scalar                                                      
+ MEMUSE                     Dummy  107      R(8)            8           scalar   ARG,OUT          120                               
+ MPP_MEM_DUMP               Subr   107                                                                                              
+ REAL                       Func   120                                  scalar                    120                               
+
+Page 9           Source Listing                  MPP_MEM_DUMP
+2021-06-01 08:53                                 mpp_memutils.F90
+
+    124 end module mpp_memutils_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_UNIT                   Func   25       I(4)            4           scalar   PRIV             25                                
+ MPP_MEMUSE_BEGIN           Subr   32                                                             32                                
+ MPP_MEMUSE_END             Subr   32                                                             32                                
+ MPP_MEMUTILS_MOD           Module 22                                                                                               
+ MPP_MOD                    Module 24                                                             24,25                             
+ MPP_PRINT_MEMUSE_STATS     Subr   31                                                             31                                
+ PLATFORM_MOD               Module 26                                                             26                                
+
+Page 10          Source Listing                  MPP_MEM_DUMP
+2021-06-01 08:53 Subprograms/Common Blocks       mpp_memutils.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GETPEAKRSS                 Func   111      I(8)            8           scalar                    120                               
+ MPP_MEMUSE_BEGIN           Subr   41                                                                                               
+ MPP_MEMUSE_END             Subr   53                                                                                               
+ MPP_MEMUTILS_MOD           Module 22                                                                                               
+ MPP_MEM_DUMP               Subr   107                                                                                              
+ MPP_PRINT_MEMUSE_STATS     Subr   82                                                                                               
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+
+Page 11          Source Listing                  MPP_MEM_DUMP
+2021-06-01 08:53                                 mpp_memutils.F90
+
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+
+Page 12          Source Listing                  MPP_MEM_DUMP
+2021-06-01 08:53                                 mpp_memutils.F90
+
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : ./,/opt/intel/2020/compilers_and_libraries/linux/mkl/include/,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/,
+           /usr/include/,./,./,../include/,../mpp/include/,./,/opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/,/opt/intel/2020/compilers_and_libraries/linux/daal/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,/usr/local/include/,/usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/,
+           /usr/include/,/usr/include/,/usr/include/
+       -list filename : mpp_memutils.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

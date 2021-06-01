@@ -1,0 +1,1505 @@
+Page 1           Source Listing                  HORIZ_INTERP_BICUBIC_INIT
+2021-06-01 08:55                                 /tmp/ifortOmW4Cn.i90
+
+      1 # 1 "horiz_interp_bicubic.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 module horiz_interp_bicubic_mod
+     21 
+     22   use mpp_mod,               only: mpp_error, FATAL, stdout, mpp_pe, mpp_root_pe
+     23   use fms_mod,               only: write_version_number
+     24   use horiz_interp_type_mod, only: horiz_interp_type
+     25   use constants_mod,         only: PI
+     26 
+     27 
+     28  implicit none
+     29 
+     30 ! This module delivers methods for bicubic interpolation from a
+     31 ! coarse regular grid on a fine regular grid.
+     32 ! Subroutines
+     33 !
+     34 !       bcuint
+     35 !       bcucof
+     36 !
+     37 ! are methods taken from
+     38 !
+     39 !       W. H. Press, S. A. Teukolski, W. T. Vetterling and B. P. Flannery,
+     40 !       Numerical Recipies in FORTRAN, The Art of Scientific Computing.
+     41 !       Cambridge University Press, 1992
+     42 !
+     43 ! written by
+     44 !       martin.schmidt@io-warnemuende.de (2004)
+     45 ! revied by
+     46 !       martin.schmidt@io-warnemuende.de (2004)
+     47 !
+     48 ! Version 1.0.0.2005-07-06
+     49 ! The module is thought to interact with MOM-4.
+     50 ! Alle benotigten Felder werden extern von MOM verwaltet, da sie
+     51 ! nicht fur alle interpolierten Daten die gleiche Dimension haben mussen.
+     52 
+     53    private
+     54 
+     55    public  :: horiz_interp_bicubic, horiz_interp_bicubic_new, horiz_interp_bicubic_del, fill_xy
+     56    public  :: horiz_interp_bicubic_init
+     57 
+
+Page 2           Source Listing                  HORIZ_INTERP_BICUBIC_INIT
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+     58   interface horiz_interp_bicubic_new
+     59     module procedure horiz_interp_bicubic_new_1d
+     60     module procedure horiz_interp_bicubic_new_1d_s
+     61   end interface
+     62 
+     63 ! Include variable "version" to be written to log file.
+     64 # 1 "../include/file_version.h" 1 
+     65 ! -*-f90-*-
+     66 !***********************************************************************
+     67 !*                   GNU Lesser General Public License
+     68 !*
+     69 !* This file is part of the GFDL Flexible Modeling System (FMS).
+     70 !*
+     71 !* FMS is free software: you can redistribute it and/or modify it under
+     72 !* the terms of the GNU Lesser General Public License as published by
+     73 !* the Free Software Foundation, either version 3 of the License, or (at
+     74 !* your option) any later version.
+     75 !*
+     76 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     77 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     78 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     79 !* for more details.
+     80 !*
+     81 !* You should have received a copy of the GNU Lesser General Public
+     82 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     83 !***********************************************************************
+     84 
+     85 # 23
+     86 
+     87   character(len=*), parameter :: version = 'unknown'
+     88 
+     89 # 64 "horiz_interp_bicubic.F90" 2 
+     90    logical            :: module_is_initialized = .FALSE.
+     91    integer            :: verbose_bicubic = 0
+     92 
+     93 !     Grid variables
+     94 !     xc, yc : co-ordinates of the coarse grid
+     95 !     xf, yf : co-ordinates of the fine grid
+     96 !     fc     : variable to be interpolated at the coarse grid
+     97 !     dfc_x  : x-derivative of fc at the coarse grid
+     98 !     dfc_y  : y-derivative of fc at the coarse grid
+     99 !     dfc_xy : x-y-derivative of fc at the coarse grid
+    100 !     ff     : variable to be interpolated at the fine grid
+    101 !     dff_x  : x-derivative of fc at the fine grid
+    102 !     dff_y  : y-derivative of fc at the fine grid
+    103 !     dff_xy : x-y-derivative of fc at the fine grid
+    104 
+    105 
+    106    logical            :: initialized_bicubic = .false.
+    107 
+    108 
+    109    real, save         :: missing = -1e33
+    110    real               :: tpi
+    111 
+    112    interface fill_xy
+    113       module procedure fill_xy
+    114    end interface
+
+Page 3           Source Listing                  HORIZ_INTERP_BICUBIC_INIT
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    115 
+    116 
+    117    contains
+    118 
+    119 !#######################################################################
+    120 !  <SUBROUTINE NAME="horiz_interp_bicubic_init">
+    121 !  <OVERVIEW>
+    122 !     writes version number to logfile.out
+    123 !  </OVERVIEW>
+    124 !  <DESCRIPTION>
+    125 !     writes version number to logfile.out
+    126 !  </DESCRIPTION>
+    127 
+    128   subroutine horiz_interp_bicubic_init
+    129 
+    130      if(module_is_initialized) return
+    131      call write_version_number("HORIZ_INTERP_BICUBIC_MOD", version)
+    132      module_is_initialized = .true.
+    133      tpi = 2.0*PI
+    134 
+    135   end subroutine horiz_interp_bicubic_init
+
+
+ENTRY POINTS
+
+  Name                                                              
+                                                                    
+ horiz_interp_bicubic_mod_mp_horiz_interp_bicubic_init_             
+
+Page 4           Source Listing                  HORIZ_INTERP_BICUBIC_INIT
+2021-06-01 08:55 Symbol Table                    horiz_interp_bicubic.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ HORIZ_INTERP_BICUBIC_INIT  Subr   128                                                                                              
+ MODULE_IS_INITIALIZED      Local  130      L(4)            4           scalar                    90,130,132                        
+ PI                         Param  133      R(8)            8           scalar   PRIV             25,133                            
+ TPI                        Local  133      R(8)            8           scalar                    133,308,309,313,447,448,452,515   
+ VERSION                    Param  131      CHAR            7           scalar                    131                               
+ WRITE_VERSION_NUMBER       Subr   131                                           PRIV             23,131                            
+
+Page 5           Source Listing                  HORIZ_INTERP_BICUBIC_INIT
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    136 
+    137 !  </SUBROUTINE>
+    138 
+    139 !#######################################################################
+    140 ! <SUBROUTINE NAME="horiz_interp_bicubic_new">
+    141 
+    142 !   <OVERVIEW>
+    143 !      Initialization routine.
+    144 !   </OVERVIEW>
+    145 !   <DESCRIPTION>
+    146 !      Allocates space and initializes a derived-type variable
+    147 !      that contains pre-computed interpolation indices and weights.
+    148 !   </DESCRIPTION>
+    149 !   <TEMPLATE>
+    150 !     call horiz_interp_bicubic_new ( Interp, lon_in, lat_in, lon_out, lat_out, verbose_bicubic, src_modulo )
+    151 
+    152 !   </TEMPLATE>
+    153 !
+    154 !   <IN NAME="lon_in" TYPE="real, dimension(:,:)" UNITS="radians">
+    155 !      Longitude (in radians) for source data grid.
+    156 !   </IN>
+    157 
+    158 !   <IN NAME="lat_in" TYPE="real, dimension(:,:)" UNITS="radians">
+    159 !      Latitude (in radians) for source data grid.
+    160 !   </IN>
+    161 
+    162 !   <IN NAME="lon_out" TYPE="real, dimension(:,:)" UNITS="radians" >
+    163 !      Longitude (in radians) for source data grid.
+    164 !   </IN>
+    165 
+    166 !   <IN NAME="lat_out" TYPE="real, dimension(:,:)" UNITS="radians" >
+    167 !      Latitude (in radians) for source data grid.
+    168 !   </IN>
+    169 
+    170 !   <IN NAME="src_modulo" TYPE="logical, optional">
+    171 !      logical variable to indicate if the boundary condition along zonal boundary
+    172 !      is cyclic or not. When true, the zonal boundary condition is cyclic.
+    173 !   </IN>
+    174 
+    175 !   <IN NAME="verbose_bicubic" TYPE="integer, optional" >
+    176 !      flag for the amount of print output.
+    177 !   </IN>
+    178 
+    179 !   <INOUT NAME="Interp" TYPE="type(horiz_interp_type)" >
+    180 !      A derived-type variable containing indices and weights used for subsequent
+    181 !      interpolations. To reinitialize this variable for a different grid-to-grid
+    182 !      interpolation you must first use the "horiz_interp_bicubic_del" interface.
+    183 !   </INOUT>
+    184 
+    185   subroutine horiz_interp_bicubic_new_1d_s ( Interp, lon_in, lat_in, lon_out, lat_out, &
+    186        verbose, src_modulo )
+    187 
+    188 !-----------------------------------------------------------------------
+    189     type(horiz_interp_type), intent(inout) :: Interp
+    190     real, intent(in),  dimension(:)        :: lon_in , lat_in
+    191     real, intent(in),  dimension(:,:)      :: lon_out, lat_out
+    192     integer, intent(in),          optional :: verbose
+
+Page 6           Source Listing                  HORIZ_INTERP_BICUBIC_NEW_1D_S
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    193     logical, intent(in),          optional :: src_modulo
+    194     integer                                :: i, j, ip1, im1, jp1, jm1
+    195     logical                                :: src_is_modulo
+    196     integer                                :: nlon_in, nlat_in, nlon_out, nlat_out
+    197     integer                                :: jcl, jcu, icl, icu, jj
+    198     real                                   :: xz, yz
+    199     integer                                :: unit
+    200 
+    201     if(present(verbose)) verbose_bicubic = verbose
+    202     src_is_modulo = .false.
+    203     if (present(src_modulo)) src_is_modulo = src_modulo
+    204 
+    205     if(size(lon_out,1) /= size(lat_out,1) .or. size(lon_out,2) /= size(lat_out,2) ) &
+    206          call mpp_error(FATAL,'horiz_interp_bilinear_mod: when using bilinear ' // &
+    207          'interplation, the output grids should be geographical grids')
+    208 
+    209 !--- get the grid size
+    210     nlon_in  = size(lon_in)   ; nlat_in  = size(lat_in)
+    211     nlon_out = size(lon_out,1); nlat_out = size(lat_out,2)
+    212     Interp%nlon_src = nlon_in;  Interp%nlat_src = nlat_in
+    213     Interp%nlon_dst = nlon_out; Interp%nlat_dst = nlat_out
+    214 !   use wti(:,:,1) for x-derivative, wti(:,:,2) for y-derivative, wti(:,:,3) for xy-derivative
+    215     allocate ( Interp%wti    (nlon_in, nlat_in, 3) )
+    216     allocate ( Interp%lon_in (nlon_in) )
+    217     allocate ( Interp%lat_in (nlat_in) )
+    218     allocate ( Interp%rat_x  (nlon_out, nlat_out) )
+    219     allocate ( Interp%rat_y  (nlon_out, nlat_out) )
+    220     allocate ( Interp%i_lon  (nlon_out, nlat_out, 2) )
+    221     allocate ( Interp%j_lat  (nlon_out, nlat_out, 2) )
+    222 
+    223     Interp%lon_in = lon_in
+    224     Interp%lat_in = lat_in
+    225 
+    226     if ( verbose_bicubic > 0 ) then
+    227        unit = stdout()
+    228        write (unit,'(/,"Initialising bicubic interpolation, interface horiz_interp_bicubic_new_1d_s")')
+    229        write (unit,'(/," Longitude of coarse grid points (radian): xc(i) i=1, ",i4)') Interp%nlon_src
+    230        write (unit,'(1x,10f10.4)') (Interp%lon_in(jj),jj=1,Interp%nlon_src)
+    231        write (unit,'(/," Latitude of coarse grid points (radian):  yc(j) j=1, ",i4)') Interp%nlat_src
+    232        write (unit,'(1x,10f10.4)') (Interp%lat_in(jj),jj=1,Interp%nlat_src)
+    233        do i=1, Interp%nlat_dst
+    234          write (unit,*)
+    235          write (unit,'(/," Longitude of fine grid points (radian): xf(i) i=1, ",i4)') Interp%nlat_dst
+    236          write (unit,'(1x,10f10.4)') (lon_out(jj,i),jj=1,Interp%nlon_dst)
+    237        enddo
+    238        do i=1, Interp%nlon_dst
+    239          write (unit,*)
+    240          write (unit,'(/," Latitude of fine grid points (radian):  yf(j) j=1, ",i4)') Interp%nlon_dst
+    241          write (unit,'(1x,10f10.4)') (lat_out(i,jj),jj=1,Interp%nlat_dst)
+    242        enddo
+    243     endif
+    244 
+    245 
+    246 !---------------------------------------------------------------------------
+    247 !     Find the x-derivative. Use central differences and forward or
+    248 !     backward steps at the boundaries
+    249 
+
+Page 7           Source Listing                  HORIZ_INTERP_BICUBIC_NEW_1D_S
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    250     do j=1,nlat_in
+    251       do i=1,nlon_in
+    252         ip1=min(i+1,nlon_in)
+    253         im1=max(i-1,1)
+    254         Interp%wti(i,j,1) = 1./(Interp%lon_in(ip1)-Interp%lon_in(im1))
+    255       enddo
+    256     enddo
+    257 
+    258 
+    259 !---------------------------------------------------------------------------
+    260 
+    261 !     Find the y-derivative. Use central differences and forward or
+    262 !     backward steps at the boundaries
+    263       do j=1,nlat_in
+    264         jp1=min(j+1,nlat_in)
+    265         jm1=max(j-1,1)
+    266         do i=1,nlon_in
+    267           Interp%wti(i,j,2) = 1./(Interp%lat_in(jp1)-Interp%lat_in(jm1))
+    268         enddo
+    269       enddo
+    270 
+    271 !---------------------------------------------------------------------------
+    272 
+    273 !     Find the xy-derivative. Use central differences and forward or
+    274 !     backward steps at the boundaries
+    275       do j=1,nlat_in
+    276         jp1=min(j+1,nlat_in)
+    277         jm1=max(j-1,1)
+    278         do i=1,nlon_in
+    279           ip1=min(i+1,nlon_in)
+    280           im1=max(i-1,1)
+    281           Interp%wti(i,j,3) = 1./((Interp%lon_in(ip1)-Interp%lon_in(im1))*(Interp%lat_in(jp1)-Interp%lat_in(jm1)))
+    282         enddo
+    283       enddo
+    284 !---------------------------------------------------------------------------
+    285 !     Now for each point at the dest-grid find the boundary points of
+    286 !     the source grid
+    287       do j=1, nlat_out
+    288         do i=1,nlon_out
+    289           yz  = lat_out(i,j)
+    290           xz  = lon_out(i,j)
+    291 
+    292           jcl = 0
+    293           jcu = 0
+    294           if( yz .le. Interp%lat_in(1) ) then
+    295              jcl = 1
+    296              jcu = 1
+    297           else if( yz .ge. Interp%lat_in(nlat_in) ) then
+    298              jcl = nlat_in
+    299              jcu = nlat_in
+    300           else
+    301              jcl = indl(Interp%lat_in, yz)
+    302              jcu = indu(Interp%lat_in, yz)
+    303           endif
+    304 
+    305           icl = 0
+    306           icu = 0
+
+Page 8           Source Listing                  HORIZ_INTERP_BICUBIC_NEW_1D_S
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    307 !--- cyclic condition, do we need to use do while
+    308           if( xz .gt. Interp%lon_in(nlon_in) ) xz = xz - tpi
+    309           if( xz .le. Interp%lon_in(1) ) xz = xz + tpi
+    310           if( xz .ge. Interp%lon_in(nlon_in) ) then
+    311             icl = nlon_in
+    312             icu = 1
+    313             Interp%rat_x(i,j) = (xz - Interp%lon_in(icl))/(Interp%lon_in(icu) - Interp%lon_in(icl) + tpi)
+    314           else
+    315             icl = indl(Interp%lon_in, xz)
+    316             icu = indu(Interp%lon_in, xz)
+    317             Interp%rat_x(i,j) = (xz - Interp%lon_in(icl))/(Interp%lon_in(icu) - Interp%lon_in(icl))
+    318           endif
+    319           Interp%j_lat(i,j,1) = jcl
+    320           Interp%j_lat(i,j,2) = jcu
+    321           Interp%i_lon(i,j,1) = icl
+    322           Interp%i_lon(i,j,2) = icu
+    323           if(jcl == jcu) then
+    324              Interp%rat_y(i,j) = 0.0
+    325           else
+    326              Interp%rat_y(i,j) = (yz - Interp%lat_in(jcl))/(Interp%lat_in(jcu) - Interp%lat_in(jcl))
+    327           endif
+    328 !          if(yz.gt.Interp%lat_in(jcu)) call mpp_error(FATAL, ' horiz_interp_bicubic_new_1d_s: yf < ycl, no valid boundary p
+    328 oint')
+    329 !          if(yz.lt.Interp%lat_in(jcl)) call mpp_error(FATAL, ' horiz_interp_bicubic_new_1d_s: yf > ycu, no valid boundary p
+    329 oint')
+    330 !          if(xz.gt.Interp%lon_in(icu)) call mpp_error(FATAL, ' horiz_interp_bicubic_new_1d_s: xf < xcl, no valid boundary p
+    330 oint')
+    331 !          if(xz.lt.Interp%lon_in(icl)) call mpp_error(FATAL, ' horiz_interp_bicubic_new_1d_s: xf > xcu, no valid boundary p
+    331 oint')
+    332         enddo
+    333       enddo
+    334   end subroutine horiz_interp_bicubic_new_1d_s
+
+Page 9           Source Listing                  HORIZ_INTERP_BICUBIC_NEW_1D_S
+2021-06-01 08:55 Entry Points                    horiz_interp_bicubic.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                                  
+                                                                        
+ horiz_interp_bicubic_mod_mp_horiz_interp_bicubic_new_1d_s_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FATAL                      Param  206      I(4)            4           scalar   PRIV             22,206,642,658                    
+ HORIZ_INTERP_BICUBIC_NEW_1                                                                                                         
+ D_S                        Subr   185                                           PRIV                                               
+ HORIZ_INTERP_TYPE          Type   189                                  scalar   PRIV             24,189,340,479,785                
+ I                          Local  194      I(4)            4           scalar                    233,236,238,241,251,252,253,254,26
+                                                                                                  6,267,278,279,280,281,288,289,290,
+                                                                                                  313,317,319,320,321,322,324,326   
+ ICL                        Local  197      I(4)            4           scalar                    305,311,313,315,317,321           
+ ICU                        Local  197      I(4)            4           scalar                    306,312,313,316,317,322           
+ IM1                        Local  194      I(4)            4           scalar                    253,254,280,281                   
+ INDL@0                     Local  301      I(4)            4           scalar                                                      
+ INDU@0                     Local  302      I(4)            4           scalar                                                      
+ INTERP                     Dummy  185      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar   ARG,INOUT        212,213,215,216,217,218,219,220,22
+                                                                                                  1,223,224,229,230,231,232,233,235,
+                                                                                                  236,238,240,241,254,267,281,294,29
+                                                                                                  7,301,302,308,309,310,313,315,316,
+                                                                                                  317,319,320,321,322,324,326       
+ IP1                        Local  194      I(4)            4           scalar                    252,254,279,281                   
+ J                          Local  194      I(4)            4           scalar                    250,254,263,264,265,267,275,276,27
+                                                                                                  7,281,287,289,290,313,317,319,320,
+                                                                                                  321,322,324,326                   
+ JCL                        Local  197      I(4)            4           scalar                    292,295,298,301,319,323,326       
+ JCU                        Local  197      I(4)            4           scalar                    293,296,299,302,320,323,326       
+ JJ                         Local  197      I(4)            4           scalar                    230,232,236,241                   
+ JM1                        Local  194      I(4)            4           scalar                    265,267,277,281                   
+ JP1                        Local  194      I(4)            4           scalar                    264,267,276,281                   
+ LAT_IN                     Dummy  185      R(8)            8     1     1        ARG,IN           210,224                           
+ LAT_OUT                    Dummy  185      R(8)            8     2     1        ARG,IN           205,211,241,289                   
+ LON_IN                     Dummy  185      R(8)            8     1     1        ARG,IN           210,223                           
+ LON_OUT                    Dummy  185      R(8)            8     2     1        ARG,IN           205,211,236,290                   
+ MAX                        Func   253                                  scalar                    253,265,277,280                   
+ MIN                        Func   252                                  scalar                    252,264,276,279                   
+ MPP_ERROR                  Local  206                                  scalar   PRIV             22,206,642,658                    
+ MPP_ERROR_BASIC            Subr   206                                           PRIV             206,642,658                       
+ NLAT_IN                    Local  196      I(4)            4           scalar                    210,212,215,217,250,263,264,275,27
+                                                                                                  6,297,298,299                     
+ NLAT_OUT                   Local  196      I(4)            4           scalar                    211,213,218,219,220,221,287       
+ NLON_IN                    Local  196      I(4)            4           scalar                    210,212,215,216,251,252,266,278,27
+                                                                                                  9,308,310,311                     
+ NLON_OUT                   Local  196      I(4)            4           scalar                    211,213,218,219,220,221,288       
+ PRESENT                    Func   201                                  scalar                    201,203                           
+ SIZE                       Func   205                                  scalar                    205,210,211                       
+ SRC_IS_MODULO              Local  195      L(4)            4           scalar                    202,203                           
+
+Page 10          Source Listing                  HORIZ_INTERP_BICUBIC_NEW_1D_S
+2021-06-01 08:55 Symbol Table                    horiz_interp_bicubic.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ SRC_MODULO                 Dummy  186      L(4)            4           scalar   ARG,IN           203                               
+ STDOUT                     Func   227      I(4)            4           scalar   PRIV             22,227,373                        
+ UNIT                       Local  199      I(4)            4           scalar                    227,228,229,230,231,232,234,235,23
+                                                                                                  6,239,240,241                     
+ VERBOSE                    Dummy  186      I(4)            4           scalar   ARG,IN           201                               
+ VERBOSE_BICUBIC            Local  201      I(4)            4           scalar                    91,201,226,352,372,496            
+ XZ                         Local  198      R(8)            8           scalar                    290,308,309,310,313,315,316,317   
+ YZ                         Local  198      R(8)            8           scalar                    289,294,297,301,302,326           
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ HORIZ_INTERP_TYPE.I_LON    I(4)            4     816      3     1        PTR              220,321,322,366,462,463,509,510,79 
+                                                                                           1                                  
+ HORIZ_INTERP_TYPE.J_LAT    I(4)            4     936      3     1        PTR              221,319,320,367,460,461,507,508,79 
+                                                                                           2                                  
+ HORIZ_INTERP_TYPE.LAT_IN   R(8)            8     1664     1     1        PTR              217,224,232,267,281,294,297,301,30 
+                                                                                           2,326,363,370,378,467,528,529,790  
+ HORIZ_INTERP_TYPE.LON_IN   R(8)            8     1592     1     1        PTR              216,223,230,254,281,308,309,310,31 
+                                                                                           3,315,316,317,362,369,376,452,456, 
+                                                                                           514,515,519,520,789                
+ HORIZ_INTERP_TYPE.NLAT_DST I(4)            4     1388           scalar                    213,233,235,241,360,380,383,503    
+ HORIZ_INTERP_TYPE.NLAT_SRC I(4)            4     1380           scalar                    212,231,232,359,377,378,524,526    
+ HORIZ_INTERP_TYPE.NLON_DST I(4)            4     1384           scalar                    213,236,238,240,360,381,382,504    
+ HORIZ_INTERP_TYPE.NLON_SRC I(4)            4     1376           scalar                    212,229,230,359,375,376,517,523    
+ HORIZ_INTERP_TYPE.RAT_X    R(8)            8     1400     2     1        PTR              218,313,317,364,452,456,506,787    
+ HORIZ_INTERP_TYPE.RAT_Y    R(8)            8     1496     2     1        PTR              219,324,326,365,465,467,505,788    
+ HORIZ_INTERP_TYPE.WTI      R(8)            8     576      3     1        PTR              215,254,267,281,361,395,408,422,53 
+                                                                                           6,537,538,539,540,541,542,543,545, 
+                                                                                           547,549,551,793                    
+
+Page 11          Source Listing                  HORIZ_INTERP_BICUBIC_NEW_1D_S
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    335 ! </SUBROUTINE>
+    336   subroutine horiz_interp_bicubic_new_1d ( Interp, lon_in, lat_in, lon_out, lat_out, &
+    337        verbose, src_modulo )
+    338 
+    339 !-----------------------------------------------------------------------
+    340     type(horiz_interp_type), intent(inout) :: Interp
+    341     real, intent(in),  dimension(:)        :: lon_in , lat_in
+    342     real, intent(in),  dimension(:)        :: lon_out, lat_out
+    343     integer, intent(in),          optional :: verbose
+    344     logical, intent(in),          optional :: src_modulo
+    345     integer                                :: i, j, ip1, im1, jp1, jm1
+    346     logical                                :: src_is_modulo
+    347     integer                                :: nlon_in, nlat_in, nlon_out, nlat_out
+    348     integer                                :: jcl, jcu, icl, icu, jj
+    349     real                                   :: xz, yz
+    350     integer                                :: unit
+    351 
+    352     if(present(verbose)) verbose_bicubic = verbose
+    353     src_is_modulo = .false.
+    354     if (present(src_modulo)) src_is_modulo = src_modulo
+    355 
+    356 !--- get the grid size
+    357     nlon_in  = size(lon_in) ; nlat_in  = size(lat_in)
+    358     nlon_out = size(lon_out); nlat_out = size(lat_out)
+    359     Interp%nlon_src = nlon_in;  Interp%nlat_src = nlat_in
+    360     Interp%nlon_dst = nlon_out; Interp%nlat_dst = nlat_out
+    361     allocate ( Interp%wti     (nlon_in, nlat_in, 3) )
+    362     allocate ( Interp%lon_in  (nlon_in) )
+    363     allocate ( Interp%lat_in  (nlat_in) )
+    364     allocate ( Interp%rat_x   (nlon_out, nlat_out) )
+    365     allocate ( Interp%rat_y   (nlon_out, nlat_out) )
+    366     allocate ( Interp%i_lon   (nlon_out, nlat_out, 2) )
+    367     allocate ( Interp%j_lat   (nlon_out, nlat_out, 2) )
+    368 
+    369     Interp%lon_in = lon_in
+    370     Interp%lat_in = lat_in
+    371 
+    372     if ( verbose_bicubic > 0 ) then
+    373        unit = stdout()
+    374        write (unit,'(/,"Initialising bicubic interpolation, interface horiz_interp_bicubic_new_1d")')
+    375        write (unit,'(/," Longitude of coarse grid points (radian): xc(i) i=1, ",i4)') Interp%nlon_src
+    376        write (unit,'(1x,10f10.4)') (Interp%lon_in(jj),jj=1,Interp%nlon_src)
+    377        write (unit,'(/," Latitude of coarse grid points (radian):  yc(j) j=1, ",i4)') Interp%nlat_src
+    378        write (unit,'(1x,10f10.4)') (Interp%lat_in(jj),jj=1,Interp%nlat_src)
+    379        write (unit,*)
+    380        write (unit,'(/," Longitude of fine grid points (radian): xf(i) i=1, ",i4)') Interp%nlat_dst
+    381        write (unit,'(1x,10f10.4)') (lon_out(jj),jj=1,Interp%nlon_dst)
+    382        write (unit,'(/," Latitude of fine grid points (radian):  yf(j) j=1, ",i4)') Interp%nlon_dst
+    383        write (unit,'(1x,10f10.4)') (lat_out(jj),jj=1,Interp%nlat_dst)
+    384     endif
+    385 
+    386 
+    387 !---------------------------------------------------------------------------
+    388 !     Find the x-derivative. Use central differences and forward or
+    389 !     backward steps at the boundaries
+    390 
+    391     do j=1,nlat_in
+
+Page 12          Source Listing                  HORIZ_INTERP_BICUBIC_NEW_1D
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    392       do i=1,nlon_in
+    393         ip1=min(i+1,nlon_in)
+    394         im1=max(i-1,1)
+    395         Interp%wti(i,j,1) = 1./(lon_in(ip1)-lon_in(im1))
+    396       enddo
+    397     enddo
+    398 
+    399 
+    400 !---------------------------------------------------------------------------
+    401 
+    402 !     Find the y-derivative. Use central differences and forward or
+    403 !     backward steps at the boundaries
+    404       do j=1,nlat_in
+    405         jp1=min(j+1,nlat_in)
+    406         jm1=max(j-1,1)
+    407         do i=1,nlon_in
+    408           Interp%wti(i,j,2) = 1./(lat_in(jp1)-lat_in(jm1))
+    409         enddo
+    410       enddo
+    411 
+    412 !---------------------------------------------------------------------------
+    413 
+    414 !     Find the xy-derivative. Use central differences and forward or
+    415 !     backward steps at the boundaries
+    416       do j=1,nlat_in
+    417         jp1=min(j+1,nlat_in)
+    418         jm1=max(j-1,1)
+    419         do i=1,nlon_in
+    420           ip1=min(i+1,nlon_in)
+    421           im1=max(i-1,1)
+    422           Interp%wti(i,j,3) = 1./((lon_in(ip1)-lon_in(im1))*(lat_in(jp1)-lat_in(jm1)))
+    423         enddo
+    424       enddo
+    425 !---------------------------------------------------------------------------
+    426 !     Now for each point at the dest-grid find the boundary points of
+    427 !     the source grid
+    428       do j=1, nlat_out
+    429         yz  = lat_out(j)
+    430         jcl = 0
+    431         jcu = 0
+    432         if( yz .le. lat_in(1) ) then
+    433            jcl = 1
+    434            jcu = 1
+    435         else if( yz .ge. lat_in(nlat_in) ) then
+    436            jcl = nlat_in
+    437            jcu = nlat_in
+    438         else
+    439            jcl = indl(lat_in, yz)
+    440            jcu = indu(lat_in, yz)
+    441         endif
+    442         do i=1,nlon_out
+    443           xz = lon_out(i)
+    444           icl = 0
+    445           icu = 0
+    446 !--- cyclic condition, do we need to use do while
+    447           if( xz .gt. lon_in(nlon_in) ) xz = xz - tpi
+    448           if( xz .le. lon_in(1) ) xz = xz + tpi
+
+Page 13          Source Listing                  HORIZ_INTERP_BICUBIC_NEW_1D
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    449           if( xz .ge. lon_in(nlon_in) ) then
+    450             icl = nlon_in
+    451             icu = 1
+    452             Interp%rat_x(i,j) = (xz - Interp%lon_in(icl))/(Interp%lon_in(icu) - Interp%lon_in(icl) + tpi)
+    453           else
+    454             icl = indl(lon_in, xz)
+    455             icu = indu(lon_in, xz)
+    456             Interp%rat_x(i,j) = (xz - Interp%lon_in(icl))/(Interp%lon_in(icu) - Interp%lon_in(icl))
+    457           endif
+    458           icl = indl(lon_in, xz)
+    459           icu = indu(lon_in, xz)
+    460           Interp%j_lat(i,j,1) = jcl
+    461           Interp%j_lat(i,j,2) = jcu
+    462           Interp%i_lon(i,j,1) = icl
+    463           Interp%i_lon(i,j,2) = icu
+    464           if(jcl == jcu) then
+    465              Interp%rat_y(i,j) = 0.0
+    466           else
+    467              Interp%rat_y(i,j) = (yz - Interp%lat_in(jcl))/(Interp%lat_in(jcu) - Interp%lat_in(jcl))
+    468           endif
+    469 !          if(yz.gt.lat_in(jcu)) call mpp_error(FATAL, ' horiz_interp_bicubic_new_1d: yf < ycl, no valid boundary point')
+    470 !          if(yz.lt.lat_in(jcl)) call mpp_error(FATAL, ' horiz_interp_bicubic_new_1d: yf > ycu, no valid boundary point')
+    471 !          if(xz.gt.lon_in(icu)) call mpp_error(FATAL, ' horiz_interp_bicubic_new_1d: xf < xcl, no valid boundary point')
+    472 !          if(xz.lt.lon_in(icl)) call mpp_error(FATAL, ' horiz_interp_bicubic_new_1d: xf > xcu, no valid boundary point')
+    473         enddo
+    474       enddo
+    475 
+    476   end subroutine horiz_interp_bicubic_new_1d
+
+Page 14          Source Listing                  HORIZ_INTERP_BICUBIC_NEW_1D
+2021-06-01 08:55 Entry Points                    horiz_interp_bicubic.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                                
+                                                                      
+ horiz_interp_bicubic_mod_mp_horiz_interp_bicubic_new_1d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ HORIZ_INTERP_BICUBIC_NEW_1                                                                                                         
+ D                          Subr   336                                           PRIV                                               
+ I                          Local  345      I(4)            4           scalar                    392,393,394,395,407,408,419,420,42
+                                                                                                  1,422,442,443,452,456,460,461,462,
+                                                                                                  463,465,467                       
+ ICL                        Local  348      I(4)            4           scalar                    444,450,452,454,456,458,462       
+ ICU                        Local  348      I(4)            4           scalar                    445,451,452,455,456,459,463       
+ IM1                        Local  345      I(4)            4           scalar                    394,395,421,422                   
+ INTERP                     Dummy  336      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar   ARG,INOUT        359,360,361,362,363,364,365,366,36
+                                                                                                  7,369,370,375,376,377,378,380,381,
+                                                                                                  382,383,395,408,422,452,456,460,46
+                                                                                                  1,462,463,465,467                 
+ IP1                        Local  345      I(4)            4           scalar                    393,395,420,422                   
+ J                          Local  345      I(4)            4           scalar                    391,395,404,405,406,408,416,417,41
+                                                                                                  8,422,428,429,452,456,460,461,462,
+                                                                                                  463,465,467                       
+ JCL                        Local  348      I(4)            4           scalar                    430,433,436,439,460,464,467       
+ JCU                        Local  348      I(4)            4           scalar                    431,434,437,440,461,464,467       
+ JJ                         Local  348      I(4)            4           scalar                    376,378,381,383                   
+ JM1                        Local  345      I(4)            4           scalar                    406,408,418,422                   
+ JP1                        Local  345      I(4)            4           scalar                    405,408,417,422                   
+ LAT_IN                     Dummy  336      R(8)            8     1     1        ARG,IN           357,370,408,422,432,435,439,440   
+ LAT_OUT                    Dummy  336      R(8)            8     1     1        ARG,IN           358,383,429                       
+ LON_IN                     Dummy  336      R(8)            8     1     1        ARG,IN           357,369,395,422,447,448,449,454,45
+                                                                                                  5,458,459                         
+ LON_OUT                    Dummy  336      R(8)            8     1     1        ARG,IN           358,381,443                       
+ MAX                        Func   394                                  scalar                    394,406,418,421                   
+ MIN                        Func   393                                  scalar                    393,405,417,420                   
+ NLAT_IN                    Local  347      I(4)            4           scalar                    357,359,361,363,391,404,405,416,41
+                                                                                                  7,435,436,437                     
+ NLAT_OUT                   Local  347      I(4)            4           scalar                    358,360,364,365,366,367,428       
+ NLON_IN                    Local  347      I(4)            4           scalar                    357,359,361,362,392,393,407,419,42
+                                                                                                  0,447,449,450                     
+ NLON_OUT                   Local  347      I(4)            4           scalar                    358,360,364,365,366,367,442       
+ PRESENT                    Func   352                                  scalar                    352,354                           
+ SIZE                       Func   357                                  scalar                    357,358                           
+ SRC_IS_MODULO              Local  346      L(4)            4           scalar                    353,354                           
+ SRC_MODULO                 Dummy  337      L(4)            4           scalar   ARG,IN           354                               
+ UNIT                       Local  350      I(4)            4           scalar                    373,374,375,376,377,378,379,380,38
+                                                                                                  1,382,383                         
+ VERBOSE                    Dummy  337      I(4)            4           scalar   ARG,IN           352                               
+ XZ                         Local  349      R(8)            8           scalar                    443,447,448,449,452,454,455,456,45
+                                                                                                  8,459                             
+
+Page 15          Source Listing                  HORIZ_INTERP_BICUBIC_NEW_1D
+2021-06-01 08:55 Symbol Table                    horiz_interp_bicubic.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ YZ                         Local  349      R(8)            8           scalar                    429,432,435,439,440,467           
+
+Page 16          Source Listing                  HORIZ_INTERP_BICUBIC_NEW_1D
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    477 
+    478   subroutine horiz_interp_bicubic( Interp, data_in, data_out, verbose, mask_in, mask_out, missing_value, missing_permit)
+    479     type (horiz_interp_type), intent(in)        :: Interp
+    480     real, intent(in),  dimension(:,:)           :: data_in
+    481     real, intent(out), dimension(:,:)           :: data_out
+    482     integer, intent(in),               optional :: verbose
+    483     real, intent(in),  dimension(:,:), optional :: mask_in
+    484     real, intent(out), dimension(:,:), optional :: mask_out
+    485     real, intent(in),                  optional :: missing_value
+    486     integer, intent(in),               optional :: missing_permit
+    487     real :: yz, ycu, ycl
+    488     real :: xz, xcu, xcl
+    489     real :: val, val1, val2
+    490     real, dimension(4) :: y, y1, y2, y12
+    491     integer :: icl, icu, jcl, jcu
+    492     integer :: iclp1, icup1, jclp1, jcup1
+    493     integer :: iclm1, icum1, jclm1, jcum1
+    494     integer :: i,j
+    495 
+    496     if ( present(verbose) ) verbose_bicubic = verbose
+    497 !    fill_in = .false.
+    498 !    if ( present(fill) ) fill_in = fill
+    499 !   use dfc_x and dfc_y as workspace
+    500 !    if ( fill_in ) call fill_xy(fc(ics:ice,jcs:jce), ics, ice, jcs, jce, maxpass=2)
+    501 !    where ( data_in .le. missing ) data_in(:,:) = 0.
+    502 !!
+    503     do j=1, Interp%nlat_dst
+    504       do i=1, Interp%nlon_dst
+    505         yz  = Interp%rat_y(i,j)
+    506         xz  = Interp%rat_x(i,j)
+    507         jcl = Interp%j_lat(i,j,1)
+    508         jcu = Interp%j_lat(i,j,2)
+    509         icl = Interp%i_lon(i,j,1)
+    510         icu = Interp%i_lon(i,j,2)
+    511         if( icl > icu ) then
+    512           iclp1 = icu
+    513           icum1 = icl
+    514           xcl = Interp%lon_in(icl)
+    515           xcu = Interp%lon_in(icu)+tpi
+    516         else
+    517           iclp1 = min(icl+1,Interp%nlon_src)
+    518           icum1 = max(icu-1,1)
+    519           xcl = Interp%lon_in(icl)
+    520           xcu = Interp%lon_in(icu)
+    521         endif
+    522         iclm1 = max(icl-1,1)
+    523         icup1 = min(icu+1,Interp%nlon_src)
+    524         jclp1 = min(jcl+1,Interp%nlat_src)
+    525         jclm1 = max(jcl-1,1)
+    526         jcup1 = min(jcu+1,Interp%nlat_src)
+    527         jcum1 = max(jcu-1,1)
+    528         ycl = Interp%lat_in(jcl)
+    529         ycu = Interp%lat_in(jcu)
+    530 !        xcl = Interp%lon_in(icl)
+    531 !        xcu = Interp%lon_in(icu)
+    532         y(1)  =  data_in(icl,jcl)
+    533         y(2)  =  data_in(icu,jcl)
+
+Page 17          Source Listing                  HORIZ_INTERP_BICUBIC
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    534         y(3)  =  data_in(icu,jcu)
+    535         y(4)  =  data_in(icl,jcu)
+    536         y1(1) = ( data_in(iclp1,jcl) - data_in(iclm1,jcl) ) * Interp%wti(icl,jcl,1)
+    537         y1(2) = ( data_in(icup1,jcl) - data_in(icum1,jcl) ) * Interp%wti(icu,jcl,1)
+    538         y1(3) = ( data_in(icup1,jcu) - data_in(icum1,jcu) ) * Interp%wti(icu,jcu,1)
+    539         y1(4) = ( data_in(iclp1,jcu) - data_in(iclm1,jcu) ) * Interp%wti(icl,jcu,1)
+    540         y2(1) = ( data_in(icl,jclp1) - data_in(icl,jclm1) ) * Interp%wti(icl,jcl,2)
+    541         y2(2) = ( data_in(icu,jclp1) - data_in(icu,jclm1) ) * Interp%wti(icu,jcl,2)
+    542         y2(3) = ( data_in(icu,jcup1) - data_in(icu,jcum1) ) * Interp%wti(icu,jcu,2)
+    543         y2(4) = ( data_in(icl,jcup1) - data_in(icl,jcum1) ) * Interp%wti(icl,jcu,2)
+    544         y12(1)= ( data_in(iclp1,jclp1) + data_in(iclm1,jclm1) - data_in(iclm1,jclp1) &
+    545                 - data_in(iclp1,jclm1) ) * Interp%wti(icl,jcl,3)
+    546         y12(2)= ( data_in(icup1,jclp1) + data_in(icum1,jclm1) - data_in(icum1,jclp1) &
+    547                 - data_in(icup1,jclm1) ) * Interp%wti(icu,jcl,3)
+    548         y12(3)= ( data_in(icup1,jcup1) + data_in(icum1,jcum1) - data_in(icum1,jcup1) &
+    549                 - data_in(icup1,jcum1) ) * Interp%wti(icu,jcu,3)
+    550         y12(4)= ( data_in(iclp1,jcup1) + data_in(iclm1,jcum1) - data_in(iclm1,jcup1) &
+    551                 - data_in(iclp1,jcum1) ) * Interp%wti(icl,jcu,3)
+    552 
+    553         call bcuint(y,y1,y2,y12,xcl,xcu,ycl,ycu,xz,yz,val,val1,val2)
+    554         data_out   (i,j) = val
+    555         if(present(mask_out)) mask_out(i,j) = 1.
+    556 !!        dff_x(i,j) = val1
+    557 !!        dff_y(i,j) = val2
+    558       enddo
+    559     enddo
+    560   return
+    561   end subroutine horiz_interp_bicubic
+
+Page 18          Source Listing                  HORIZ_INTERP_BICUBIC
+2021-06-01 08:55 Entry Points                    horiz_interp_bicubic.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                         
+                                                               
+ horiz_interp_bicubic_mod_mp_horiz_interp_bicubic_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DATA_IN                    Dummy  478      R(8)            8     2     1        ARG,IN           532,533,534,535,536,537,538,539,54
+                                                                                                  0,541,542,543,544,545,546,547,548,
+                                                                                                  549,550,551                       
+ DATA_OUT                   Dummy  478      R(8)            8     2     1        ARG,OUT          554                               
+ HORIZ_INTERP_BICUBIC       Subr   478                                                                                              
+ I                          Local  494      I(4)            4           scalar                    504,505,506,507,508,509,510,554,55
+                                                                                                  5                                 
+ ICL                        Local  491      I(4)            4           scalar                    509,511,513,514,517,519,522,532,53
+                                                                                                  5,536,539,540,543,545,551         
+ ICLM1                      Local  493      I(4)            4           scalar                    522,536,539,544,550               
+ ICLP1                      Local  492      I(4)            4           scalar                    512,517,536,539,544,545,550,551   
+ ICU                        Local  491      I(4)            4           scalar                    510,511,512,515,518,520,523,533,53
+                                                                                                  4,537,538,541,542,547,549         
+ ICUM1                      Local  493      I(4)            4           scalar                    513,518,537,538,546,548           
+ ICUP1                      Local  492      I(4)            4           scalar                    523,537,538,546,547,548,549       
+ INTERP                     Dummy  478      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar   ARG,IN           503,504,505,506,507,508,509,510,51
+                                                                                                  4,515,517,519,520,523,524,526,528,
+                                                                                                  529,536,537,538,539,540,541,542,54
+                                                                                                  3,545,547,549,551                 
+ J                          Local  494      I(4)            4           scalar                    503,505,506,507,508,509,510,554,55
+                                                                                                  5                                 
+ JCL                        Local  491      I(4)            4           scalar                    507,524,525,528,532,533,536,537,54
+                                                                                                  0,541,545,547                     
+ JCLM1                      Local  493      I(4)            4           scalar                    525,540,541,544,545,546,547       
+ JCLP1                      Local  492      I(4)            4           scalar                    524,540,541,544,546               
+ JCU                        Local  491      I(4)            4           scalar                    508,526,527,529,534,535,538,539,54
+                                                                                                  2,543,549,551                     
+ JCUM1                      Local  493      I(4)            4           scalar                    527,542,543,548,549,550,551       
+ JCUP1                      Local  492      I(4)            4           scalar                    526,542,543,548,550               
+ MASK_IN                    Dummy  478      R(8)            8     2     1        ARG,IN                                             
+ MASK_OUT                   Dummy  478      R(8)            8     2     1        ARG,OUT          555                               
+ MAX                        Func   518                                  scalar                    518,522,525,527                   
+ MIN                        Func   517                                  scalar                    517,523,524,526                   
+ MISSING_PERMIT             Dummy  478      I(4)            4           scalar   ARG,IN                                             
+ MISSING_VALUE              Dummy  478      R(8)            8           scalar   ARG,IN                                             
+ PRESENT                    Func   496                                  scalar                    496,555                           
+ VAL                        Local  489      R(8)            8           scalar                    553,554                           
+ VAL1                       Local  489      R(8)            8           scalar                    553                               
+ VAL2                       Local  489      R(8)            8           scalar                    553                               
+ VERBOSE                    Dummy  478      I(4)            4           scalar   ARG,IN           496                               
+ XCL                        Local  488      R(8)            8           scalar                    514,519,553                       
+ XCU                        Local  488      R(8)            8           scalar                    515,520,553                       
+ XZ                         Local  488      R(8)            8           scalar                    506,553                           
+
+Page 19          Source Listing                  HORIZ_INTERP_BICUBIC
+2021-06-01 08:55 Symbol Table                    horiz_interp_bicubic.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ Y                          Local  490      R(8)            8     1     4                         532,533,534,535,553               
+ Y1                         Local  490      R(8)            8     1     4                         536,537,538,539,553               
+ Y12                        Local  490      R(8)            8     1     4                         544,546,548,550,553               
+ Y2                         Local  490      R(8)            8     1     4                         540,541,542,543,553               
+ YCL                        Local  487      R(8)            8           scalar                    528,553                           
+ YCU                        Local  487      R(8)            8           scalar                    529,553                           
+ YZ                         Local  487      R(8)            8           scalar                    505,553                           
+
+Page 20          Source Listing                  HORIZ_INTERP_BICUBIC
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    562 
+    563 
+    564 !---------------------------------------------------------------------------
+    565 
+    566    subroutine bcuint(y,y1,y2,y12,x1l,x1u,x2l,x2u,t,u,ansy,ansy1,ansy2)
+    567       real ansy,ansy1,ansy2,x1l,x1u,x2l,x2u,y(4),y1(4),y12(4),y2(4)
+    568 !     uses bcucof
+    569       integer i
+    570       real t,u,c(4,4)
+    571       call bcucof(y,y1,y2,y12,x1u-x1l,x2u-x2l,c)
+    572       ansy=0.
+    573       ansy2=0.
+    574       ansy1=0.
+    575       do i=4,1,-1
+    576         ansy=t*ansy+((c(i,4)*u+c(i,3))*u+c(i,2))*u+c(i,1)
+    577 !        ansy2=t*ansy2+(3.*c(i,4)*u+2.*c(i,3))*u+c(i,2)
+    578 !        ansy1=u*ansy1+(3.*c(4,i)*t+2.*c(3,i))*t+c(2,i)
+    579       enddo
+    580 !      ansy1=ansy1/(x1u-x1l) ! could be used for accuracy checks
+    581 !      ansy2=ansy2/(x2u-x2l) ! could be used for accuracy checks
+    582       return
+    583 !  (c) copr. 1986-92 numerical recipes software -3#(-)f.
+    584    end subroutine bcuint
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ horiz_interp_bicubic_mod_mp_bcuint_             
+
+Page 21          Source Listing                  BCUINT
+2021-06-01 08:55 Symbol Table                    horiz_interp_bicubic.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ANSY                       Dummy  566      R(8)            8           scalar   ARG,INOUT        572,576                           
+ ANSY1                      Dummy  566      R(8)            8           scalar   ARG,INOUT        574                               
+ ANSY2                      Dummy  566      R(8)            8           scalar   ARG,INOUT        573                               
+ BCUINT                     Subr   566                                                            553                               
+ C                          Local  570      R(8)            8     2     16                        571,576                           
+ I                          Local  569      I(4)            4           scalar                    575,576                           
+ T                          Dummy  566      R(8)            8           scalar   ARG,INOUT        576                               
+ U                          Dummy  566      R(8)            8           scalar   ARG,INOUT        576                               
+ X1L                        Dummy  566      R(8)            8           scalar   ARG,INOUT        571                               
+ X1U                        Dummy  566      R(8)            8           scalar   ARG,INOUT        571                               
+ X2L                        Dummy  566      R(8)            8           scalar   ARG,INOUT        571                               
+ X2U                        Dummy  566      R(8)            8           scalar   ARG,INOUT        571                               
+ Y                          Dummy  566      R(8)            8     1     4        ARG,INOUT        571                               
+ Y1                         Dummy  566      R(8)            8     1     4        ARG,INOUT        571                               
+ Y12                        Dummy  566      R(8)            8     1     4        ARG,INOUT        571                               
+ Y2                         Dummy  566      R(8)            8     1     4        ARG,INOUT        571                               
+
+Page 22          Source Listing                  BCUINT
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    585 !---------------------------------------------------------------------------
+    586 
+    587    subroutine bcucof(y,y1,y2,y12,d1,d2,c)
+    588       real d1,d2,c(4,4),y(4),y1(4),y12(4),y2(4)
+    589       integer i,j,k,l
+    590       real d1d2,xx,cl(16),wt(16,16),x(16)
+    591       save wt
+    592       data wt/1., 0., -3., 2., 4*0., -3., 0., 9., -6., 2., 0., -6., 4., 8*0., &
+    593               3., 0., -9., 6., -2., 0., 6., -4., 10*0., 9., -6., 2*0., -6., &
+    594               4., 2*0., 3., -2., 6*0., -9., 6., 2*0., 6., -4., 4*0., 1., 0., &
+    595               -3., 2., -2., 0., 6., -4., 1., 0., -3., 2., 8*0., -1., 0., 3., &
+    596               -2., 1., 0., -3., 2., 10*0., -3., 2., 2*0., 3., -2., 6*0., 3., &
+    597               -2., 2*0., -6., 4., 2*0., 3., -2., 0., 1., -2., 1., 5*0., -3., &
+    598               6., -3., 0., 2., -4., 2., 9*0., 3., -6., 3., 0., -2., 4., -2., &
+    599               10*0., -3., 3., 2*0., 2., -2., 2*0., -1., 1., 6*0., 3., -3., &
+    600               2*0., -2., 2., 5*0., 1., -2., 1., 0., -2., 4., -2., 0., 1., -2., &
+    601               1., 9*0., -1., 2., -1., 0., 1., -2., 1., 10*0., 1., -1., 2*0., &
+    602               -1., 1., 6*0., -1., 1., 2*0., 2., -2., 2*0., -1., 1./
+    603 
+    604       d1d2=d1*d2
+    605       do i=1,4
+    606         x(i)=y(i)
+    607         x(i+4)=y1(i)*d1
+    608         x(i+8)=y2(i)*d2
+    609         x(i+12)=y12(i)*d1d2
+    610       enddo
+    611       do i=1,16
+    612         xx=0.
+    613         do k=1,16
+    614           xx=xx+wt(i,k)*x(k)
+    615         enddo
+    616         cl(i)=xx
+    617       enddo
+    618       l=0
+    619       do i=1,4
+    620         do j=1,4
+    621           l=l+1
+    622           c(i,j)=cl(l)
+    623         enddo
+    624       enddo
+    625       return
+    626 !  (c) copr. 1986-92 numerical recipes software -3#(-)f.
+    627    end subroutine bcucof
+
+Page 23          Source Listing                  BCUCOF
+2021-06-01 08:55 Entry Points                    horiz_interp_bicubic.F90
+
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ horiz_interp_bicubic_mod_mp_bcucof_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ BCUCOF                     Subr   587                                                            571                               
+ C                          Dummy  587      R(8)            8     2     16       ARG,INOUT        622                               
+ CL                         Local  590      R(8)            8     1     16                        616,622                           
+ D1                         Dummy  587      R(8)            8           scalar   ARG,INOUT        604,607                           
+ D1D2                       Local  590      R(8)            8           scalar                    604,609                           
+ D2                         Dummy  587      R(8)            8           scalar   ARG,INOUT        604,608                           
+ I                          Local  589      I(4)            4           scalar                    605,606,607,608,609,611,614,616,61
+                                                                                                  9,622                             
+ J                          Local  589      I(4)            4           scalar                    620,622                           
+ K                          Local  589      I(4)            4           scalar                    613,614                           
+ L                          Local  589      I(4)            4           scalar                    618,621,622                       
+ WT                         Local  590      R(8)            8     2     256      SAVE             592,614                           
+ X                          Local  590      R(8)            8     1     16                        606,607,608,609,614               
+ XX                         Local  590      R(8)            8           scalar                    612,614,616                       
+ Y                          Dummy  587      R(8)            8     1     4        ARG,INOUT        606                               
+ Y1                         Dummy  587      R(8)            8     1     4        ARG,INOUT        607                               
+ Y12                        Dummy  587      R(8)            8     1     4        ARG,INOUT        609                               
+ Y2                         Dummy  587      R(8)            8     1     4        ARG,INOUT        608                               
+
+Page 24          Source Listing                  BCUCOF
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    628 
+    629 !-----------------------------------------------------------------------
+    630 
+    631     function indl(xc, xf)
+    632 ! find the lower neighbour of xf in field xc, return is the index
+    633     real, intent(in) :: xc(1:)
+    634     real, intent(in) :: xf
+    635     integer             :: indl
+    636     integer             :: ii
+    637        indl = 1
+    638        do ii=1, size(xc)
+    639          if(xc(ii).gt.xf) return
+    640          indl = ii
+    641        enddo
+    642        call mpp_error(FATAL,'Error in indl')
+    643     return
+    644     end function indl
+
+
+ENTRY POINTS
+
+  Name                                         
+                                               
+ horiz_interp_bicubic_mod_mp_indl_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ II                         Local  636      I(4)            4           scalar                    638,639,640                       
+ INDL                       Func   631      I(4)            4           scalar                    301,315,439,454,458,637,640       
+ SIZE                       Func   638                                  scalar                    638                               
+ XC                         Dummy  631      R(8)            8     1     1        ARG,IN           638,639                           
+ XF                         Dummy  631      R(8)            8           scalar   ARG,IN           639                               
+
+Page 25          Source Listing                  INDL
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    645 
+    646 !-----------------------------------------------------------------------
+    647 
+    648     function indu(xc, xf)
+    649 ! find the upper neighbour of xf in field xc, return is the index
+    650     real, intent(in) :: xc(1:)
+    651     real, intent(in) :: xf
+    652     integer             :: indu
+    653     integer             :: ii
+    654        do ii=1, size(xc)
+    655          indu = ii
+    656          if(xc(ii).gt.xf) return
+    657        enddo
+    658        call mpp_error(FATAL,'Error in indu')
+    659     return
+    660     end function indu
+
+
+ENTRY POINTS
+
+  Name                                         
+                                               
+ horiz_interp_bicubic_mod_mp_indu_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ II                         Local  653      I(4)            4           scalar                    654,655,656                       
+ INDU                       Func   648      I(4)            4           scalar                    302,316,440,455,459,655           
+ SIZE                       Func   654                                  scalar                    654                               
+ XC                         Dummy  648      R(8)            8     1     1        ARG,IN           654,656                           
+ XF                         Dummy  648      R(8)            8           scalar   ARG,IN           656                               
+
+Page 26          Source Listing                  INDU
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    661 
+    662 !-----------------------------------------------------------------------
+    663 
+    664     subroutine fill_xy(fi, ics, ice, jcs, jce, mask, maxpass)
+    665       integer, intent(in)        :: ics,ice,jcs,jce
+    666       real, intent(inout)        :: fi(ics:ice,jcs:jce)
+    667       real, intent(in), optional :: mask(ics:ice,jcs:jce)
+    668       integer, intent(in)        :: maxpass
+    669       real                       :: work_old(ics:ice,jcs:jce)
+    670       real                       :: work_new(ics:ice,jcs:jce)
+    671       logical :: ready
+    672       real    :: blank = -1.e30
+    673       real    :: tavr
+    674       integer :: ipass = 0
+    675       integer :: inl, inr, jnl, jnu, i, j, is, js,  iavr
+    676 
+    677 
+    678       ready = .false.
+    679 
+    680       work_new(:,:) = fi(:,:)
+    681       work_old(:,:) = work_new(:,:)
+    682       ipass = 0
+    683       if ( present(mask) ) then
+    684          do while (.not.ready)
+    685            ipass = ipass+1
+    686            ready = .true.
+    687            do j=jcs, jce
+    688              do i=ics, ice
+    689                if (work_old(i,j).le.blank) then
+    690                  tavr=0.
+    691                  iavr=0
+    692                  inl = max(i-1,ics)
+    693                  inr = min(i+1,ice)
+    694                  jnl = max(j-1,jcs)
+    695                  jnu = min(j+1,jce)
+    696                  do js=jnl,jnu
+    697                    do is=inl,inr
+    698                      if (work_old(is,js) .ne. blank .and. mask(is,js).ne.0.) then
+    699                        tavr = tavr + work_old(is,js)
+    700                        iavr = iavr+1
+    701                      endif
+    702                    enddo
+    703                  enddo
+    704                  if (iavr.gt.0) then
+    705                    if (iavr.eq.1) then
+    706 ! spreading is not allowed if the only valid neighbor is a corner point
+    707 ! otherwise an ill posed cellular automaton is established leading to
+    708 ! a spreading of constant values in diagonal direction
+    709 ! if all corner points are blanked the valid neighbor must be a direct one
+    710 ! and spreading is allowed
+    711                      if (work_old(inl,jnu).eq.blank.and.&
+    712                          work_old(inr,jnu).eq.blank.and.&
+    713                          work_old(inr,jnl).eq.blank.and.&
+    714                          work_old(inl,jnl).eq.blank) then
+    715                            work_new(i,j)=tavr/iavr
+    716                            ready = .false.
+    717                      endif
+
+Page 27          Source Listing                  FILL_XY
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    718                   else
+    719                     work_new(i,j)=tavr/iavr
+    720                     ready = .false.
+    721                   endif
+    722                 endif
+    723               endif
+    724             enddo ! j
+    725           enddo   ! i
+    726 ! save changes made during this pass to work_old
+    727           work_old(:,:)=work_new(:,:)
+    728           if(ipass.eq.maxpass) ready=.true.
+    729         enddo !while (.not.ready)
+    730         fi(:,:) = work_new(:,:)
+    731       else
+    732          do while (.not.ready)
+    733            ipass = ipass+1
+    734            ready = .true.
+    735            do j=jcs, jce
+    736              do i=ics, ice
+    737                if (work_old(i,j).le.blank) then
+    738                  tavr=0.
+    739                  iavr=0
+    740                  inl = max(i-1,ics)
+    741                  inr = min(i+1,ice)
+    742                  jnl = max(j-1,jcs)
+    743                  jnu = min(j+1,jce)
+    744                  do is=inl,inr
+    745                    do js=jnl,jnu
+    746                      if (work_old(is,js).gt.blank) then
+    747                        tavr = tavr + work_old(is,js)
+    748                        iavr = iavr+1
+    749                      endif
+    750                    enddo
+    751                  enddo
+    752                  if (iavr.gt.0) then
+    753                    if (iavr.eq.1) then
+    754 ! spreading is not allowed if the only valid neighbor is a corner point
+    755 ! otherwise an ill posed cellular automaton is established leading to
+    756 ! a spreading of constant values in diagonal direction
+    757 ! if all corner points are blanked the valid neighbor must be a direct one
+    758 ! and spreading is allowed
+    759                      if (work_old(inl,jnu).le.blank.and. &
+    760                          work_old(inr,jnu).le.blank.and. &
+    761                          work_old(inr,jnl).le.blank.and. &
+    762                          work_old(inl,jnl).le.blank) then
+    763                            work_new(i,j)=tavr/iavr
+    764                            ready = .false.
+    765                      endif
+    766                   else
+    767                     work_new(i,j)=tavr/iavr
+    768                     ready = .false.
+    769                   endif
+    770                 endif
+    771               endif
+    772             enddo ! j
+    773           enddo   ! i
+    774 ! save changes made during this pass to work_old
+
+Page 28          Source Listing                  FILL_XY
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    775           work_old(:,:)=work_new(:,:)
+    776           if(ipass.eq.maxpass) ready=.true.
+    777         enddo !while (.not.ready)
+    778         fi(:,:) = work_new(:,:)
+    779       endif
+    780       return
+    781     end subroutine fill_xy
+
+
+ENTRY POINTS
+
+  Name                                            
+                                                  
+ horiz_interp_bicubic_mod_mp_fill_xy_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ BLANK                      Local  672      R(8)            8           scalar                    672,689,698,711,712,713,714,737,74
+                                                                                                  6,759,760,761,762                 
+ FI                         Dummy  664      R(8)            8     2     0        ARG,INOUT        680,730,778                       
+ FILL_XY                    Subr   664                                                                                              
+ I                          Local  675      I(4)            4           scalar                    688,689,692,693,715,719,736,737,74
+                                                                                                  0,741,763,767                     
+ IAVR                       Local  675      I(4)            4           scalar                    691,700,704,705,715,719,739,748,75
+                                                                                                  2,753,763,767                     
+ ICE                        Dummy  664      I(4)            4           scalar   ARG,IN           666,667,669,670,688,693,736,741   
+ ICS                        Dummy  664      I(4)            4           scalar   ARG,IN           666,667,669,670,688,692,736,740   
+ INL                        Local  675      I(4)            4           scalar                    692,697,711,714,740,744,759,762   
+ INR                        Local  675      I(4)            4           scalar                    693,697,712,713,741,744,760,761   
+ IPASS                      Local  674      I(4)            4           scalar                    674,682,685,728,733,776           
+ IS                         Local  675      I(4)            4           scalar                    697,698,699,744,746,747           
+ J                          Local  675      I(4)            4           scalar                    687,689,694,695,715,719,735,737,74
+                                                                                                  2,743,763,767                     
+ JCE                        Dummy  664      I(4)            4           scalar   ARG,IN           666,667,669,670,687,695,735,743   
+ JCS                        Dummy  664      I(4)            4           scalar   ARG,IN           666,667,669,670,687,694,735,742   
+ JNL                        Local  675      I(4)            4           scalar                    694,696,713,714,742,745,761,762   
+ JNU                        Local  675      I(4)            4           scalar                    695,696,711,712,743,745,759,760   
+ JS                         Local  675      I(4)            4           scalar                    696,698,699,745,746,747           
+ MASK                       Dummy  664      R(8)            8     2     0        ARG,IN           683,698                           
+ MAX                        Func   692                                  scalar                    692,694,740,742                   
+ MAXPASS                    Dummy  664      I(4)            4           scalar   ARG,IN           728,776                           
+ MIN                        Func   693                                  scalar                    693,695,741,743                   
+ PRESENT                    Func   683                                  scalar                    683                               
+ READY                      Local  671      L(4)            4           scalar                    678,684,686,716,720,728,732,734,76
+                                                                                                  4,768,776                         
+ TAVR                       Local  673      R(8)            8           scalar                    690,699,715,719,738,747,763,767   
+ WORK_NEW                   Local  670      R(8)            8     2     0                         680,681,715,719,727,730,763,767,77
+                                                                                                  5,778                             
+ WORK_OLD                   Local  669      R(8)            8     2     0                         681,689,698,699,711,712,713,714,72
+                                                                                                  7,737,746,747,759,760,761,762,775 
+
+Page 29          Source Listing                  FILL_XY
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    782 
+    783   subroutine horiz_interp_bicubic_del( Interp )
+    784 
+    785     type (horiz_interp_type), intent(inout) :: Interp
+    786 
+    787     if(associated(Interp%rat_x))  deallocate ( Interp%rat_x )
+    788     if(associated(Interp%rat_y))  deallocate ( Interp%rat_y )
+    789     if(associated(Interp%lon_in)) deallocate ( Interp%lon_in )
+    790     if(associated(Interp%lat_in)) deallocate ( Interp%lat_in )
+    791     if(associated(Interp%i_lon))  deallocate ( Interp%i_lon )
+    792     if(associated(Interp%j_lat))  deallocate ( Interp%j_lat )
+    793     if(associated(Interp%wti))    deallocate ( Interp%wti )
+    794 
+    795   end subroutine horiz_interp_bicubic_del
+
+
+ENTRY POINTS
+
+  Name                                                             
+                                                                   
+ horiz_interp_bicubic_mod_mp_horiz_interp_bicubic_del_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ASSOCIATED                 Func   787                                  scalar                    787,788,789,790,791,792,793       
+ HORIZ_INTERP_BICUBIC_DEL   Subr   783                                                                                              
+ INTERP                     Dummy  783      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar   ARG,INOUT        787,788,789,790,791,792,793       
+
+Page 30          Source Listing                  HORIZ_INTERP_BICUBIC_DEL
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+    796 
+    797 end module horiz_interp_bicubic_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CONSTANTS_MOD              Module 25                                                             25                                
+ FILL_XY                    Subr   113                                                            55                                
+ FMS_MOD                    Module 23                                                             23                                
+ HORIZ_INTERP_BICUBIC       Subr   55                                                             55                                
+ HORIZ_INTERP_BICUBIC_DEL   Subr   55                                                             55                                
+ HORIZ_INTERP_BICUBIC_INIT  Subr   56                                                             56                                
+ HORIZ_INTERP_BICUBIC_MOD   Module 20                                                                                               
+ HORIZ_INTERP_BICUBIC_NEW   Local  58                                   scalar                    55                                
+ HORIZ_INTERP_TYPE_MOD      Module 24                                                             24                                
+ INITIALIZED_BICUBIC        Local  106      L(4)            4           scalar                    106                               
+ MISSING                    Local  109      R(8)            8           scalar   SAVE             109                               
+ MPP_MOD                    Module 22                                                             22                                
+ MPP_PE                     Func   22       I(4)            4           scalar   PRIV             22                                
+ MPP_ROOT_PE                Func   22       I(4)            4           scalar   PRIV             22                                
+
+Page 31          Source Listing                  HORIZ_INTERP_BICUBIC_DEL
+2021-06-01 08:55 Subprograms/Common Blocks       horiz_interp_bicubic.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ BCUCOF                     Subr   587                                                            571                               
+ BCUINT                     Subr   566                                                            553                               
+ FILL_XY                    Subr   664                                                                                              
+ HORIZ_INTERP_BICUBIC       Subr   478                                                                                              
+ HORIZ_INTERP_BICUBIC_DEL   Subr   783                                                                                              
+ HORIZ_INTERP_BICUBIC_INIT  Subr   128                                                                                              
+ HORIZ_INTERP_BICUBIC_MOD   Module 20                                                                                               
+ HORIZ_INTERP_BICUBIC_NEW_1                                                                                                         
+ D                          Subr   336                                           PRIV                                               
+ HORIZ_INTERP_BICUBIC_NEW_1                                                                                                         
+ D_S                        Subr   185                                           PRIV                                               
+ INDL                       Func   631      I(4)            4           scalar                    301,315,439,454,458,637,640       
+ INDU                       Func   648      I(4)            4           scalar                    302,316,440,455,459,655           
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+
+Page 32          Source Listing                  HORIZ_INTERP_BICUBIC_DEL
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+
+Page 33          Source Listing                  HORIZ_INTERP_BICUBIC_DEL
+2021-06-01 08:55                                 horiz_interp_bicubic.F90
+
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : horiz_interp_bicubic.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

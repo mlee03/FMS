@@ -1,0 +1,2175 @@
+Page 1           Source Listing                  HORIZ_INTERP_INIT
+2021-06-01 08:55                                 /tmp/ifortpECjd5.i90
+
+      1 # 1 "horiz_interp.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 module horiz_interp_mod
+     21 
+     22 ! <CONTACT EMAIL="Zhi.Liang@noaa.gov"> Zhi Liang </CONTACT>
+     23 ! <CONTACT EMAIL="Bruce.Wyman@noaa.gov"> Bruce Wyman </CONTACT>
+     24 
+     25 ! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
+     26 
+     27 ! <OVERVIEW>
+     28 !   Performs spatial interpolation between grids.
+     29 ! </OVERVIEW>
+     30 
+     31 ! <DESCRIPTION>
+     32 !     This module can interpolate data from any logically rectangular grid
+     33 !     to any logically rectangular grid. Four interpolation schems are used here:
+     34 !     conservative, bilinear, bicubic and inverse of square distance weighted.
+     35 !     The four interpolation schemes are implemented seperately in
+     36 !     horiz_interp_conserver_mod, horiz_interp_blinear_mod, horiz_interp_bicubic_mod
+     37 !     and horiz_interp_spherical_mod. bicubic interpolation requires the source grid
+     38 !     is regular lon/lat grid. User can choose the interpolation method in the
+     39 !     public interface horiz_interp_new through optional argument interp_method,
+     40 !     with acceptable value "conservative", "bilinear", "bicubic" and "spherical".
+     41 !     The default value is "conservative". There is an optional mask field for
+     42 !     missing input data. An optional output mask field may be used in conjunction with
+     43 !     the input mask to show where output data exists.
+     44 ! </DESCRIPTION>
+     45 
+     46 !-----------------------------------------------------------------------
+     47 !
+     48 !        Performs spatial interpolation between grids.
+     49 !
+     50 !-----------------------------------------------------------------------
+     51 
+     52 use fms_mod,                    only: write_version_number, fms_error_handler
+     53 use fms_mod,                    only: check_nml_error
+     54 use mpp_mod,                    only: mpp_error, FATAL, stdout, stdlog, mpp_min
+     55 use mpp_mod,                    only: input_nml_file, WARNING, mpp_pe, mpp_root_pe
+     56 use constants_mod,              only: pi
+     57 use horiz_interp_type_mod,      only: horiz_interp_type, assignment(=)
+
+Page 2           Source Listing                  HORIZ_INTERP_INIT
+2021-06-01 08:55                                 horiz_interp.F90
+
+     58 use horiz_interp_type_mod,      only: CONSERVE, BILINEAR, SPHERICA, BICUBIC
+     59 use horiz_interp_conserve_mod,  only: horiz_interp_conserve_init, horiz_interp_conserve
+     60 use horiz_interp_conserve_mod,  only: horiz_interp_conserve_new, horiz_interp_conserve_del
+     61 use horiz_interp_bilinear_mod,  only: horiz_interp_bilinear_init, horiz_interp_bilinear
+     62 use horiz_interp_bilinear_mod,  only: horiz_interp_bilinear_new, horiz_interp_bilinear_del
+     63 use horiz_interp_bicubic_mod,   only: horiz_interp_bicubic_init, horiz_interp_bicubic
+     64 use horiz_interp_bicubic_mod,   only: horiz_interp_bicubic_new, horiz_interp_bicubic_del
+     65 use horiz_interp_spherical_mod, only: horiz_interp_spherical_init, horiz_interp_spherical
+     66 use horiz_interp_spherical_mod, only: horiz_interp_spherical_new, horiz_interp_spherical_del
+     67 
+     68  implicit none
+     69  private
+     70 
+     71 !---- interfaces ----
+     72 
+     73  public   horiz_interp_type, horiz_interp, horiz_interp_new, horiz_interp_del, &
+     74           horiz_interp_init, horiz_interp_end, assignment(=)
+     75 
+     76 ! <INTERFACE NAME="horiz_interp_new">
+     77 !   <OVERVIEW>
+     78 !      Allocates space and initializes a derived-type variable
+     79 !      that contains pre-computed interpolation indices and weights.
+     80 !   </OVERVIEW>
+     81 !   <DESCRIPTION>
+     82 !      Allocates space and initializes a derived-type variable
+     83 !      that contains pre-computed interpolation indices and weights
+     84 !      for improved performance of multiple interpolations between
+     85 !      the same grids. This routine does not need to be called if you
+     86 !      are doing a single grid-to-grid interpolation.
+     87 !   </DESCRIPTION>
+     88 !   <IN NAME="lon_in" TYPE="real" DIM="dimension(:), dimension(:,:)" UNITS="radians">
+     89 !      Longitude (in radians) for source data grid. You can pass 1-D lon_in to
+     90 !      represent the geographical longitude of regular lon/lat grid, or just
+     91 !      pass geographical longitude(lon_in is 2-D). The grid location may be
+     92 !      located at grid cell edge or center, decided by optional argument "grid_at_center".
+     93 !   </IN>
+     94 !   <IN NAME="lat_in" TYPE="real" DIM="dimension(:), dimension(:,:)" UNITS="radians">
+     95 !      Latitude (in radians) for source data grid. You can pass 1-D lat_in to
+     96 !      represent the geographical latitude of regular lon/lat grid, or just
+     97 !      pass geographical latitude(lat_in is 2-D). The grid location may be
+     98 !      located at grid cell edge or center, decided by optional argument "grid_at_center".
+     99 !   </IN>
+    100 !   <IN NAME="lon_out" TYPE="real" DIM="dimension(:), dimension(:,:)" UNITS="radians" >
+    101 !      Longitude (in radians) for destination data grid. You can pass 1-D lon_out to
+    102 !      represent the geographical longitude of regular lon/lat grid, or just
+    103 !      pass geographical longitude(lon_out is 2-D). The grid location may be
+    104 !      located at grid cell edge or center, decided by optional argument "grid_at_center".
+    105 !   </IN>
+    106 !   <IN NAME="lat_out" TYPE="real" DIM="dimension(:), dimension(:,:)" UNITS="radians" >
+    107 !      Latitude (in radians) for destination data grid. You can pass 1-D lat_out to
+    108 !      represent the geographical latitude of regular lon/lat grid, or just
+    109 !      pass geographical latitude(lat_out is 2-D). The grid location may be
+    110 !      located at grid cell edge or center, decided by optional argument "grid_at_center".
+    111 !   </IN>
+    112 !   <IN NAME="verbose" TYPE="integer">
+    113 !      Integer flag that controls the amount of printed output.
+    114 !      verbose = 0, no output; = 1, min,max,means; = 2, still more
+
+Page 3           Source Listing                  HORIZ_INTERP_INIT
+2021-06-01 08:55                                 horiz_interp.F90
+
+    115 !   </IN>
+    116 !   <IN NAME="interp_method" TYPE="character(len=*)" >
+    117 !      interpolation method, = "conservative", using conservation scheme,
+    118 !      = "bilinear", using bilinear interpolation, = "spherical",using spherical regrid.
+    119 !      = "bicubic", using bicubic interpolation. The default value is "convervative".
+    120 !   </IN>
+    121 !   <IN NAME = "src_modulo" >
+    122 !      Indicate the source data grid is cyclic or not.
+    123 !   </IN>
+    124 !   <IN NAME = "grid_at_center" >
+    125 !      Indicate the data is on the center of grid box or the edge of grid box.
+    126 !      When true, the data is on the center of grid box. default vaule is false.
+    127 !      This option is only available when interp_method = "bilinear" or "bicubic".
+    128 !   </IN>
+    129 !   <OUT NAME="Interp" >
+    130 !      A derived-type variable containing indices and weights used for subsequent
+    131 !      interpolations. To reinitialize this variable for a different grid-to-grid
+    132 !      interpolation you must first use the "horiz_interp_del" interface.
+    133 !   </OUT>
+    134 
+    135  interface horiz_interp_new
+    136     module procedure horiz_interp_new_1d     ! Source grid is 1d, destination grid is 1d
+    137     module procedure horiz_interp_new_1d_src ! Source grid is 1d, destination grid is 2d
+    138     module procedure horiz_interp_new_2d     ! Source grid is 2d, destination grid is 2d
+    139     module procedure horiz_interp_new_1d_dst ! Source grid is 2d, destination grid is 1d
+    140  end interface
+    141 ! </INTERFACE>
+    142 
+    143 ! <INTERFACE NAME="horiz_interp">
+    144 !
+    145 !   <OVERVIEW>
+    146 !     Subroutine for performing the horizontal interpolation between two grids.
+    147 !   </OVERVIEW>
+    148 !   <DESCRIPTION>
+    149 !     Subroutine for performing the horizontal interpolation between
+    150 !     two grids. There are two forms of this interface.
+    151 !     Form A requires first calling horiz_interp_new, while Form B
+    152 !     requires no initialization.
+    153 !   </DESCRIPTION>
+    154 
+    155 !   <IN NAME="Interp" >
+    156 !     Derived-type variable containing interpolation indices and weights.
+    157 !     Returned by a previous call to horiz_interp_new.
+    158 !   </IN>
+    159 !   <IN NAME="data_in">
+    160 !      Input data on source grid.
+    161 !   </IN>
+    162 !   <IN NAME="verbose">
+    163 !      flag for the amount of print output.
+    164 !               verbose = 0, no output; = 1, min,max,means; = 2, still more
+    165 !   </IN>
+    166 !   <IN NAME="mask_in">
+    167 !      Input mask, must be the same size as the input data. The real value of
+    168 !      mask_in must be in the range (0.,1.). Set mask_in=0.0 for data points
+    169 !      that should not be used or have missing data. It is Not needed for
+    170 !      spherical regrid.
+    171 !   </IN>
+
+Page 4           Source Listing                  HORIZ_INTERP_INIT
+2021-06-01 08:55                                 horiz_interp.F90
+
+    172 !   <IN NAME="missing_value" >
+    173 !      Use the missing_value to indicate missing data.
+    174 !   </IN>
+    175 !   <IN NAME="missing_permit">
+    176 !      numbers of points allowed to miss for the bilinear interpolation. The value
+    177 !      should be between 0 and 3.
+    178 !   </IN>
+    179 !   <IN NAME="lon_in, lat_in" >
+    180 !      longitude and latitude (in radians) of source grid. More explanation can
+    181 !      be found in the documentation of horiz_interp_new.
+    182 !   </IN>
+    183 !   <IN NAME="lon_out, lat_out" >
+    184 !      longitude and latitude (in radians) of destination grid. More explanation can
+    185 !      be found in the documentation of horiz_interp_new.
+    186 !   </IN>
+    187 !   <OUT NAME="data_out">
+    188 !      Output data on destination grid.
+    189 !   </OUT>
+    190 !   <OUT NAME="mask_out">
+    191 !      Output mask that specifies whether data was computed.
+    192 !   </OUT>
+    193 
+    194 !   <ERROR MSG="size of input array incorrect" STATUS="FATAL">
+    195 !      The input data array does not match the size of the input grid edges
+    196 !      specified. If you are using the initialization interface make sure you
+    197 !      have the correct grid size.
+    198 !   </ERROR>
+    199 !   <ERROR MSG="size of output array incorrect" STATUS="FATAL">
+    200 !      The output data array does not match the size of the input grid
+    201 !      edges specified. If you are using the initialization interface make
+    202 !      sure you have the correct grid size.
+    203 !   </ERROR>
+    204 
+    205  interface horiz_interp
+    206     module procedure horiz_interp_base_2d
+    207     module procedure horiz_interp_base_3d
+    208     module procedure horiz_interp_solo_1d
+    209     module procedure horiz_interp_solo_1d_src
+    210     module procedure horiz_interp_solo_2d
+    211     module procedure horiz_interp_solo_1d_dst
+    212     module procedure horiz_interp_solo_old
+    213  end interface
+    214 ! </INTERFACE>
+    215 
+    216 
+    217 !--- namelist interface
+    218 !<NAMELIST NAME="horiz_interp_nml">
+    219 ! <DATA NAME="reproduce_siena" TYPE="logical" DEFAULT=".FALSE." >
+    220 !   Set reproduce_siena = .true. to reproduce siena results.
+    221 !   Set reproduce_siena = .false. to decrease truncation error
+    222 !   in routine poly_area in file mosaic_util.c. The truncation error of
+    223 !   second order conservative remapping might be big for high resolution
+    224 !   grid.
+    225 ! </DATA>
+    226 !</NAMELIST>
+    227 
+    228  logical :: reproduce_siena = .false.
+
+Page 5           Source Listing                  HORIZ_INTERP_INIT
+2021-06-01 08:55                                 horiz_interp.F90
+
+    229 
+    230  namelist /horiz_interp_nml/ reproduce_siena
+    231 
+    232 !-----------------------------------------------------------------------
+    233 ! Include variable "version" to be written to log file.
+    234 # 1 "../include/file_version.h" 1 
+    235 ! -*-f90-*-
+    236 !***********************************************************************
+    237 !*                   GNU Lesser General Public License
+    238 !*
+    239 !* This file is part of the GFDL Flexible Modeling System (FMS).
+    240 !*
+    241 !* FMS is free software: you can redistribute it and/or modify it under
+    242 !* the terms of the GNU Lesser General Public License as published by
+    243 !* the Free Software Foundation, either version 3 of the License, or (at
+    244 !* your option) any later version.
+    245 !*
+    246 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+    247 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+    248 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+    249 !* for more details.
+    250 !*
+    251 !* You should have received a copy of the GNU Lesser General Public
+    252 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+    253 !***********************************************************************
+    254 
+    255 # 23
+    256 
+    257   character(len=*), parameter :: version = 'unknown'
+    258 
+    259 # 234 "horiz_interp.F90" 2 
+    260  logical            :: module_is_initialized = .FALSE.
+    261 !-----------------------------------------------------------------------
+    262 
+    263 contains
+    264 
+    265 !#######################################################################
+    266 !  <SUBROUTINE NAME="horiz_interp_init">
+    267 !  <OVERVIEW>
+    268 !     writes version number to logfile.out
+    269 !  </OVERVIEW>
+    270 !  <DESCRIPTION>
+    271 !     writes version number to logfile.out
+    272 !  </DESCRIPTION>
+    273 
+    274   subroutine horiz_interp_init
+    275   integer :: unit, ierr, io
+    276 
+    277   if(module_is_initialized) return
+    278   call write_version_number("HORIZ_INTERP_MOD", version)
+    279 
+    280   read (input_nml_file, horiz_interp_nml, iostat=io)
+    281   ierr = check_nml_error(io,'horiz_interp_nml')
+    282   if (mpp_pe() == mpp_root_pe() ) then
+    283      unit = stdlog()
+    284      write (unit, nml=horiz_interp_nml)
+    285   endif
+
+Page 6           Source Listing                  HORIZ_INTERP_INIT
+2021-06-01 08:55                                 horiz_interp.F90
+
+    286 
+    287   if( reproduce_siena ) then
+    288      call mpp_error(FATAL, "horiz_interp_mod: You have overridden the default value of reproduce_siena " // &
+    289                            "and set it to .true. in horiz_interp_nml. This is a temporary workaround to " // &
+    290                            "allow for consistency in continuing experiments. Please remove this namelist " )
+    291   endif
+    292 
+    293   call horiz_interp_conserve_init
+    294   call horiz_interp_bilinear_init
+    295   call horiz_interp_bicubic_init
+    296   call horiz_interp_spherical_init
+    297 
+    298   module_is_initialized = .true.
+    299 
+    300   end subroutine horiz_interp_init
+
+
+ENTRY POINTS
+
+  Name                                              
+                                                    
+ horiz_interp_mod_mp_horiz_interp_init_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CHECK_NML_ERROR            Func   281      I(4)            4           scalar   PRIV             53,281                            
+ FATAL                      Param  288      I(4)            4           scalar   PRIV             54,288,438,489,554,601,628,682,702
+                                                                                                  ,760                              
+ HORIZ_INTERP_BICUBIC_INIT  Subr   295                                           PRIV             63,295                            
+ HORIZ_INTERP_BILINEAR_INIT Subr   294                                           PRIV             61,294                            
+ HORIZ_INTERP_CONSERVE_INIT Subr   293                                           PRIV             59,293                            
+ HORIZ_INTERP_INIT          Subr   274                                                                                              
+ HORIZ_INTERP_NML           Local  280                                  scalar                    280,284                           
+ HORIZ_INTERP_SPHERICAL_INI                                                                                                         
+ T                          Subr   296                                           PRIV             65,296                            
+ IERR                       Local  275      I(4)            4           scalar                    281                               
+ INPUT_NML_FILE             Local  280      CHAR                  1     1        ALC,TGT,PRIV     55,280                            
+ IO                         Local  275      I(4)            4           scalar                    280,281                           
+ MODULE_IS_INITIALIZED      Local  277      L(4)            4           scalar                    260,277,298                       
+ MPP_ERROR                  Local  288                                  scalar   PRIV             54,288,438,489,554,601,628,682,702
+                                                                                                  ,760                              
+ MPP_ERROR_BASIC            Subr   288                                           PRIV             288,438,489,554,601,628,682,702,76
+                                                                                                  0                                 
+ MPP_PE                     Func   282      I(4)            4           scalar   PRIV             55,282                            
+ MPP_ROOT_PE                Func   282      I(4)            4           scalar   PRIV             55,282                            
+ REPRODUCE_SIENA            Local  287      L(4)            4           scalar                    228,230,287                       
+ STDLOG                     Func   283      I(4)            4           scalar   PRIV             54,283                            
+ UNIT                       Local  275      I(4)            4           scalar                    283,284                           
+ VERSION                    Param  278      CHAR            7           scalar                    278                               
+ WRITE_VERSION_NUMBER       Subr   278                                           PRIV             52,278                            
+
+Page 7           Source Listing                  HORIZ_INTERP_INIT
+2021-06-01 08:55                                 horiz_interp.F90
+
+    301 
+    302 !  </SUBROUTINE>
+    303 
+    304 !#######################################################################
+    305 !  <SUBROUTINE NAME="horiz_interp_new_1d" INTERFACE="horiz_interp_new">
+    306 !  <IN NAME="lon_in" TYPE="real" DIM="(:),(:,:)" UNITS="radians"></IN>
+    307 !  <IN NAME="lat_in" TYPE="real" DIM="(:),(:,:)"></IN>
+    308 !  <IN NAME="lon_out" TYPE="real" DIM="(:),(:,:)"></IN>
+    309 !  <IN NAME="lat_out" TYPE="real" DIM="(:),(:,:)"></IN>
+    310 !  <IN NAME="verbose" TYPE="integer, optional"></IN>
+    311 !  <IN NAME="interp_method" TYPE="character(len=*),optional"></IN>
+    312 !  <IN NAME="src_modulo" TYPE="logical, optional" > </IN>
+    313 !  <OUT NAME="Interp" TYPE="type(horiz_interp_type)"></OUT>
+    314 
+    315 !<PUBLICROUTINE INTERFACE="horiz_interp_new">
+    316   subroutine horiz_interp_new_1d (Interp, lon_in, lat_in, lon_out, lat_out, verbose, &
+    317                                   interp_method, num_nbrs, max_dist, src_modulo,     &
+    318                                   grid_at_center, mask_in, mask_out)
+    319 !</PUBLICROUTINE>
+    320 
+    321 !-----------------------------------------------------------------------
+    322     type(horiz_interp_type), intent(inout)        :: Interp
+    323     real, intent(in),  dimension(:)               :: lon_in , lat_in
+    324     real, intent(in),  dimension(:)               :: lon_out, lat_out
+    325     integer, intent(in),                 optional :: verbose
+    326     character(len=*), intent(in),        optional :: interp_method
+    327     integer, intent(in),                 optional :: num_nbrs
+    328     real,    intent(in),                 optional :: max_dist
+    329     logical, intent(in),                 optional :: src_modulo
+    330     logical, intent(in),                 optional :: grid_at_center
+    331     real, intent(in), dimension(:,:),    optional :: mask_in  ! dummy
+    332     real, intent(inout),dimension(:,:),  optional :: mask_out ! dummy
+    333 !-----------------------------------------------------------------------
+    334     real, dimension(:,:), allocatable :: lon_src, lat_src, lon_dst, lat_dst
+    335     real, dimension(:),   allocatable :: lon_src_1d, lat_src_1d, lon_dst_1d, lat_dst_1d
+    336     integer                           :: i, j, nlon_in, nlat_in, nlon_out, nlat_out
+    337     logical                           :: center
+    338     character(len=40)                 :: method
+    339 !-----------------------------------------------------------------------
+    340     call horiz_interp_init
+    341 
+    342     method = 'conservative'
+    343     if(present(interp_method)) method = interp_method
+    344 
+    345     select case (trim(method))
+    346     case ("conservative")
+    347        Interp%interp_method = CONSERVE
+    348        call horiz_interp_conserve_new ( Interp, lon_in, lat_in, lon_out, lat_out, verbose)
+    349     case ("bilinear")
+    350        Interp%interp_method = BILINEAR
+    351        center = .false.
+    352        if(present(grid_at_center) ) center = grid_at_center
+    353        if(center) then
+    354           nlon_out = size(lon_out(:)); nlat_out = size(lat_out(:))
+    355           allocate(lon_dst(nlon_out,nlat_out), lat_dst(nlon_out,nlat_out))
+    356           do i = 1, nlon_out
+    357              lon_dst(i,:) = lon_out(i)
+
+Page 8           Source Listing                  HORIZ_INTERP_NEW_1D
+2021-06-01 08:55                                 horiz_interp.F90
+
+    358           enddo
+    359           do j = 1, nlat_out
+    360              lat_dst(:,j) = lat_out(j)
+    361           enddo
+    362 
+    363           call horiz_interp_bilinear_new ( Interp, lon_in, lat_in, lon_dst, lat_dst, &
+    364                verbose, src_modulo)
+    365           deallocate(lon_dst, lat_dst)
+    366        else
+    367           nlon_in  = size(lon_in(:))-1;  nlat_in  = size(lat_in(:))-1
+    368           nlon_out = size(lon_out(:))-1; nlat_out = size(lat_out(:))-1
+    369           allocate(lon_src_1d(nlon_in), lat_src_1d(nlat_in))
+    370           allocate(lon_dst(nlon_out,nlat_out), lat_dst(nlon_out,nlat_out))
+    371           do i = 1, nlon_in
+    372              lon_src_1d(i) = (lon_in(i) + lon_in(i+1)) * 0.5
+    373           enddo
+    374           do j = 1, nlat_in
+    375              lat_src_1d(j) = (lat_in(j) + lat_in(j+1)) * 0.5
+    376           enddo
+    377           do i = 1, nlon_out
+    378              lon_dst(i,:) = (lon_out(i) + lon_out(i+1)) * 0.5
+    379           enddo
+    380           do j = 1, nlat_out
+    381              lat_dst(:,j) = (lat_out(j) + lat_out(j+1)) * 0.5
+    382           enddo
+    383           call horiz_interp_bilinear_new ( Interp, lon_src_1d, lat_src_1d, lon_dst, lat_dst, &
+    384                verbose, src_modulo)
+    385           deallocate(lon_src_1d, lat_src_1d, lon_dst, lat_dst)
+    386        endif
+    387     case ("bicubic")
+    388        Interp%interp_method = BICUBIC
+    389        center = .false.
+    390        if(present(grid_at_center) ) center = grid_at_center
+    391 !No need to expand to 2d, horiz_interp_bicubic_new does 1d-1d
+    392        if(center) then
+    393           call horiz_interp_bicubic_new ( Interp, lon_in, lat_in, lon_out, lat_out, &
+    394             verbose, src_modulo)
+    395        else
+    396           nlon_in  = size(lon_in(:))-1;  nlat_in  = size(lat_in(:))-1
+    397           nlon_out = size(lon_out(:))-1; nlat_out = size(lat_out(:))-1
+    398           allocate(lon_src_1d(nlon_in), lat_src_1d(nlat_in))
+    399           allocate(lon_dst_1d(nlon_out), lat_dst_1d(nlat_out))
+    400           do i = 1, nlon_in
+    401              lon_src_1d(i) = (lon_in(i) + lon_in(i+1)) * 0.5
+    402           enddo
+    403           do j = 1, nlat_in
+    404              lat_src_1d(j) = (lat_in(j) + lat_in(j+1)) * 0.5
+    405           enddo
+    406           do i = 1, nlon_out
+    407              lon_dst_1d(i) = (lon_out(i) + lon_out(i+1)) * 0.5
+    408           enddo
+    409           do j = 1, nlat_out
+    410              lat_dst_1d(j) = (lat_out(j) + lat_out(j+1)) * 0.5
+    411           enddo
+    412           call horiz_interp_bicubic_new ( Interp, lon_src_1d, lat_src_1d, lon_dst_1d, lat_dst_1d, &
+    413                verbose, src_modulo)
+    414           deallocate(lon_src_1d, lat_src_1d, lon_dst_1d, lat_dst_1d)
+
+Page 9           Source Listing                  HORIZ_INTERP_NEW_1D
+2021-06-01 08:55                                 horiz_interp.F90
+
+    415        endif
+    416     case ("spherical")
+    417        Interp%interp_method = SPHERICA
+    418        nlon_in  = size(lon_in(:));   nlat_in  = size(lat_in(:))
+    419        nlon_out  = size(lon_out(:)); nlat_out = size(lat_out(:))
+    420        allocate(lon_src(nlon_in,nlat_in), lat_src(nlon_in,nlat_in))
+    421        allocate(lon_dst(nlon_out,nlat_out), lat_dst(nlon_out,nlat_out))
+    422        do i = 1, nlon_in
+    423           lon_src(i,:) = lon_in(i)
+    424        enddo
+    425        do j = 1, nlat_in
+    426           lat_src(:,j) = lat_in(j)
+    427        enddo
+    428        do i = 1, nlon_out
+    429           lon_dst(i,:) = lon_out(i)
+    430        enddo
+    431        do j = 1, nlat_out
+    432           lat_dst(:,j) = lat_out(j)
+    433        enddo
+    434        call horiz_interp_spherical_new ( Interp, lon_src, lat_src, lon_dst, lat_dst, &
+    435             num_nbrs, max_dist, src_modulo)
+    436        deallocate(lon_src, lat_src, lon_dst, lat_dst)
+    437     case default
+    438        call mpp_error(FATAL,'horiz_interp_mod: interp_method should be conservative, bilinear, bicubic, spherical')
+    439     end select
+    440 
+    441 !-----------------------------------------------------------------------
+    442     Interp%I_am_initialized = .true.
+    443 
+    444   end subroutine horiz_interp_new_1d
+
+Page 10          Source Listing                  HORIZ_INTERP_NEW_1D
+2021-06-01 08:55 Entry Points                    horiz_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                
+                                                      
+ horiz_interp_mod_mp_horiz_interp_new_1d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ BICUBIC                    Param  388      I(4)            4           scalar   PRIV             58,388,521,753,1163               
+ BILINEAR                   Param  350      I(4)            4           scalar   PRIV             58,350,501,624,694,750,1161       
+ CENTER                     Local  337      L(4)            4           scalar                    351,352,353,389,390,392           
+ CONSERVE                   Param  347      I(4)            4           scalar   PRIV             58,347,480,588,673,748,1159       
+ GRID_AT_CENTER             Dummy  318      L(4)            4           scalar   ARG,IN           352,390                           
+ HORIZ_INTERP_BICUBIC_NEW   Local  393                                  scalar   PRIV             64,393,412,525,536                
+ HORIZ_INTERP_BICUBIC_NEW_1                                                                                                         
+ D                          Subr   393                                           PRIV             393,412                           
+ HORIZ_INTERP_BILINEAR_NEW  Local  363                                  scalar   PRIV             62,363,383,505,516,625,695        
+ HORIZ_INTERP_BILINEAR_NEW_                                                                                                         
+ 1D                         Subr   363                                           PRIV             363,383,505,516                   
+ HORIZ_INTERP_CONSERVE_NEW  Local  348                                  scalar   PRIV             60,348,494,497,606,609,612,615,687
+                                                                                                  ,690                              
+ HORIZ_INTERP_CONSERVE_NEW_                                                                                                         
+ 1DX1D                      Subr   348                                           PRIV             348,494,606,687                   
+ HORIZ_INTERP_INIT          Subr   340                                                            74,340,473,581,657,852,898,955,101
+                                                                                                  7,1099                            
+ HORIZ_INTERP_NEW_1D        Subr   316                                           PRIV             854                               
+ HORIZ_INTERP_SPHERICAL_NEW Subr   434                                           PRIV             66,434,550,621,699                
+ HORIZ_INTERP_TYPE          Type   322                                  scalar                    57,73,322,453,567,639,731,777,850,
+                                                                                                  894,951,1013,1152                 
+ I                          Local  336      I(4)            4           scalar                    356,357,371,372,377,378,400,401,40
+                                                                                                  6,407,422,423,428,429             
+ INTERP                     Dummy  316      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar   ARG,INOUT        347,348,350,363,383,388,393,412,41
+                                                                                                  7,434,442                         
+ INTERP_METHOD              Dummy  317      CHAR                        scalar   ARG,IN           343                               
+ J                          Local  336      I(4)            4           scalar                    359,360,374,375,380,381,403,404,40
+                                                                                                  9,410,425,426,431,432             
+ LAT_DST                    Local  334      R(8)            8     2     1        ALC              355,360,363,365,370,381,383,385,42
+                                                                                                  1,432,434,436                     
+ LAT_DST_1D                 Local  335      R(8)            8     1     1        ALC              399,410,412,414                   
+ LAT_IN                     Dummy  316      R(8)            8     1     1        ARG,IN           348,363,367,375,393,396,404,418,42
+                                                                                                  6                                 
+ LAT_OUT                    Dummy  316      R(8)            8     1     1        ARG,IN           348,354,360,368,381,393,397,410,41
+                                                                                                  9,432                             
+ LAT_SRC                    Local  334      R(8)            8     2     1        ALC              420,426,434,436                   
+ LAT_SRC_1D                 Local  335      R(8)            8     1     1        ALC              369,375,383,385,398,404,412,414   
+ LON_DST                    Local  334      R(8)            8     2     1        ALC              355,357,363,365,370,378,383,385,42
+                                                                                                  1,429,434,436                     
+ LON_DST_1D                 Local  335      R(8)            8     1     1        ALC              399,407,412,414                   
+ LON_IN                     Dummy  316      R(8)            8     1     1        ARG,IN           348,363,367,372,393,396,401,418,42
+                                                                                                  3                                 
+ LON_OUT                    Dummy  316      R(8)            8     1     1        ARG,IN           348,354,357,368,378,393,397,407,41
+
+Page 11          Source Listing                  HORIZ_INTERP_NEW_1D
+2021-06-01 08:55 Symbol Table                    horiz_interp.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+                                                                                                  9,429                             
+ LON_SRC                    Local  334      R(8)            8     2     1        ALC              420,423,434,436                   
+ LON_SRC_1D                 Local  335      R(8)            8     1     1        ALC              369,372,383,385,398,401,412,414   
+ MASK_IN                    Dummy  318      R(8)            8     2     1        ARG,IN                                             
+ MASK_OUT                   Dummy  318      R(8)            8     2     1        ARG,INOUT                                          
+ MAX_DIST                   Dummy  317      R(8)            8           scalar   ARG,IN           435                               
+ METHOD                     Local  338      CHAR            40          scalar                    342,343,345                       
+ NLAT_IN                    Local  336      I(4)            4           scalar                    367,369,374,396,398,403,418,420,42
+                                                                                                  5                                 
+ NLAT_OUT                   Local  336      I(4)            4           scalar                    354,355,359,368,370,380,397,399,40
+                                                                                                  9,419,421,431                     
+ NLON_IN                    Local  336      I(4)            4           scalar                    367,369,371,396,398,400,418,420,42
+                                                                                                  2                                 
+ NLON_OUT                   Local  336      I(4)            4           scalar                    354,355,356,368,370,377,397,399,40
+                                                                                                  6,419,421,428                     
+ NUM_NBRS                   Dummy  317      I(4)            4           scalar   ARG,IN           435                               
+ PRESENT                    Func   343                                  scalar                    343,352,390                       
+ SIZE                       Func   354                                  scalar                    354,367,368,396,397,418,419       
+ SPHERICA                   Param  417      I(4)            4           scalar   PRIV             58,417,541,620,698,756,1165       
+ SRC_MODULO                 Dummy  317      L(4)            4           scalar   ARG,IN           364,384,394,413,435               
+ TRIM                       Func   345                                  scalar                    345                               
+ VERBOSE                    Dummy  316      I(4)            4           scalar   ARG,IN           348,364,384,394,413               
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ HORIZ_INTERP_TYPE.INTERP_METHOD                                                                                           ...
+                            I(4)            4     1392           scalar                    347,350,388,417,480,501,521,541,58 
+                                                                                           8,620,624,673,694,698,747,1158     
+ HORIZ_INTERP_TYPE.I_AM_INITIALIZED                                                                                        ...
+                            L(4)            4     1736           scalar                    442,558,632,708,743,790,1169       
+
+Page 12          Source Listing                  HORIZ_INTERP_NEW_1D
+2021-06-01 08:55                                 horiz_interp.F90
+
+    445 !  </SUBROUTINE>
+    446 
+    447 !#######################################################################
+    448 
+    449  subroutine horiz_interp_new_1d_src (Interp, lon_in, lat_in, lon_out, lat_out,   &
+    450                                      verbose, interp_method, num_nbrs, max_dist, &
+    451                                      src_modulo, grid_at_center, mask_in, mask_out, is_latlon_out )
+    452 
+    453    type(horiz_interp_type), intent(inout)        :: Interp
+    454    real, intent(in),  dimension(:)               :: lon_in , lat_in
+    455    real, intent(in),  dimension(:,:)             :: lon_out, lat_out
+    456    integer, intent(in),                 optional :: verbose
+    457    character(len=*), intent(in),        optional :: interp_method
+    458    integer, intent(in),                 optional :: num_nbrs  ! minimum number of neighbors
+    459    real,    intent(in),                 optional :: max_dist
+    460    logical, intent(in),                 optional :: src_modulo
+    461    logical, intent(in),                 optional :: grid_at_center
+    462    real, intent(in), dimension(:,:),    optional :: mask_in
+    463    real, intent(out),dimension(:,:),    optional :: mask_out
+    464    logical, intent(in),                 optional :: is_latlon_out
+    465 
+    466    real, dimension(:,:), allocatable :: lon_src, lat_src
+    467    real, dimension(:),   allocatable :: lon_src_1d, lat_src_1d
+    468    integer                           :: i, j, nlon_in, nlat_in
+    469    character(len=40)                 :: method
+    470    logical                           :: center
+    471    logical                           :: dst_is_latlon
+    472 !-----------------------------------------------------------------------
+    473    call horiz_interp_init
+    474 
+    475    method = 'conservative'
+    476    if(present(interp_method)) method = interp_method
+    477 
+    478    select case (trim(method))
+    479    case ("conservative")
+    480       Interp%interp_method = CONSERVE
+    481 !--- check to see if the source grid is regular lat-lon grid or not.
+    482       if(PRESENT(is_latlon_out)) then
+    483          dst_is_latlon = is_latlon_out
+    484       else
+    485          dst_is_latlon = is_lat_lon(lon_out, lat_out)
+    486       end if
+    487       if(dst_is_latlon ) then
+    488          if(present(mask_in)) then
+    489             if ( ANY(mask_in < -.0001) .or. ANY(mask_in > 1.0001)  ) call mpp_error(FATAL, &
+    490                   'horiz_interp_conserve_new_1d_src(horiz_interp_conserve_mod): input mask not between 0,1')
+    491             allocate(Interp%mask_in(size(mask_in,1), size(mask_in,2)) )
+    492             Interp%mask_in = mask_in
+    493          end if
+    494          call horiz_interp_conserve_new ( Interp, lon_in, lat_in, lon_out(:,1), lat_out(1,:), &
+    495               verbose=verbose )
+    496       else
+    497          call horiz_interp_conserve_new ( Interp, lon_in, lat_in, lon_out, lat_out, &
+    498               verbose=verbose, mask_in=mask_in, mask_out=mask_out )
+    499       end if
+    500    case ("bilinear")
+    501       Interp%interp_method = BILINEAR
+
+Page 13          Source Listing                  HORIZ_INTERP_NEW_1D_SRC
+2021-06-01 08:55                                 horiz_interp.F90
+
+    502       center = .false.
+    503       if(present(grid_at_center) ) center = grid_at_center
+    504       if(center) then
+    505          call horiz_interp_bilinear_new ( Interp, lon_in, lat_in, lon_out, lat_out, &
+    506               verbose, src_modulo )
+    507       else
+    508          nlon_in  = size(lon_in(:))-1;  nlat_in  = size(lat_in(:))-1
+    509          allocate(lon_src_1d(nlon_in), lat_src_1d(nlat_in))
+    510          do i = 1, nlon_in
+    511             lon_src_1d(i) = (lon_in(i) + lon_in(i+1)) * 0.5
+    512          enddo
+    513          do j = 1, nlat_in
+    514             lat_src_1d(j) = (lat_in(j) + lat_in(j+1)) * 0.5
+    515          enddo
+    516          call horiz_interp_bilinear_new ( Interp, lon_src_1d, lat_src_1d, lon_out, lat_out, &
+    517               verbose, src_modulo )
+    518          deallocate(lon_src_1d,lat_src_1d)
+    519       endif
+    520    case ("bicubic")
+    521       Interp%interp_method = BICUBIC
+    522       center = .false.
+    523       if(present(grid_at_center) ) center = grid_at_center
+    524       if(center) then
+    525         call horiz_interp_bicubic_new ( Interp, lon_in, lat_in, lon_out, lat_out, &
+    526               verbose, src_modulo )
+    527       else
+    528          nlon_in  = size(lon_in(:))-1;  nlat_in  = size(lat_in(:))-1
+    529          allocate(lon_src_1d(nlon_in), lat_src_1d(nlat_in))
+    530          do i = 1, nlon_in
+    531             lon_src_1d(i) = (lon_in(i) + lon_in(i+1)) * 0.5
+    532          enddo
+    533          do j = 1, nlat_in
+    534             lat_src_1d(j) = (lat_in(j) + lat_in(j+1)) * 0.5
+    535          enddo
+    536            call horiz_interp_bicubic_new ( Interp, lon_src_1d, lat_src_1d, lon_out, lat_out, &
+    537               verbose, src_modulo )
+    538          deallocate(lon_src_1d,lat_src_1d)
+    539       endif
+    540    case ("spherical")
+    541       Interp%interp_method = SPHERICA
+    542       nlon_in  = size(lon_in(:));  nlat_in  = size(lat_in(:))
+    543       allocate(lon_src(nlon_in,nlat_in), lat_src(nlon_in,nlat_in))
+    544       do i = 1, nlon_in
+    545          lon_src(i,:) = lon_in(i)
+    546       enddo
+    547       do j = 1, nlat_in
+    548          lat_src(:,j) = lat_in(j)
+    549       enddo
+    550       call horiz_interp_spherical_new ( Interp, lon_src, lat_src, lon_out, lat_out, &
+    551            num_nbrs, max_dist, src_modulo)
+    552       deallocate(lon_src, lat_src)
+    553    case default
+    554       call mpp_error(FATAL,'interp_method should be conservative, bilinear, bicubic, spherical')
+    555    end select
+    556 
+    557 !-----------------------------------------------------------------------
+    558    Interp%I_am_initialized = .true.
+
+Page 14          Source Listing                  HORIZ_INTERP_NEW_1D_SRC
+2021-06-01 08:55                                 horiz_interp.F90
+
+    559 
+    560  end subroutine horiz_interp_new_1d_src
+
+
+ENTRY POINTS
+
+  Name                                                    
+                                                          
+ horiz_interp_mod_mp_horiz_interp_new_1d_src_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ANY                        Func   489                                  scalar                    489                               
+ CENTER                     Local  470      L(4)            4           scalar                    502,503,504,522,523,524           
+ DST_IS_LATLON              Local  471      L(4)            4           scalar                    483,485,487                       
+ GRID_AT_CENTER             Dummy  451      L(4)            4           scalar   ARG,IN           503,523                           
+ HORIZ_INTERP_BICUBIC_NEW_1                                                                                                         
+ D_S                        Subr   525                                           PRIV             525,536                           
+ HORIZ_INTERP_CONSERVE_NEW_                                                                                                         
+ 1DX2D                      Subr   497                                           PRIV             497,609                           
+ HORIZ_INTERP_NEW_1D_SRC    Subr   449                                           PRIV             905,911                           
+ I                          Local  468      I(4)            4           scalar                    510,511,530,531,544,545           
+ INTERP                     Dummy  449      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar   ARG,INOUT        480,491,492,494,497,501,505,516,52
+                                                                                                  1,525,536,541,550,558             
+ INTERP_METHOD              Dummy  450      CHAR                        scalar   ARG,IN           476                               
+ IS_LATLON_OUT              Dummy  451      L(4)            4           scalar   ARG,IN           482,483                           
+ IS_LAT_LON@0               Local  485      L(4)            4           scalar                                                      
+ J                          Local  468      I(4)            4           scalar                    513,514,533,534,547,548           
+ LAT_IN                     Dummy  449      R(8)            8     1     1        ARG,IN           494,497,505,508,514,525,528,534,54
+                                                                                                  2,548                             
+ LAT_OUT                    Dummy  449      R(8)            8     2     1        ARG,IN           485,494,497,505,516,525,536,550   
+ LAT_SRC                    Local  466      R(8)            8     2     1        ALC              543,548,550,552                   
+ LAT_SRC_1D                 Local  467      R(8)            8     1     1        ALC              509,514,516,518,529,534,536,538   
+ LON_IN                     Dummy  449      R(8)            8     1     1        ARG,IN           494,497,505,508,511,525,528,531,54
+                                                                                                  2,545                             
+ LON_OUT                    Dummy  449      R(8)            8     2     1        ARG,IN           485,494,497,505,516,525,536,550   
+ LON_SRC                    Local  466      R(8)            8     2     1        ALC              543,545,550,552                   
+ LON_SRC_1D                 Local  467      R(8)            8     1     1        ALC              509,511,516,518,529,531,536,538   
+ MASK_IN                    Dummy  451      R(8)            8     2     1        ARG,IN           488,489,491,492,498               
+ MASK_OUT                   Dummy  451      R(8)            8     2     1        ARG,OUT          498                               
+ MAX_DIST                   Dummy  450      R(8)            8           scalar   ARG,IN           551                               
+ METHOD                     Local  469      CHAR            40          scalar                    475,476,478                       
+ NLAT_IN                    Local  468      I(4)            4           scalar                    508,509,513,528,529,533,542,543,54
+                                                                                                  7                                 
+ NLON_IN                    Local  468      I(4)            4           scalar                    508,509,510,528,529,530,542,543,54
+                                                                                                  4                                 
+ NUM_NBRS                   Dummy  450      I(4)            4           scalar   ARG,IN           551                               
+ PRESENT                    Func   476                                  scalar                    476,482,488,503,523               
+ SIZE                       Func   491                                  scalar                    491,508,528,542                   
+ SRC_MODULO                 Dummy  451      L(4)            4           scalar   ARG,IN           506,517,526,537,551               
+ TRIM                       Func   478                                  scalar                    478                               
+ VERBOSE                    Dummy  450      I(4)            4           scalar   ARG,IN           495,498,506,517,526,537           
+
+
+Page 15          Source Listing                  HORIZ_INTERP_NEW_1D_SRC
+2021-06-01 08:55 Symbol Table                    horiz_interp.F90
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ HORIZ_INTERP_TYPE.MASK_IN  R(8)            8     2112     2     1        PTR              491,492,603,604,684,685            
+
+Page 16          Source Listing                  HORIZ_INTERP_NEW_1D_SRC
+2021-06-01 08:55                                 horiz_interp.F90
+
+    561 
+    562 !#######################################################################
+    563 
+    564  subroutine horiz_interp_new_2d (Interp, lon_in, lat_in, lon_out, lat_out,   &
+    565                                  verbose, interp_method, num_nbrs, max_dist, &
+    566                                  src_modulo, mask_in, mask_out, is_latlon_in, is_latlon_out  )
+    567  type(horiz_interp_type), intent(inout)     :: Interp
+    568  real, intent(in),  dimension(:,:)          :: lon_in , lat_in
+    569  real, intent(in),  dimension(:,:)          :: lon_out, lat_out
+    570  integer, intent(in),              optional :: verbose
+    571  character(len=*), intent(in),     optional :: interp_method
+    572  integer, intent(in),              optional :: num_nbrs
+    573  real,    intent(in),              optional :: max_dist
+    574  logical, intent(in),              optional :: src_modulo
+    575  real, intent(in), dimension(:,:), optional :: mask_in
+    576  real, intent(out),dimension(:,:), optional :: mask_out
+    577  logical, intent(in),              optional :: is_latlon_in, is_latlon_out
+    578  logical           :: src_is_latlon, dst_is_latlon
+    579  character(len=40) :: method
+    580 !-----------------------------------------------------------------------
+    581    call horiz_interp_init
+    582 
+    583    method = 'bilinear'
+    584    if(present(interp_method)) method = interp_method
+    585 
+    586    select case (trim(method))
+    587    case ("conservative")
+    588       Interp%interp_method = CONSERVE
+    589       if(PRESENT(is_latlon_in)) then
+    590          src_is_latlon = is_latlon_in
+    591       else
+    592          src_is_latlon = is_lat_lon(lon_in, lat_in)
+    593       end if
+    594       if(PRESENT(is_latlon_out)) then
+    595          dst_is_latlon = is_latlon_out
+    596       else
+    597          dst_is_latlon = is_lat_lon(lon_out, lat_out)
+    598       end if
+    599       if(src_is_latlon .AND. dst_is_latlon) then
+    600          if(present(mask_in)) then
+    601             if ( ANY(mask_in < -.0001) .or. ANY(mask_in > 1.0001)  ) call mpp_error(FATAL, &
+    602               'horiz_interp_conserve_new_2d(horiz_interp_conserve_mod): input mask not between 0,1')
+    603             allocate(Interp%mask_in(size(mask_in,1), size(mask_in,2)) )
+    604             Interp%mask_in = mask_in
+    605          end if
+    606          call horiz_interp_conserve_new ( Interp, lon_in(:,1), lat_in(1,:), lon_out(:,1), lat_out(1,:), &
+    607               verbose=verbose )
+    608       else if(src_is_latlon) then
+    609          call horiz_interp_conserve_new ( Interp, lon_in(:,1), lat_in(1,:), lon_out, lat_out, &
+    610               verbose=verbose, mask_in=mask_in, mask_out=mask_out )
+    611       else if(dst_is_latlon) then
+    612          call horiz_interp_conserve_new ( Interp, lon_in, lat_in, lon_out(:,1), lat_out(1,:), &
+    613               verbose=verbose, mask_in=mask_in, mask_out=mask_out )
+    614       else
+    615          call horiz_interp_conserve_new ( Interp, lon_in, lat_in, lon_out, lat_out, &
+    616               verbose=verbose, mask_in=mask_in, mask_out=mask_out )
+    617       end if
+
+Page 17          Source Listing                  HORIZ_INTERP_NEW_2D
+2021-06-01 08:55                                 horiz_interp.F90
+
+    618 
+    619    case ("spherical")
+    620       Interp%interp_method = SPHERICA
+    621       call horiz_interp_spherical_new ( Interp, lon_in, lat_in, lon_out, lat_out, &
+    622                                     num_nbrs, max_dist, src_modulo )
+    623    case ("bilinear")
+    624       Interp%interp_method = BILINEAR
+    625       call horiz_interp_bilinear_new ( Interp, lon_in, lat_in, lon_out, lat_out, &
+    626                                         verbose, src_modulo )
+    627    case default
+    628       call mpp_error(FATAL,'when source grid are 2d, interp_method should be spherical or bilinear')
+    629    end select
+    630 
+    631 !-----------------------------------------------------------------------
+    632    Interp%I_am_initialized = .true.
+    633 
+    634  end subroutine horiz_interp_new_2d
+
+
+ENTRY POINTS
+
+  Name                                                
+                                                      
+ horiz_interp_mod_mp_horiz_interp_new_2d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ANY                        Func   601                                  scalar                    601                               
+ DST_IS_LATLON              Local  578      L(4)            4           scalar                    595,597,599,611                   
+ HORIZ_INTERP_BILINEAR_NEW_                                                                                                         
+ 2D                         Subr   625                                           PRIV             625,695                           
+ HORIZ_INTERP_CONSERVE_NEW_                                                                                                         
+ 2DX1D                      Subr   612                                           PRIV             612,690                           
+ HORIZ_INTERP_CONSERVE_NEW_                                                                                                         
+ 2DX2D                      Subr   615                                           PRIV             615                               
+ HORIZ_INTERP_NEW_2D        Subr   564                                           PRIV             967,973                           
+ INTERP                     Dummy  564      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar   ARG,INOUT        588,603,604,606,609,612,615,620,62
+                                                                                                  1,624,625,632                     
+ INTERP_METHOD              Dummy  565      CHAR                        scalar   ARG,IN           584                               
+ IS_LATLON_IN               Dummy  566      L(4)            4           scalar   ARG,IN           589,590                           
+ IS_LATLON_OUT              Dummy  566      L(4)            4           scalar   ARG,IN           594,595                           
+ LAT_IN                     Dummy  564      R(8)            8     2     1        ARG,IN           592,606,609,612,615,621,625       
+ LAT_OUT                    Dummy  564      R(8)            8     2     1        ARG,IN           597,606,609,612,615,621,625       
+ LON_IN                     Dummy  564      R(8)            8     2     1        ARG,IN           592,606,609,612,615,621,625       
+ LON_OUT                    Dummy  564      R(8)            8     2     1        ARG,IN           597,606,609,612,615,621,625       
+ MASK_IN                    Dummy  566      R(8)            8     2     1        ARG,IN           600,601,603,604,610,613,616       
+ MASK_OUT                   Dummy  566      R(8)            8     2     1        ARG,OUT          610,613,616                       
+ MAX_DIST                   Dummy  565      R(8)            8           scalar   ARG,IN           622                               
+ METHOD                     Local  579      CHAR            40          scalar                    583,584,586                       
+ NUM_NBRS                   Dummy  565      I(4)            4           scalar   ARG,IN           622                               
+ PRESENT                    Func   584                                  scalar                    584,589,594,600                   
+ SIZE                       Func   603                                  scalar                    603                               
+ SRC_IS_LATLON              Local  578      L(4)            4           scalar                    590,592,599,608                   
+
+Page 18          Source Listing                  HORIZ_INTERP_NEW_2D
+2021-06-01 08:55 Symbol Table                    horiz_interp.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ SRC_MODULO                 Dummy  566      L(4)            4           scalar   ARG,IN           622,626                           
+ TRIM                       Func   586                                  scalar                    586                               
+ VERBOSE                    Dummy  565      I(4)            4           scalar   ARG,IN           607,610,613,616,626               
+
+Page 19          Source Listing                  HORIZ_INTERP_NEW_2D
+2021-06-01 08:55                                 horiz_interp.F90
+
+    635 
+    636 !#######################################################################
+    637  subroutine horiz_interp_new_1d_dst (Interp, lon_in, lat_in, lon_out, lat_out,   &
+    638       verbose, interp_method, num_nbrs, max_dist, src_modulo, mask_in, mask_out, is_latlon_in )
+    639    type(horiz_interp_type), intent(inout)     :: Interp
+    640    real, intent(in),  dimension(:,:)          :: lon_in , lat_in
+    641    real, intent(in),  dimension(:)            :: lon_out, lat_out
+    642    integer, intent(in),              optional :: verbose
+    643    character(len=*), intent(in),     optional :: interp_method
+    644    integer, intent(in),              optional :: num_nbrs
+    645    real,    intent(in),              optional :: max_dist
+    646    logical, intent(in),              optional :: src_modulo
+    647    real, intent(in), dimension(:,:), optional :: mask_in
+    648    real, intent(out),dimension(:,:), optional :: mask_out
+    649    logical, intent(in),              optional :: is_latlon_in
+    650 
+    651    character(len=40) :: method
+    652 !-------------some local variables-----------------------------------------------
+    653    integer                           :: i, j, nlon_out, nlat_out
+    654    real, dimension(:,:), allocatable :: lon_dst, lat_dst
+    655    logical                           :: src_is_latlon
+    656 !-----------------------------------------------------------------------
+    657    call horiz_interp_init
+    658 
+    659    method = 'bilinear'
+    660    if(present(interp_method)) method = interp_method
+    661 
+    662    nlon_out = size(lon_out(:)); nlat_out = size(lat_out(:))
+    663    allocate(lon_dst(nlon_out,nlat_out), lat_dst(nlon_out,nlat_out))
+    664    do i = 1, nlon_out
+    665       lon_dst(i,:) = lon_out(i)
+    666    enddo
+    667    do j = 1, nlat_out
+    668       lat_dst(:,j) = lat_out(j)
+    669    enddo
+    670 
+    671    select case (trim(method))
+    672    case ("conservative")
+    673       Interp%interp_method = CONSERVE
+    674       if(PRESENT(is_latlon_in)) then
+    675          src_is_latlon = is_latlon_in
+    676       else
+    677          src_is_latlon = is_lat_lon(lon_in, lat_in)
+    678       end if
+    679 
+    680       if(src_is_latlon) then
+    681          if(present(mask_in)) then
+    682             if ( ANY(mask_in < -.0001) .or. ANY(mask_in > 1.0001)  ) call mpp_error(FATAL, &
+    683               'horiz_interp_conserve_new_1d_dst(horiz_interp_conserve_mod): input mask not between 0,1')
+    684             allocate(Interp%mask_in(size(mask_in,1), size(mask_in,2)) )
+    685             Interp%mask_in = mask_in
+    686          end if
+    687          call horiz_interp_conserve_new ( Interp, lon_in(:,1), lat_in(1,:), lon_out, lat_out, &
+    688               verbose=verbose)
+    689       else
+    690          call horiz_interp_conserve_new ( Interp, lon_in, lat_in, lon_out, lat_out, &
+    691               verbose=verbose, mask_in=mask_in, mask_out=mask_out )
+
+Page 20          Source Listing                  HORIZ_INTERP_NEW_1D_DST
+2021-06-01 08:55                                 horiz_interp.F90
+
+    692       end if
+    693    case ("bilinear")
+    694       Interp%interp_method = BILINEAR
+    695       call horiz_interp_bilinear_new ( Interp, lon_in, lat_in, lon_dst, lat_dst, &
+    696            verbose, src_modulo )
+    697    case ("spherical")
+    698       Interp%interp_method = SPHERICA
+    699       call horiz_interp_spherical_new ( Interp, lon_in, lat_in, lon_dst, lat_dst, &
+    700            num_nbrs, max_dist, src_modulo)
+    701    case default
+    702       call mpp_error(FATAL,'when source grid are 2d, interp_method should be spherical or bilinear')
+    703    end select
+    704 
+    705    deallocate(lon_dst,lat_dst)
+    706 
+    707 !-----------------------------------------------------------------------
+    708    Interp%I_am_initialized = .true.
+    709 
+    710  end subroutine horiz_interp_new_1d_dst
+
+
+ENTRY POINTS
+
+  Name                                                    
+                                                          
+ horiz_interp_mod_mp_horiz_interp_new_1d_dst_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ANY                        Func   682                                  scalar                    682                               
+ HORIZ_INTERP_NEW_1D_DST    Subr   637                                           PRIV             1025,1031                         
+ I                          Local  653      I(4)            4           scalar                    664,665                           
+ INTERP                     Dummy  637      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar   ARG,INOUT        673,684,685,687,690,694,695,698,69
+                                                                                                  9,708                             
+ INTERP_METHOD              Dummy  638      CHAR                        scalar   ARG,IN           660                               
+ IS_LATLON_IN               Dummy  638      L(4)            4           scalar   ARG,IN           674,675                           
+ J                          Local  653      I(4)            4           scalar                    667,668                           
+ LAT_DST                    Local  654      R(8)            8     2     1        ALC              663,668,695,699,705               
+ LAT_IN                     Dummy  637      R(8)            8     2     1        ARG,IN           677,687,690,695,699               
+ LAT_OUT                    Dummy  637      R(8)            8     1     1        ARG,IN           662,668,687,690                   
+ LON_DST                    Local  654      R(8)            8     2     1        ALC              663,665,695,699,705               
+ LON_IN                     Dummy  637      R(8)            8     2     1        ARG,IN           677,687,690,695,699               
+ LON_OUT                    Dummy  637      R(8)            8     1     1        ARG,IN           662,665,687,690                   
+ MASK_IN                    Dummy  638      R(8)            8     2     1        ARG,IN           681,682,684,685,691               
+ MASK_OUT                   Dummy  638      R(8)            8     2     1        ARG,OUT          691                               
+ MAX_DIST                   Dummy  638      R(8)            8           scalar   ARG,IN           700                               
+ METHOD                     Local  651      CHAR            40          scalar                    659,660,671                       
+ NLAT_OUT                   Local  653      I(4)            4           scalar                    662,663,667                       
+ NLON_OUT                   Local  653      I(4)            4           scalar                    662,663,664                       
+ NUM_NBRS                   Dummy  638      I(4)            4           scalar   ARG,IN           700                               
+ PRESENT                    Func   660                                  scalar                    660,674,681                       
+ SIZE                       Func   662                                  scalar                    662,684                           
+ SRC_IS_LATLON              Local  655      L(4)            4           scalar                    675,677,680                       
+
+Page 21          Source Listing                  HORIZ_INTERP_NEW_1D_DST
+2021-06-01 08:55 Symbol Table                    horiz_interp.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ SRC_MODULO                 Dummy  638      L(4)            4           scalar   ARG,IN           696,700                           
+ TRIM                       Func   671                                  scalar                    671                               
+ VERBOSE                    Dummy  638      I(4)            4           scalar   ARG,IN           688,691,696                       
+
+Page 22          Source Listing                  HORIZ_INTERP_NEW_1D_DST
+2021-06-01 08:55                                 horiz_interp.F90
+
+    711 
+    712 !#######################################################################
+    713 ! <SUBROUTINE NAME="horiz_interp_base_2d" INTERFACE="horiz_interp">
+    714 !   <IN NAME="Interp" TYPE="type(horiz_interp_type)"> </IN>
+    715 !   <IN NAME="data_in" TYPE="real" DIM="(:,:),(:,:,:)"> </IN>
+    716 !   <IN NAME="lon_in, lat_in" TYPE="real" DIM="(:),(:,:)"> </IN>
+    717 !   <IN NAME="lon_out, lat_out" TYPE="real" DIM="(:),(:,:)"> </IN>
+    718 !   <IN NAME="missing_value" TYPE="integer, optional" > </IN>
+    719 !   <IN NAME="missing_permit" TYPE="integer,optional" > </IN>
+    720 !   <IN NAME="verbose" TYPE="integer,optional"> </IN>
+    721 !   <IN NAME="mask_in" TYPE="real,optional" DIM="(:,:),(:,:,:)"> </IN>
+    722 !   <OUT NAME="data_out" TYPE="real" DIM="(:,:),(:,:,:)"> </OUT>
+    723 !   <OUT NAME="mask_out" TYPE="real,optional" DIM="(:,:),(:,:,:)"> </OUT>
+    724 
+    725 !<PUBLICROUTINE INTERFACE="horiz_interp">
+    726  subroutine horiz_interp_base_2d ( Interp, data_in, data_out, verbose, &
+    727                                    mask_in, mask_out, missing_value, missing_permit, &
+    728                                    err_msg, new_missing_handle )
+    729 !</PUBLICROUTINE>
+    730 !-----------------------------------------------------------------------
+    731    type (horiz_interp_type), intent(in) :: Interp
+    732       real, intent(in),  dimension(:,:) :: data_in
+    733       real, intent(out), dimension(:,:) :: data_out
+    734    integer, intent(in),                   optional :: verbose
+    735       real, intent(in),   dimension(:,:), optional :: mask_in
+    736       real, intent(out),  dimension(:,:), optional :: mask_out
+    737       real, intent(in),                   optional :: missing_value
+    738       integer, intent(in),                optional :: missing_permit
+    739    character(len=*), intent(out),         optional :: err_msg
+    740       logical, intent(in),                optional :: new_missing_handle
+    741 !-----------------------------------------------------------------------
+    742    if(present(err_msg)) err_msg = ''
+    743    if(.not.Interp%I_am_initialized) then
+    744      if(fms_error_handler('horiz_interp','The horiz_interp_type variable is not initialized',err_msg)) return
+    745    endif
+    746 
+    747    select case(Interp%interp_method)
+    748    case(CONSERVE)
+    749       call horiz_interp_conserve(Interp,data_in, data_out, verbose, mask_in, mask_out)
+    750    case(BILINEAR)
+    751       call horiz_interp_bilinear(Interp,data_in, data_out, verbose, mask_in, mask_out, &
+    752                              missing_value, missing_permit, new_missing_handle )
+    753    case(BICUBIC)
+    754       call horiz_interp_bicubic(Interp,data_in, data_out, verbose, mask_in, mask_out, &
+    755                              missing_value, missing_permit )
+    756    case(SPHERICA)
+    757       call horiz_interp_spherical(Interp,data_in, data_out, verbose, mask_in, mask_out, &
+    758                              missing_value )
+    759    case default
+    760       call mpp_error(FATAL,'interp_method should be conservative, bilinear, bicubic, spherical')
+    761    end select
+    762 
+    763    return
+    764 
+    765  end subroutine horiz_interp_base_2d
+
+Page 23          Source Listing                  HORIZ_INTERP_BASE_2D
+2021-06-01 08:55 Entry Points                    horiz_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ horiz_interp_mod_mp_horiz_interp_base_2d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DATA_IN                    Dummy  726      R(8)            8     2     1        ARG,IN           749,751,754,757                   
+ DATA_OUT                   Dummy  726      R(8)            8     2     1        ARG,OUT          749,751,754,757                   
+ ERR_MSG                    Dummy  728      CHAR                        scalar   ARG,OUT          742,744                           
+ FMS_ERROR_HANDLER          Func   744      L(4)            4           scalar   PRIV             52,744,791                        
+ HORIZ_INTERP_BASE_2D       Subr   726                                           PRIV             797,801,807,811,857,908,915,970,97
+                                                                                                  7,1028,1035                       
+ HORIZ_INTERP_BICUBIC       Subr   754                                           PRIV             63,754                            
+ HORIZ_INTERP_BILINEAR      Subr   751                                           PRIV             61,751                            
+ HORIZ_INTERP_CONSERVE      Subr   749                                           PRIV             59,749                            
+ HORIZ_INTERP_SPHERICAL     Subr   757                                           PRIV             65,757                            
+ INTERP                     Dummy  726      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar   ARG,IN           743,747,749,751,754,757           
+ MASK_IN                    Dummy  727      R(8)            8     2     1        ARG,IN           749,751,754,757                   
+ MASK_OUT                   Dummy  727      R(8)            8     2     1        ARG,OUT          749,751,754,757                   
+ MISSING_PERMIT             Dummy  727      I(4)            4           scalar   ARG,IN           752,755                           
+ MISSING_VALUE              Dummy  727      R(8)            8           scalar   ARG,IN           752,755,758                       
+ NEW_MISSING_HANDLE         Dummy  728      L(4)            4           scalar   ARG,IN           752                               
+ PRESENT                    Func   742                                  scalar                    742                               
+ VERBOSE                    Dummy  726      I(4)            4           scalar   ARG,IN           749,751,754,757                   
+
+Page 24          Source Listing                  HORIZ_INTERP_BASE_2D
+2021-06-01 08:55                                 horiz_interp.F90
+
+    766 ! </SUBROUTINE>
+    767 
+    768 !#######################################################################
+    769 
+    770  subroutine horiz_interp_base_3d ( Interp, data_in, data_out, verbose, mask_in, mask_out, &
+    771       missing_value, missing_permit, err_msg  )
+    772 !-----------------------------------------------------------------------
+    773 !   overload of interface horiz_interp_base_2d
+    774 !   uses 3d arrays for data and mask
+    775 !   this allows for multiple interpolations with one call
+    776 !-----------------------------------------------------------------------
+    777    type (horiz_interp_type), intent(in)           :: Interp
+    778    real, intent(in),  dimension(:,:,:)            :: data_in
+    779    real, intent(out), dimension(:,:,:)            :: data_out
+    780    integer, intent(in),                  optional :: verbose
+    781    real, intent(in),   dimension(:,:,:), optional :: mask_in
+    782    real, intent(out),  dimension(:,:,:), optional :: mask_out
+    783    real, intent(in),                     optional :: missing_value
+    784    integer, intent(in),                  optional :: missing_permit
+    785    character(len=*), intent(out),        optional :: err_msg
+    786 !-----------------------------------------------------------------------
+    787    integer :: n
+    788 
+    789    if(present(err_msg)) err_msg = ''
+    790    if(.not.Interp%I_am_initialized) then
+    791      if(fms_error_handler('horiz_interp','The horiz_interp_type variable is not initialized',err_msg)) return
+    792    endif
+    793 
+    794    do n = 1, size(data_in,3)
+    795       if (present(mask_in))then
+    796          if(present(mask_out)) then
+    797             call horiz_interp_base_2d ( Interp, data_in(:,:,n), data_out(:,:,n), &
+    798                  verbose, mask_in(:,:,n), mask_out(:,:,n), &
+    799                  missing_value, missing_permit )
+    800          else
+    801             call horiz_interp_base_2d ( Interp, data_in(:,:,n), data_out(:,:,n), &
+    802                  verbose, mask_in(:,:,n), missing_value = missing_value,  &
+    803                  missing_permit = missing_permit )
+    804          endif
+    805       else
+    806          if(present(mask_out)) then
+    807             call horiz_interp_base_2d ( Interp, data_in(:,:,n), data_out(:,:,n), &
+    808                  verbose, mask_out=mask_out(:,:,n), missing_value = missing_value,  &
+    809                  missing_permit = missing_permit )
+    810          else
+    811             call horiz_interp_base_2d ( Interp, data_in(:,:,n), data_out(:,:,n), &
+    812                  verbose, missing_value = missing_value,  &
+    813                  missing_permit = missing_permit )
+    814          endif
+    815      endif
+    816    enddo
+    817 
+    818    return
+    819 !-----------------------------------------------------------------------
+    820  end subroutine horiz_interp_base_3d
+
+Page 25          Source Listing                  HORIZ_INTERP_BASE_3D
+2021-06-01 08:55 Entry Points                    horiz_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ horiz_interp_mod_mp_horiz_interp_base_3d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DATA_IN                    Dummy  770      R(8)            8     3     1        ARG,IN           794,797,801,807,811               
+ DATA_OUT                   Dummy  770      R(8)            8     3     1        ARG,OUT          797,801,807,811                   
+ ERR_MSG                    Dummy  771      CHAR                        scalar   ARG,OUT          789,791                           
+ HORIZ_INTERP_BASE_3D       Subr   770                                           PRIV                                               
+ INTERP                     Dummy  770      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar   ARG,IN           790,797,801,807,811               
+ MASK_IN                    Dummy  770      R(8)            8     3     1        ARG,IN           795,798,802                       
+ MASK_OUT                   Dummy  770      R(8)            8     3     1        ARG,OUT          796,798,806,808                   
+ MISSING_PERMIT             Dummy  771      I(4)            4           scalar   ARG,IN           799,803,809,813                   
+ MISSING_VALUE              Dummy  771      R(8)            8           scalar   ARG,IN           799,802,808,812                   
+ N                          Local  787      I(4)            4           scalar                    794,797,798,801,802,807,808,811   
+ PRESENT                    Func   789                                  scalar                    789,795,796,806                   
+ SIZE                       Func   794                                  scalar                    794                               
+ VERBOSE                    Dummy  770      I(4)            4           scalar   ARG,IN           798,802,808,812                   
+
+Page 26          Source Listing                  HORIZ_INTERP_BASE_3D
+2021-06-01 08:55                                 horiz_interp.F90
+
+    821 
+    822 !#######################################################################
+    823 !<PUBLICROUTINE INTERFACE="horiz_interp">
+    824  subroutine horiz_interp_solo_1d ( data_in, lon_in, lat_in, lon_out, lat_out,    &
+    825                                    data_out, verbose, mask_in, mask_out,         &
+    826                                    interp_method, missing_value, missing_permit, &
+    827                                    num_nbrs, max_dist,src_modulo, grid_at_center  )
+    828 !</PUBLICROUTINE>
+    829 !-----------------------------------------------------------------------
+    830 !   interpolates from a rectangular grid to rectangular grid.
+    831 !   interp_method can be the value conservative, bilinear or spherical.
+    832 !   horiz_interp_new don't need to be called before calling this routine.
+    833 
+    834 !-----------------------------------------------------------------------
+    835       real, intent(in),  dimension(:,:) :: data_in
+    836       real, intent(in),  dimension(:)   :: lon_in , lat_in
+    837       real, intent(in),  dimension(:)   :: lon_out, lat_out
+    838       real, intent(out), dimension(:,:) :: data_out
+    839    integer, intent(in),                   optional :: verbose
+    840       real, intent(in),   dimension(:,:), optional :: mask_in
+    841       real, intent(out),  dimension(:,:), optional :: mask_out
+    842    character(len=*), intent(in),          optional :: interp_method
+    843       real, intent(in),                   optional :: missing_value
+    844    integer, intent(in),                   optional :: missing_permit
+    845    integer, intent(in),                   optional :: num_nbrs
+    846       real, intent(in),                   optional :: max_dist
+    847    logical, intent(in),                   optional :: src_modulo
+    848    logical, intent(in),                   optional :: grid_at_center
+    849 !-----------------------------------------------------------------------
+    850     type (horiz_interp_type) :: Interp
+    851 !-----------------------------------------------------------------------
+    852     call horiz_interp_init
+    853 
+    854     call horiz_interp_new ( Interp, lon_in, lat_in, lon_out, lat_out, verbose, &
+    855                              interp_method, num_nbrs, max_dist, src_modulo, grid_at_center )
+    856 
+    857     call horiz_interp ( Interp, data_in, data_out, verbose,   &
+    858                         mask_in, mask_out, missing_value, missing_permit )
+    859 
+    860     call horiz_interp_del ( Interp )
+    861 !-----------------------------------------------------------------------
+    862 
+    863  end subroutine horiz_interp_solo_1d
+
+Page 27          Source Listing                  HORIZ_INTERP_SOLO_1D
+2021-06-01 08:55 Entry Points                    horiz_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ horiz_interp_mod_mp_horiz_interp_solo_1d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DATA_IN                    Dummy  824      R(8)            8     2     1        ARG,IN           857                               
+ DATA_OUT                   Dummy  825      R(8)            8     2     1        ARG,OUT          857                               
+ GRID_AT_CENTER             Dummy  827      L(4)            4           scalar   ARG,IN           855                               
+ HORIZ_INTERP               Local  857                                  scalar                    73,857,908,915,970,977,1028,1035  
+ HORIZ_INTERP_DEL           Subr   860                                                            73,860,919,981,1039               
+ HORIZ_INTERP_NEW           Local  854                                  scalar                    73,854,905,911,967,973,1025,1031  
+ HORIZ_INTERP_SOLO_1D       Subr   824                                           PRIV             1118                              
+ INTERP                     Local  850      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar                    854,857,860                       
+ INTERP_METHOD              Dummy  826      CHAR                        scalar   ARG,IN           855                               
+ LAT_IN                     Dummy  824      R(8)            8     1     1        ARG,IN           854                               
+ LAT_OUT                    Dummy  824      R(8)            8     1     1        ARG,IN           854                               
+ LON_IN                     Dummy  824      R(8)            8     1     1        ARG,IN           854                               
+ LON_OUT                    Dummy  824      R(8)            8     1     1        ARG,IN           854                               
+ MASK_IN                    Dummy  825      R(8)            8     2     1        ARG,IN           858                               
+ MASK_OUT                   Dummy  825      R(8)            8     2     1        ARG,OUT          858                               
+ MAX_DIST                   Dummy  827      R(8)            8           scalar   ARG,IN           855                               
+ MISSING_PERMIT             Dummy  826      I(4)            4           scalar   ARG,IN           858                               
+ MISSING_VALUE              Dummy  826      R(8)            8           scalar   ARG,IN           858                               
+ NUM_NBRS                   Dummy  827      I(4)            4           scalar   ARG,IN           855                               
+ SRC_MODULO                 Dummy  827      L(4)            4           scalar   ARG,IN           855                               
+ VERBOSE                    Dummy  825      I(4)            4           scalar   ARG,IN           854,857                           
+
+Page 28          Source Listing                  HORIZ_INTERP_SOLO_1D
+2021-06-01 08:55                                 horiz_interp.F90
+
+    864 
+    865 !#######################################################################
+    866 
+    867  subroutine horiz_interp_solo_1d_src ( data_in, lon_in, lat_in, lon_out, lat_out,    &
+    868                                        data_out, verbose, mask_in, mask_out,         &
+    869                                        interp_method, missing_value, missing_permit, &
+    870                                        num_nbrs, max_dist, src_modulo, grid_at_center )
+    871 !-----------------------------------------------------------------------
+    872 !
+    873 !   interpolates from a uniformly spaced grid to any output grid.
+    874 !   interp_method can be the value "onservative","bilinear" or "spherical".
+    875 !   horiz_interp_new don't need to be called before calling this routine.
+    876 !
+    877 !-----------------------------------------------------------------------
+    878       real, intent(in),  dimension(:,:) :: data_in
+    879       real, intent(in),  dimension(:)   :: lon_in , lat_in
+    880       real, intent(in),  dimension(:,:) :: lon_out, lat_out
+    881       real, intent(out), dimension(:,:) :: data_out
+    882    integer, intent(in),                   optional :: verbose
+    883       real, intent(in),   dimension(:,:), optional :: mask_in
+    884       real, intent(out),  dimension(:,:), optional :: mask_out
+    885    character(len=*), intent(in),          optional :: interp_method
+    886       real, intent(in),                   optional :: missing_value
+    887    integer, intent(in),                   optional :: missing_permit
+    888    integer, intent(in),                   optional :: num_nbrs
+    889       real, intent(in),                   optional :: max_dist
+    890    logical, intent(in),                   optional :: src_modulo
+    891    logical, intent(in),                   optional :: grid_at_center
+    892 
+    893 !-----------------------------------------------------------------------
+    894    type (horiz_interp_type) :: Interp
+    895    logical                  :: dst_is_latlon
+    896    character(len=128)       :: method
+    897 !-----------------------------------------------------------------------
+    898     call horiz_interp_init
+    899     method = 'conservative'
+    900     if(present(interp_method)) method = interp_method
+    901     dst_is_latlon = .true.
+    902     if(trim(method) == 'conservative') dst_is_latlon = is_lat_lon(lon_out, lat_out)
+    903 
+    904     if(dst_is_latlon) then
+    905        call horiz_interp_new ( Interp, lon_in, lat_in, lon_out, lat_out, verbose, &
+    906                                interp_method, num_nbrs, max_dist, src_modulo,    &
+    907                                grid_at_center, is_latlon_out = dst_is_latlon )
+    908        call horiz_interp ( Interp, data_in, data_out, verbose,   &
+    909                            mask_in, mask_out, missing_value, missing_permit )
+    910     else
+    911        call horiz_interp_new ( Interp, lon_in, lat_in, lon_out, lat_out, verbose, &
+    912                                interp_method, num_nbrs, max_dist, src_modulo,    &
+    913                                grid_at_center, mask_in, mask_out, is_latlon_out = dst_is_latlon)
+    914 
+    915        call horiz_interp ( Interp, data_in, data_out, verbose,   &
+    916                            missing_value=missing_value, missing_permit=missing_permit )
+    917     end if
+    918 
+    919     call horiz_interp_del ( Interp )
+    920 
+
+Page 29          Source Listing                  HORIZ_INTERP_SOLO_1D_SRC
+2021-06-01 08:55                                 horiz_interp.F90
+
+    921 !-----------------------------------------------------------------------
+    922 
+    923  end subroutine horiz_interp_solo_1d_src
+
+
+ENTRY POINTS
+
+  Name                                                     
+                                                           
+ horiz_interp_mod_mp_horiz_interp_solo_1d_src_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DATA_IN                    Dummy  867      R(8)            8     2     1        ARG,IN           908,915                           
+ DATA_OUT                   Dummy  868      R(8)            8     2     1        ARG,OUT          908,915                           
+ DST_IS_LATLON              Local  895      L(4)            4           scalar                    901,902,904,907,913               
+ GRID_AT_CENTER             Dummy  870      L(4)            4           scalar   ARG,IN           907,913                           
+ HORIZ_INTERP_SOLO_1D_SRC   Subr   867                                           PRIV                                               
+ INTERP                     Local  894      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar                    905,908,911,915,919               
+ INTERP_METHOD              Dummy  869      CHAR                        scalar   ARG,IN           900,906,912                       
+ LAT_IN                     Dummy  867      R(8)            8     1     1        ARG,IN           905,911                           
+ LAT_OUT                    Dummy  867      R(8)            8     2     1        ARG,IN           902,905,911                       
+ LON_IN                     Dummy  867      R(8)            8     1     1        ARG,IN           905,911                           
+ LON_OUT                    Dummy  867      R(8)            8     2     1        ARG,IN           902,905,911                       
+ MASK_IN                    Dummy  868      R(8)            8     2     1        ARG,IN           909,913                           
+ MASK_OUT                   Dummy  868      R(8)            8     2     1        ARG,OUT          909,913                           
+ MAX_DIST                   Dummy  870      R(8)            8           scalar   ARG,IN           906,912                           
+ METHOD                     Local  896      CHAR            128         scalar                    899,900,902                       
+ MISSING_PERMIT             Dummy  869      I(4)            4           scalar   ARG,IN           909,916                           
+ MISSING_VALUE              Dummy  869      R(8)            8           scalar   ARG,IN           909,916                           
+ NUM_NBRS                   Dummy  870      I(4)            4           scalar   ARG,IN           906,912                           
+ PRESENT                    Func   900                                  scalar                    900                               
+ SRC_MODULO                 Dummy  870      L(4)            4           scalar   ARG,IN           906,912                           
+ TRIM                       Func   902                                  scalar                    902                               
+ VERBOSE                    Dummy  868      I(4)            4           scalar   ARG,IN           905,908,911,915                   
+
+Page 30          Source Listing                  HORIZ_INTERP_SOLO_1D_SRC
+2021-06-01 08:55                                 horiz_interp.F90
+
+    924 
+    925 
+    926 !#######################################################################
+    927 
+    928  subroutine horiz_interp_solo_2d ( data_in, lon_in, lat_in, lon_out, lat_out, data_out, &
+    929                                    verbose, mask_in, mask_out, interp_method, missing_value,&
+    930                                    missing_permit, num_nbrs, max_dist, src_modulo  )
+    931 !-----------------------------------------------------------------------
+    932 !
+    933 !   interpolates from any grid to any grid. interp_method should be "spherical"
+    934 !   horiz_interp_new don't need to be called before calling this routine.
+    935 !
+    936 !-----------------------------------------------------------------------
+    937       real, intent(in),  dimension(:,:) :: data_in
+    938       real, intent(in),  dimension(:,:) :: lon_in , lat_in
+    939       real, intent(in),  dimension(:,:) :: lon_out, lat_out
+    940       real, intent(out), dimension(:,:) :: data_out
+    941    integer, intent(in),                   optional :: verbose
+    942       real, intent(in),   dimension(:,:), optional :: mask_in
+    943       real, intent(out),  dimension(:,:), optional :: mask_out
+    944    character(len=*), intent(in),          optional :: interp_method
+    945       real, intent(in),                   optional :: missing_value
+    946    integer, intent(in),                   optional :: missing_permit
+    947    integer, intent(in),                   optional :: num_nbrs
+    948       real, intent(in),                   optional :: max_dist
+    949    logical, intent(in),                   optional :: src_modulo
+    950 !-----------------------------------------------------------------------
+    951    type (horiz_interp_type) :: Interp
+    952    logical                  :: dst_is_latlon, src_is_latlon
+    953    character(len=128)       :: method
+    954 !-----------------------------------------------------------------------
+    955     call horiz_interp_init
+    956 
+    957     method = 'conservative'
+    958     if(present(interp_method)) method = interp_method
+    959     dst_is_latlon = .true.
+    960     src_is_latlon = .true.
+    961     if(trim(method) == 'conservative') then
+    962        dst_is_latlon = is_lat_lon(lon_out, lat_out)
+    963        src_is_latlon = is_lat_lon(lon_in, lat_in)
+    964     end if
+    965 
+    966     if(dst_is_latlon .and. src_is_latlon) then
+    967        call horiz_interp_new ( Interp, lon_in, lat_in, lon_out, lat_out, verbose, &
+    968                                interp_method, num_nbrs, max_dist, src_modulo,    &
+    969                                is_latlon_in=dst_is_latlon, is_latlon_out = dst_is_latlon )
+    970        call horiz_interp ( Interp, data_in, data_out, verbose,   &
+    971                            mask_in, mask_out, missing_value, missing_permit )
+    972     else
+    973        call horiz_interp_new ( Interp, lon_in, lat_in, lon_out, lat_out, verbose, &
+    974                                interp_method, num_nbrs, max_dist, src_modulo,    &
+    975                                mask_in, mask_out, &
+    976                                is_latlon_in=dst_is_latlon, is_latlon_out = dst_is_latlon)
+    977        call horiz_interp ( Interp, data_in, data_out, verbose,   &
+    978                            missing_value=missing_value, missing_permit=missing_permit )
+    979     end if
+    980 
+
+Page 31          Source Listing                  HORIZ_INTERP_SOLO_2D
+2021-06-01 08:55                                 horiz_interp.F90
+
+    981     call horiz_interp_del ( Interp )
+    982 
+    983 !-----------------------------------------------------------------------
+    984 
+    985  end subroutine horiz_interp_solo_2d
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ horiz_interp_mod_mp_horiz_interp_solo_2d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DATA_IN                    Dummy  928      R(8)            8     2     1        ARG,IN           970,977                           
+ DATA_OUT                   Dummy  928      R(8)            8     2     1        ARG,OUT          970,977                           
+ DST_IS_LATLON              Local  952      L(4)            4           scalar                    959,962,966,969,976               
+ HORIZ_INTERP_SOLO_2D       Subr   928                                           PRIV                                               
+ INTERP                     Local  951      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar                    967,970,973,977,981               
+ INTERP_METHOD              Dummy  929      CHAR                        scalar   ARG,IN           958,968,974                       
+ LAT_IN                     Dummy  928      R(8)            8     2     1        ARG,IN           963,967,973                       
+ LAT_OUT                    Dummy  928      R(8)            8     2     1        ARG,IN           962,967,973                       
+ LON_IN                     Dummy  928      R(8)            8     2     1        ARG,IN           963,967,973                       
+ LON_OUT                    Dummy  928      R(8)            8     2     1        ARG,IN           962,967,973                       
+ MASK_IN                    Dummy  929      R(8)            8     2     1        ARG,IN           971,975                           
+ MASK_OUT                   Dummy  929      R(8)            8     2     1        ARG,OUT          971,975                           
+ MAX_DIST                   Dummy  930      R(8)            8           scalar   ARG,IN           968,974                           
+ METHOD                     Local  953      CHAR            128         scalar                    957,958,961                       
+ MISSING_PERMIT             Dummy  930      I(4)            4           scalar   ARG,IN           971,978                           
+ MISSING_VALUE              Dummy  929      R(8)            8           scalar   ARG,IN           971,978                           
+ NUM_NBRS                   Dummy  930      I(4)            4           scalar   ARG,IN           968,974                           
+ PRESENT                    Func   958                                  scalar                    958                               
+ SRC_IS_LATLON              Local  952      L(4)            4           scalar                    960,963,966                       
+ SRC_MODULO                 Dummy  930      L(4)            4           scalar   ARG,IN           968,974                           
+ TRIM                       Func   961                                  scalar                    961                               
+ VERBOSE                    Dummy  929      I(4)            4           scalar   ARG,IN           967,970,973,977                   
+
+Page 32          Source Listing                  HORIZ_INTERP_SOLO_2D
+2021-06-01 08:55                                 horiz_interp.F90
+
+    986 
+    987 !#######################################################################
+    988 
+    989  subroutine horiz_interp_solo_1d_dst ( data_in, lon_in, lat_in, lon_out, lat_out, data_out,    &
+    990                                        verbose, mask_in, mask_out,interp_method,missing_value, &
+    991                                        missing_permit,  num_nbrs, max_dist, src_modulo)
+    992 !-----------------------------------------------------------------------
+    993 !
+    994 !   interpolates from any grid to rectangular longitude/latitude grid.
+    995 !   interp_method should be "spherical".
+    996 !   horiz_interp_new don't need to be called before calling this routine.
+    997 !
+    998 !-----------------------------------------------------------------------
+    999       real, intent(in),  dimension(:,:) :: data_in
+   1000       real, intent(in),  dimension(:,:) :: lon_in , lat_in
+   1001       real, intent(in),  dimension(:)   :: lon_out, lat_out
+   1002       real, intent(out), dimension(:,:) :: data_out
+   1003    integer, intent(in),                   optional :: verbose
+   1004       real, intent(in),   dimension(:,:), optional :: mask_in
+   1005       real, intent(out),  dimension(:,:), optional :: mask_out
+   1006    character(len=*), intent(in),          optional :: interp_method
+   1007       real, intent(in),                   optional :: missing_value
+   1008    integer, intent(in),                   optional :: missing_permit
+   1009    integer, intent(in),                   optional :: num_nbrs
+   1010       real, intent(in),                   optional :: max_dist
+   1011    logical, intent(in),                   optional :: src_modulo
+   1012 !-----------------------------------------------------------------------
+   1013    type (horiz_interp_type) :: Interp
+   1014    logical                  :: src_is_latlon
+   1015    character(len=128)       :: method
+   1016 !-----------------------------------------------------------------------
+   1017     call horiz_interp_init
+   1018 
+   1019     method = 'conservative'
+   1020     if(present(interp_method)) method = interp_method
+   1021     src_is_latlon = .true.
+   1022     if(trim(method) == 'conservative') src_is_latlon = is_lat_lon(lon_in, lat_in)
+   1023 
+   1024     if(src_is_latlon) then
+   1025        call horiz_interp_new ( Interp, lon_in, lat_in, lon_out, lat_out, verbose, &
+   1026                                interp_method, num_nbrs, max_dist, src_modulo,    &
+   1027                                is_latlon_in = src_is_latlon )
+   1028        call horiz_interp ( Interp, data_in, data_out, verbose,   &
+   1029                            mask_in, mask_out, missing_value, missing_permit )
+   1030     else
+   1031        call horiz_interp_new ( Interp, lon_in, lat_in, lon_out, lat_out, verbose, &
+   1032                                interp_method, num_nbrs, max_dist, src_modulo,    &
+   1033                                mask_in, mask_out, is_latlon_in = src_is_latlon)
+   1034 
+   1035        call horiz_interp ( Interp, data_in, data_out, verbose,   &
+   1036                            missing_value=missing_value, missing_permit=missing_permit )
+   1037     end if
+   1038 
+   1039     call horiz_interp_del ( Interp )
+   1040 
+   1041 !-----------------------------------------------------------------------
+   1042 
+
+Page 33          Source Listing                  HORIZ_INTERP_SOLO_1D_DST
+2021-06-01 08:55                                 horiz_interp.F90
+
+   1043  end subroutine horiz_interp_solo_1d_dst
+
+
+ENTRY POINTS
+
+  Name                                                     
+                                                           
+ horiz_interp_mod_mp_horiz_interp_solo_1d_dst_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DATA_IN                    Dummy  989      R(8)            8     2     1        ARG,IN           1028,1035                         
+ DATA_OUT                   Dummy  989      R(8)            8     2     1        ARG,OUT          1028,1035                         
+ HORIZ_INTERP_SOLO_1D_DST   Subr   989                                           PRIV                                               
+ INTERP                     Local  1013     HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar                    1025,1028,1031,1035,1039          
+ INTERP_METHOD              Dummy  990      CHAR                        scalar   ARG,IN           1020,1026,1032                    
+ LAT_IN                     Dummy  989      R(8)            8     2     1        ARG,IN           1022,1025,1031                    
+ LAT_OUT                    Dummy  989      R(8)            8     1     1        ARG,IN           1025,1031                         
+ LON_IN                     Dummy  989      R(8)            8     2     1        ARG,IN           1022,1025,1031                    
+ LON_OUT                    Dummy  989      R(8)            8     1     1        ARG,IN           1025,1031                         
+ MASK_IN                    Dummy  990      R(8)            8     2     1        ARG,IN           1029,1033                         
+ MASK_OUT                   Dummy  990      R(8)            8     2     1        ARG,OUT          1029,1033                         
+ MAX_DIST                   Dummy  991      R(8)            8           scalar   ARG,IN           1026,1032                         
+ METHOD                     Local  1015     CHAR            128         scalar                    1019,1020,1022                    
+ MISSING_PERMIT             Dummy  991      I(4)            4           scalar   ARG,IN           1029,1036                         
+ MISSING_VALUE              Dummy  990      R(8)            8           scalar   ARG,IN           1029,1036                         
+ NUM_NBRS                   Dummy  991      I(4)            4           scalar   ARG,IN           1026,1032                         
+ PRESENT                    Func   1020                                 scalar                    1020                              
+ SRC_IS_LATLON              Local  1014     L(4)            4           scalar                    1021,1022,1024,1027,1033          
+ SRC_MODULO                 Dummy  991      L(4)            4           scalar   ARG,IN           1026,1032                         
+ TRIM                       Func   1022                                 scalar                    1022                              
+ VERBOSE                    Dummy  990      I(4)            4           scalar   ARG,IN           1025,1028,1031,1035               
+
+Page 34          Source Listing                  HORIZ_INTERP_SOLO_1D_DST
+2021-06-01 08:55                                 horiz_interp.F90
+
+   1044 
+   1045 !#######################################################################
+   1046 
+   1047  subroutine horiz_interp_solo_old (data_in, wb, sb, dx, dy,  &
+   1048                                    lon_out, lat_out, data_out,  &
+   1049                                    verbose, mask_in, mask_out)
+   1050 
+   1051 !-----------------------------------------------------------------------
+   1052 !       Overloaded version of interface horiz_interp_solo_2
+   1053 !
+   1054 ! input
+   1055 !
+   1056 !   data_in     Global input data stored from west to east (first dimension),
+   1057 !               south to north (second dimension).  [real, dimension(:,:)]
+   1058 !
+   1059 !   wb          Longitude (in radians) that corresponds to western-most
+   1060 !               boundary of grid box i=1 in array data_in.  [real]
+   1061 !
+   1062 !   sb          Latitude (in radians) that corresponds to southern-most
+   1063 !               boundary of grid box j=1 in array data_in.  [real]
+   1064 !
+   1065 !   dx          Grid spacing (in radians) for the longitude axis (first
+   1066 !               dimension) for the input data.  [real]
+   1067 !
+   1068 !   dy          Grid spacing (in radians) for the latitude axis (second
+   1069 !               dimension) for the input data.  [real]
+   1070 !
+   1071 !   lon_out    The longitude edges (in radians) for output data grid boxes.
+   1072 !               The values are for adjacent grid boxes and must increase in
+   1073 !               value. If there are MLON grid boxes there must be MLON+1
+   1074 !               edge values.  [real, dimension(:)]
+   1075 !
+   1076 !   lat_out    The latitude edges (in radians) for output data grid boxes.
+   1077 !               The values are for adjacent grid boxes and may increase or
+   1078 !               decrease in value. If there are NLAT grid boxes there must
+   1079 !               be NLAT+1 edge values.  [real, dimension(:)]
+   1080 !
+   1081 ! OUTPUT
+   1082 !   data_out    Output data on the output grid defined by grid box
+   1083 !               edges: blon_out and blat_out.  [real, dimension(:,:)]
+   1084 !
+   1085 !-----------------------------------------------------------------------
+   1086       real, intent(in),  dimension(:,:) :: data_in
+   1087       real, intent(in)                  :: wb, sb, dx, dy
+   1088       real, intent(in),  dimension(:)   :: lon_out, lat_out
+   1089       real, intent(out), dimension(:,:) :: data_out
+   1090    integer, intent(in),                   optional :: verbose
+   1091       real, intent(in),   dimension(:,:), optional :: mask_in
+   1092       real, intent(out),  dimension(:,:), optional :: mask_out
+   1093 !-----------------------------------------------------------------------
+   1094      real, dimension(size(data_in,1)+1)  :: blon_in
+   1095      real, dimension(size(data_in,2)+1)  :: blat_in
+   1096      integer :: i, j, nlon_in, nlat_in
+   1097      real    :: tpi
+   1098 !-----------------------------------------------------------------------
+   1099    call horiz_interp_init
+   1100 
+
+Page 35          Source Listing                  HORIZ_INTERP_SOLO_OLD
+2021-06-01 08:55                                 horiz_interp.F90
+
+   1101    tpi = 2.*pi
+   1102    nlon_in = size(data_in,1)
+   1103    nlat_in = size(data_in,2)
+   1104 
+   1105    do i = 1, nlon_in+1
+   1106       blon_in(i) = wb + float(i-1)*dx
+   1107    enddo
+   1108       if (abs(blon_in(nlon_in+1)-blon_in(1)-tpi) < epsilon(blon_in)) &
+   1109               blon_in(nlon_in+1)=blon_in(1)+tpi
+   1110 
+   1111    do j = 2, nlat_in
+   1112       blat_in(j) = sb + float(j-1)*dy
+   1113    enddo
+   1114       blat_in(1)         = -0.5*pi
+   1115       blat_in(nlat_in+1) =  0.5*pi
+   1116 
+   1117 
+   1118    call horiz_interp_solo_1d (data_in, blon_in, blat_in,    &
+   1119                               lon_out, lat_out, data_out,   &
+   1120                               verbose, mask_in, mask_out    )
+   1121 
+   1122 !-----------------------------------------------------------------------
+   1123 
+   1124  end subroutine horiz_interp_solo_old
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ horiz_interp_mod_mp_horiz_interp_solo_old_             
+
+Page 36          Source Listing                  HORIZ_INTERP_SOLO_OLD
+2021-06-01 08:55 Symbol Table                    horiz_interp.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ABS                        Func   1108                                 scalar                    1108                              
+ BLAT_IN                    Local  1095     R(8)            8     1     0        TGT              1112,1114,1115,1118               
+ BLON_IN                    Local  1094     R(8)            8     1     0        TGT              1106,1108,1109,1118               
+ DATA_IN                    Dummy  1047     R(8)            8     2     1        ARG,IN           1094,1095,1102,1103,1118          
+ DATA_OUT                   Dummy  1048     R(8)            8     2     1        ARG,OUT          1119                              
+ DX                         Dummy  1047     R(8)            8           scalar   ARG,IN           1106                              
+ DY                         Dummy  1047     R(8)            8           scalar   ARG,IN           1112                              
+ EPSILON                    Func   1108                                 scalar                    1108                              
+ FLOAT                      Func   1106                                 scalar                    1106,1112                         
+ HORIZ_INTERP_SOLO_OLD      Subr   1047                                          PRIV                                               
+ I                          Local  1096     I(4)            4           scalar                    1105,1106                         
+ J                          Local  1096     I(4)            4           scalar                    1111,1112                         
+ LAT_OUT                    Dummy  1048     R(8)            8     1     1        ARG,IN           1119                              
+ LON_OUT                    Dummy  1048     R(8)            8     1     1        ARG,IN           1119                              
+ MASK_IN                    Dummy  1049     R(8)            8     2     1        ARG,IN           1120                              
+ MASK_OUT                   Dummy  1049     R(8)            8     2     1        ARG,OUT          1120                              
+ NLAT_IN                    Local  1096     I(4)            4           scalar                    1103,1111,1115                    
+ NLON_IN                    Local  1096     I(4)            4           scalar                    1102,1105,1108,1109               
+ PI                         Param  1101     R(8)            8           scalar   PRIV             56,1101,1114,1115                 
+ SB                         Dummy  1047     R(8)            8           scalar   ARG,IN           1112                              
+ SIZE                       Func   1094                                 scalar                    1094,1095,1102,1103               
+ TPI                        Local  1097     R(8)            8           scalar                    1101,1108,1109                    
+ VERBOSE                    Dummy  1049     I(4)            4           scalar   ARG,IN           1120                              
+ WB                         Dummy  1047     R(8)            8           scalar   ARG,IN           1106                              
+
+Page 37          Source Listing                  HORIZ_INTERP_SOLO_OLD
+2021-06-01 08:55                                 horiz_interp.F90
+
+   1125 
+   1126 !#######################################################################
+   1127 ! <SUBROUTINE NAME="horiz_interp_del">
+   1128 
+   1129 !   <OVERVIEW>
+   1130 !     Deallocates memory used by "horiz_interp_type" variables.
+   1131 !       Must be called before reinitializing with horiz_interp_new.
+   1132 !   </OVERVIEW>
+   1133 !   <DESCRIPTION>
+   1134 !     Deallocates memory used by "horiz_interp_type" variables.
+   1135 !     Must be called before reinitializing with horiz_interp_new.
+   1136 !   </DESCRIPTION>
+   1137 !   <TEMPLATE>
+   1138 !     call horiz_interp_del ( Interp )
+   1139 !   </TEMPLATE>
+   1140 
+   1141 !   <INOUT NAME="Interp" TYPE="horiz_interp_type">
+   1142 !     A derived-type variable returned by previous call
+   1143 !              to horiz_interp_new. The input variable must have
+   1144 !              allocated arrays. The returned variable will contain
+   1145 !              deallocated arrays.
+   1146 !   </INOUT>
+   1147 
+   1148 ! </SUBROUTINE>
+   1149 
+   1150  subroutine horiz_interp_del ( Interp )
+   1151 
+   1152    type (horiz_interp_type), intent(inout) :: Interp
+   1153 
+   1154 !-----------------------------------------------------------------------
+   1155 !  releases space used by horiz_interp_type variables
+   1156 !  must be called before re-initializing the same variable
+   1157 !-----------------------------------------------------------------------
+   1158    select case(Interp % interp_method)
+   1159    case (CONSERVE)
+   1160       call horiz_interp_conserve_del(Interp )
+   1161    case (BILINEAR)
+   1162       call horiz_interp_bilinear_del(Interp )
+   1163    case (BICUBIC)
+   1164       call horiz_interp_bicubic_del(Interp )
+   1165    case (SPHERICA)
+   1166       call horiz_interp_spherical_del(Interp )
+   1167    end select
+   1168 
+   1169    Interp%I_am_initialized = .false.
+   1170 !-----------------------------------------------------------------------
+   1171 
+   1172  end subroutine horiz_interp_del
+
+Page 38          Source Listing                  HORIZ_INTERP_DEL
+2021-06-01 08:55 Entry Points                    horiz_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                             
+                                                   
+ horiz_interp_mod_mp_horiz_interp_del_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ HORIZ_INTERP_BICUBIC_DEL   Subr   1164                                          PRIV             64,1164                           
+ HORIZ_INTERP_BILINEAR_DEL  Subr   1162                                          PRIV             62,1162                           
+ HORIZ_INTERP_CONSERVE_DEL  Subr   1160                                          PRIV             60,1160                           
+ HORIZ_INTERP_DEL           Subr   1150                                                                                             
+ HORIZ_INTERP_SPHERICAL_DEL Subr   1166                                          PRIV             66,1166                           
+ INTERP                     Dummy  1150     HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar   ARG,INOUT        1158,1160,1162,1164,1166,1169     
+
+Page 39          Source Listing                  HORIZ_INTERP_DEL
+2021-06-01 08:55                                 horiz_interp.F90
+
+   1173 
+   1174 !#####################################################################
+   1175 
+   1176 ! <SUBROUTINE NAME="horiz_interp_end">
+   1177 
+   1178 !   <OVERVIEW>
+   1179 !     Dummy routine.
+   1180 !   </OVERVIEW>
+   1181 !   <DESCRIPTION>
+   1182 !     Dummy routine.
+   1183 !   </DESCRIPTION>
+   1184 !   <TEMPLATE>
+   1185 !     call horiz_interp_end
+   1186 !   </TEMPLATE>
+   1187 
+   1188 ! </SUBROUTINE>
+   1189 
+   1190  subroutine horiz_interp_end
+   1191  return
+   1192  end subroutine horiz_interp_end
+
+
+ENTRY POINTS
+
+  Name                                             
+                                                   
+ horiz_interp_mod_mp_horiz_interp_end_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ HORIZ_INTERP_END           Subr   1190                                                                                             
+
+Page 40          Source Listing                  HORIZ_INTERP_END
+2021-06-01 08:55                                 horiz_interp.F90
+
+   1193 
+   1194 !####################################################################
+   1195  function is_lat_lon(lon, lat)
+   1196     real, dimension(:,:), intent(in) :: lon, lat
+   1197     logical                          :: is_lat_lon
+   1198     integer                          :: i, j, nlon, nlat, num
+   1199 
+   1200     is_lat_lon = .true.
+   1201     nlon = size(lon,1)
+   1202     nlat = size(lon,2)
+   1203     LOOP_LAT: do j = 1, nlat
+   1204        do i = 2, nlon
+   1205           if(lat(i,j) .NE. lat(1,j)) then
+   1206              is_lat_lon = .false.
+   1207              exit LOOP_LAT
+   1208           end if
+   1209        end do
+   1210     end do LOOP_LAT
+   1211 
+   1212     if(is_lat_lon) then
+   1213        LOOP_LON: do i = 1, nlon
+   1214           do j = 2, nlat
+   1215              if(lon(i,j) .NE. lon(i,1)) then
+   1216                 is_lat_lon = .false.
+   1217                 exit LOOP_LON
+   1218              end if
+   1219           end do
+   1220        end do LOOP_LON
+   1221     end if
+   1222 
+   1223     num = 0
+   1224     if(is_lat_lon) num = 1
+   1225     call mpp_min(num)
+   1226     if(num == 1) then
+   1227        is_lat_lon = .true.
+   1228     else
+   1229        is_lat_lon = .false.
+   1230     end if
+   1231 
+   1232     return
+   1233  end function is_lat_lon
+
+Page 41          Source Listing                  IS_LAT_LON
+2021-06-01 08:55 Entry Points                    horiz_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                       
+                                             
+ horiz_interp_mod_mp_is_lat_lon_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ I                          Local  1198     I(4)            4           scalar                    1204,1205,1213,1215               
+ IS_LAT_LON                 Func   1195     L(4)            4           scalar                    485,592,597,677,902,962,963,1022,1
+                                                                                                  200,1206,1212,1216,1224,1227,1229 
+ J                          Local  1198     I(4)            4           scalar                    1203,1205,1214,1215               
+ LAT                        Dummy  1195     R(8)            8     2     1        ARG,IN           1205                              
+ LON                        Dummy  1195     R(8)            8     2     1        ARG,IN           1201,1202,1215                    
+ LOOP_LAT                   Label  1203                                 scalar                    1207,1210                         
+ LOOP_LON                   Label  1213                                 scalar                    1217,1220                         
+ MPP_MIN                    Local  1225                                 scalar   PRIV             54,1225                           
+ MPP_MIN_INT4_0D            Subr   1225                                          PRIV             1225                              
+ NLAT                       Local  1198     I(4)            4           scalar                    1202,1203,1214                    
+ NLON                       Local  1198     I(4)            4           scalar                    1201,1204,1213                    
+ NUM                        Local  1198     I(4)            4           scalar                    1223,1224,1225,1226               
+ SIZE                       Func   1201                                 scalar                    1201,1202                         
+
+Page 42          Source Listing                  IS_LAT_LON
+2021-06-01 08:55                                 horiz_interp.F90
+
+   1234 
+   1235 !#####################################################################
+   1236 
+   1237 end module horiz_interp_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ Assignment (=)                    57                                                                                               
+ CONSTANTS_MOD              Module 56                                                             56                                
+ FMS_MOD                    Module 52                                                             52,53                             
+ HORIZ_INTERP_BICUBIC_MOD   Module 63                                                             63,64                             
+ HORIZ_INTERP_BILINEAR_MOD  Module 61                                                             61,62                             
+ HORIZ_INTERP_CONSERVE_MOD  Module 59                                                             59,60                             
+ HORIZ_INTERP_END           Subr   74                                                             74                                
+ HORIZ_INTERP_MOD           Module 20                                                                                               
+ HORIZ_INTERP_SPHERICAL_MOD Module 65                                                             65,66                             
+ HORIZ_INTERP_TYPE_MOD      Module 57                                                             57,58                             
+ MPP_MOD                    Module 54                                                             54,55                             
+ STDOUT                     Func   54       I(4)            4           scalar   PRIV             54                                
+ WARNING                    Param  55       I(4)            4           scalar   PRIV             55                                
+
+Page 43          Source Listing                  IS_LAT_LON
+2021-06-01 08:55 Subprograms/Common Blocks       horiz_interp.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ HORIZ_INTERP_BASE_2D       Subr   726                                           PRIV             797,801,807,811,857,908,915,970,97
+                                                                                                  7,1028,1035                       
+ HORIZ_INTERP_BASE_3D       Subr   770                                           PRIV                                               
+ HORIZ_INTERP_DEL           Subr   1150                                                                                             
+ HORIZ_INTERP_END           Subr   1190                                                                                             
+ HORIZ_INTERP_INIT          Subr   274                                                                                              
+ HORIZ_INTERP_MOD           Module 20                                                                                               
+ HORIZ_INTERP_NEW_1D        Subr   316                                           PRIV             854                               
+ HORIZ_INTERP_NEW_1D_DST    Subr   637                                           PRIV             1025,1031                         
+ HORIZ_INTERP_NEW_1D_SRC    Subr   449                                           PRIV             905,911                           
+ HORIZ_INTERP_NEW_2D        Subr   564                                           PRIV             967,973                           
+ HORIZ_INTERP_SOLO_1D       Subr   824                                           PRIV             1118                              
+ HORIZ_INTERP_SOLO_1D_DST   Subr   989                                           PRIV                                               
+ HORIZ_INTERP_SOLO_1D_SRC   Subr   867                                           PRIV                                               
+ HORIZ_INTERP_SOLO_2D       Subr   928                                           PRIV                                               
+ HORIZ_INTERP_SOLO_OLD      Subr   1047                                          PRIV                                               
+ IS_LAT_LON                 Func   1195     L(4)            4           scalar                    485,592,597,677,902,962,963,1022,1
+                                                                                                  200,1206,1212,1216,1224,1227,1229 
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+
+Page 44          Source Listing                  IS_LAT_LON
+2021-06-01 08:55                                 horiz_interp.F90
+
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+
+Page 45          Source Listing                  IS_LAT_LON
+2021-06-01 08:55                                 horiz_interp.F90
+
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : horiz_interp.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

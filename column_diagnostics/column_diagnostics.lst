@@ -1,0 +1,1049 @@
+Page 1           Source Listing                  COLUMN_DIAGNOSTICS_INIT
+2021-06-01 08:55                                 /tmp/ifortp08CRD.i90
+
+      1 # 1 "column_diagnostics.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 !> @file
+     22 !! @brief Module to locate and mark desired diagnostic columns
+     23 !! @email gfdl.climate.model.info@noaa.gov
+     24 
+     25                module column_diagnostics_mod
+     26 
+     27 
+     28 
+     29 use mpp_io_mod,             only:  mpp_io_init
+     30 use fms_mod,                only:  fms_init, mpp_pe, mpp_root_pe, &
+     31                                    mpp_npes, check_nml_error, &
+     32                                    error_mesg, FATAL, NOTE, WARNING, &
+     33                                    stdlog, write_version_number
+     34 use time_manager_mod,       only:  time_manager_init, month_name, &
+     35                                    get_date, time_type
+     36 use constants_mod,          only:  constants_init, PI, RADIAN
+     37 use mpp_mod,                only:  input_nml_file, get_unit
+     38 
+     39 !-------------------------------------------------------------------
+     40 
+     41 implicit none
+     42 private
+     43 
+     44 !---------------------------------------------------------------------
+     45 !      module to locate and mark desired diagnostic columns
+     46 !
+     47 !
+     48 !--------------------------------------------------------------------
+     49 
+     50 
+     51 
+     52 
+     53 !---------------------------------------------------------------------
+     54 !----------- ****** "2021.02.0" NUMBER ******* ---------------------------
+     55 
+     56 
+     57 ! Include variable "version" to be written to log file.
+
+Page 2           Source Listing                  COLUMN_DIAGNOSTICS_INIT
+2021-06-01 08:55                                 column_diagnostics.F90
+
+     58 # 1 "../include/file_version.h" 1 
+     59 ! -*-f90-*-
+     60 !***********************************************************************
+     61 !*                   GNU Lesser General Public License
+     62 !*
+     63 !* This file is part of the GFDL Flexible Modeling System (FMS).
+     64 !*
+     65 !* FMS is free software: you can redistribute it and/or modify it under
+     66 !* the terms of the GNU Lesser General Public License as published by
+     67 !* the Free Software Foundation, either version 3 of the License, or (at
+     68 !* your option) any later version.
+     69 !*
+     70 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     71 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     72 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     73 !* for more details.
+     74 !*
+     75 !* You should have received a copy of the GNU Lesser General Public
+     76 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     77 !***********************************************************************
+     78 
+     79 # 23
+     80 
+     81   character(len=*), parameter :: version = 'unknown'
+     82 
+     83 # 58 "column_diagnostics.F90" 2 
+     84 
+     85 
+     86 
+     87 !---------------------------------------------------------------------
+     88 !-------  interfaces --------
+     89 
+     90 public    column_diagnostics_init,  &
+     91           initialize_diagnostic_columns,  &
+     92           column_diagnostics_header,   &
+     93           close_column_diagnostics_units
+     94 
+     95 
+     96 !private
+     97 
+     98 
+     99 !--------------------------------------------------------------------
+    100 !----    namelist -----
+    101 
+    102 real          :: crit_xdistance = 4.0 !< model grid points must be within crit_xdistance in
+    103 !! longitude of the requested diagnostics point
+    104 !! coordinates in order to be flagged as the desired
+    105 !! point
+    106 !! [ degrees ]
+    107 real          :: crit_ydistance = 4.0 !< model grid points must be within crit_ydistance in
+    108 !! latitude of the requested diagnostics point
+    109 !! coordinates in order to be flagged as the desired
+    110 !! point
+    111 !! [ degrees ]
+    112 
+    113 namelist / column_diagnostics_nml /              &
+    114                                       crit_xdistance, &
+
+Page 3           Source Listing                  COLUMN_DIAGNOSTICS_INIT
+2021-06-01 08:55                                 column_diagnostics.F90
+
+    115                                       crit_ydistance
+    116 
+    117 !--------------------------------------------------------------------
+    118 !-------- public data  -----
+    119 
+    120 
+    121 !--------------------------------------------------------------------
+    122 !------ private data ------
+    123 
+    124 
+    125 logical    :: module_is_initialized = .false.
+    126 
+    127 !-------------------------------------------------------------------
+    128 !-------------------------------------------------------------------
+    129 
+    130 
+    131 
+    132                         contains
+    133 
+    134 
+    135 
+    136 !####################################################################
+    137 
+    138 !> @brief column_diagnostics_init is the constructor for column_diagnostics_mod.
+    139 subroutine column_diagnostics_init
+    140 
+    141 !--------------------------------------------------------------------
+    142 !    column_diagnostics_init is the constructor for
+    143 !    column_diagnostics_mod.
+    144 !--------------------------------------------------------------------
+    145 
+    146 !--------------------------------------------------------------------
+    147 !    local variables:
+    148 !
+    149       integer    :: unit !< unit number for nml file
+    150       integer    :: ierr !< error return flag
+    151       integer    :: io   !< error return code
+    152 
+    153 !--------------------------------------------------------------------
+    154 !   local variables:
+    155 !
+    156 !       unit       unit number for nml file
+    157 !       ierr       error return flag
+    158 !       io         error return code
+    159 !
+    160 !---------------------------------------------------------------------
+    161 
+    162 !--------------------------------------------------------------------
+    163 !    if routine has already been executed, return.
+    164 !--------------------------------------------------------------------
+    165       if (module_is_initialized) return
+    166 
+    167 !---------------------------------------------------------------------
+    168 !    verify that all modules used by this module have been initialized.
+    169 !----------------------------------------------------------------------
+    170       call mpp_io_init
+    171       call fms_init
+
+Page 4           Source Listing                  COLUMN_DIAGNOSTICS_INIT
+2021-06-01 08:55                                 column_diagnostics.F90
+
+    172       call time_manager_init
+    173       call constants_init
+    174 
+    175 !---------------------------------------------------------------------
+    176 !    read namelist.
+    177 !---------------------------------------------------------------------
+    178       read (input_nml_file, column_diagnostics_nml, iostat=io)
+    179       ierr = check_nml_error (io, 'column_diagnostics_nml')
+    180 !---------------------------------------------------------------------
+    181 !    write version number and namelist to logfile.
+    182 !---------------------------------------------------------------------
+    183       call write_version_number("COLUMN_DIAGNOSTICS_MOD", version)
+    184       if (mpp_pe() == mpp_root_pe())    then
+    185                     unit = stdlog()
+    186                     write (unit, nml=column_diagnostics_nml)
+    187       endif
+    188 !--------------------------------------------------------------------
+    189       module_is_initialized = .true.
+    190 
+    191 
+    192 end subroutine column_diagnostics_init
+
+
+ENTRY POINTS
+
+  Name                                                          
+                                                                
+ column_diagnostics_mod_mp_column_diagnostics_init_             
+
+Page 5           Source Listing                  COLUMN_DIAGNOSTICS_INIT
+2021-06-01 08:55 Symbol Table                    column_diagnostics.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CHECK_NML_ERROR            Func   179      I(4)            4           scalar   PRIV             31,179                            
+ COLUMN_DIAGNOSTICS_INIT    Subr   139                                                                                              
+ COLUMN_DIAGNOSTICS_NML     Local  178                                  scalar                    178,186                           
+ CONSTANTS_INIT             Subr   173                                           PRIV             36,173                            
+ FMS_INIT                   Subr   171                                           PRIV             30,171                            
+ IERR                       Local  150      I(4)            4           scalar                    179                               
+ INPUT_NML_FILE             Local  178      CHAR                  1     1        ALC,TGT,PRIV     37,178                            
+ IO                         Local  151      I(4)            4           scalar                    178,179                           
+ MODULE_IS_INITIALIZED      Local  165      L(4)            4           scalar                    125,165,189,296,534               
+ MPP_IO_INIT                Subr   170                                           PRIV             29,170                            
+ MPP_PE                     Func   184      I(4)            4           scalar   PRIV             30,184,454,456,564                
+ MPP_ROOT_PE                Func   184      I(4)            4           scalar   PRIV             30,184,454,456                    
+ STDLOG                     Func   185      I(4)            4           scalar   PRIV             33,185                            
+ TIME_MANAGER_INIT          Subr   172                                           PRIV             34,172                            
+ UNIT                       Local  149      I(4)            4           scalar                    185,186                           
+ VERSION                    Param  183      CHAR            7           scalar                    183                               
+ WRITE_VERSION_NUMBER       Subr   183                                           PRIV             33,183                            
+
+Page 6           Source Listing                  COLUMN_DIAGNOSTICS_INIT
+2021-06-01 08:55                                 column_diagnostics.F90
+
+    193 
+    194 
+    195 
+    196 !####################################################################
+    197 
+    198 !> @brief initialize_diagnostic_columns returns the (i, j, lat, lon) coord-
+    199 !!    inates of any diagnostic columns that are located on the current
+    200 !!    processor.
+    201 subroutine initialize_diagnostic_columns     &
+    202                    (module, num_diag_pts_latlon, num_diag_pts_ij,  &
+    203                     global_i , global_j , global_lat_latlon,   &
+    204                     global_lon_latlon, lonb_in, latb_in,  &
+    205                     do_column_diagnostics,  &
+    206                     diag_lon, diag_lat, diag_i, diag_j, diag_units)
+    207 
+    208 !---------------------------------------------------------------------
+    209 !    initialize_diagnostic_columns returns the (i, j, lat, lon) coord-
+    210 !    inates of any diagnostic columns that are located on the current
+    211 !    processor.
+    212 !----------------------------------------------------------------------
+    213 
+    214 !---------------------------------------------------------------------
+    215 character(len=*),      intent(in)    :: module                !< module calling this subroutine
+    216 integer,               intent(in)    :: num_diag_pts_latlon   !< number of diagnostic columns specified
+    217 !! by lat-lon  coordinates
+    218 integer,               intent(in)    :: num_diag_pts_ij       !< number of diagnostic columns specified
+    219 !! by global (i,j) coordinates
+    220 integer, dimension(:), intent(in)    :: global_i              !< specified global i coordinates
+    221 integer, dimension(:), intent(in)    :: global_j              !< specified global j coordinates
+    222 real   , dimension(:), intent(in)    :: global_lat_latlon     !< specified global lat coordinates
+    223 real   , dimension(:), intent(in)    :: global_lon_latlon     !< specified global lon coordinates
+    224 real,    dimension(:,:), intent(in)  :: lonb_in, latb_in
+    225 logical, dimension(:,:), intent(out) :: do_column_diagnostics !< is a diagnostic column in this jrow ?
+    226 integer, dimension(:), intent(inout) :: diag_i                !< processor i indices of diagnstic columns
+    227 integer, dimension(:), intent(inout) :: diag_j                !< processor j indices of diagnstic columns
+    228 real   , dimension(:), intent(out)   :: diag_lat              !< latitudes of diagnostic columns [ degrees ]
+    229 real   , dimension(:), intent(out)   :: diag_lon              !< longitudes of diagnostic columns [ degrees ]
+    230 integer, dimension(:), intent(out)   :: diag_units            !< unit number for each diagnostic column
+    231 !---------------------------------------------------------------------
+    232 
+    233 !---------------------------------------------------------------------
+    234 !    intent(in) variables:
+    235 !
+    236 !       module                module calling this subroutine
+    237 !       num_diag_pts_latlon   number of diagnostic columns specified
+    238 !                             by lat-lon  coordinates
+    239 !       num_diag_pts_ij       number of diagnostic columns specified
+    240 !                             by global (i,j) coordinates
+    241 !       global_i              specified global i coordinates
+    242 !       global_j              specified global j coordinates
+    243 !       global_lat_latlon     specified global lat coordinates
+    244 !       global_lon_latlon     specified global lon coordinates
+    245 !
+    246 !    intent(out) variables:
+    247 !
+    248 !       do_column_diagnostics is a diagnostic column in this jrow ?
+    249 !       diag_i                processor i indices of diagnstic columns
+
+Page 7           Source Listing                  INITIALIZE_DIAGNOSTIC_COLUMNS
+2021-06-01 08:55                                 column_diagnostics.F90
+
+    250 !       diag_j                processor j indices of diagnstic columns
+    251 !       diag_lat              latitudes of diagnostic columns
+    252 !                             [ degrees ]
+    253 !       diag_lon              longitudes of diagnostic columns
+    254 !                             [ degrees ]
+    255 !       diag_units            unit number for each diagnostic column
+    256 !
+    257 !---------------------------------------------------------------------
+    258 
+    259 !--------------------------------------------------------------------
+    260 !    local variables:
+    261 
+    262       real, dimension(size(diag_i,1))     :: global_lat !< latitudes for all diagnostic columns [ degrees ]
+    263       real, dimension(size(diag_i,1))     :: global_lon !< longitudes for all diagnostic columns [ degrees ]
+    264       real, dimension(size(latb_in,1)-1, size(latb_in,2)-1) ::  &
+    265                                   distance, distance_x, distance_y, &
+    266                                    distance_x2, distance2
+    267       real, dimension(size(latb_in,1), size(latb_in,2)) :: latb_deg
+    268       real, dimension(size(lonb_in,1), size(lonb_in,2)) :: lonb_deg
+    269       real       :: dellat, dellon
+    270       real       :: latb_max, latb_min, lonb_max, lonb_min
+    271 
+    272       integer            ::  num_diag_pts !< total number of diagnostic columns
+    273       integer            ::  i            !< do loop indices
+    274       integer            ::  j            !< do loop indices
+    275       integer            ::  nn           !< do loop indices
+    276       real               ::  ref_lat
+    277       real               ::  current_distance
+    278       character(len=8)   ::  char         !< character string for diaganostic column index
+    279       character(len=32)  ::  filename     !< filename for output file for diagnostic column
+    280       logical            ::  allow_ij_input
+    281       logical            ::  open_file
+    282       integer            ::  io
+    283 !--------------------------------------------------------------------
+    284 !    local variables:
+    285 !
+    286 !       global_lat      latitudes for all diagnostic columns [ degrees ]
+    287 !       global_lon      longitudes for all diagnostic columns
+    288 !                       [ degrees ]
+    289 !       num_diag_pts    total number of diagnostic columns
+    290 !       i, j, nn        do loop indices
+    291 !       char            character string for diaganostic column index
+    292 !       filename        filename for output file for diagnostic column
+    293 !
+    294 !---------------------------------------------------------------------
+    295 
+    296       if (.not. module_is_initialized) call column_diagnostics_init
+    297 
+    298 !--------------------------------------------------------------------
+    299 !    save the input lat and lon fields. define the delta of latitude
+    300 !    and longitude.
+    301 !--------------------------------------------------------------------
+    302       latb_deg = latb_in*RADIAN
+    303       lonb_deg = lonb_in*RADIAN
+    304       dellat = latb_in(1,2) - latb_in(1,1)
+    305       dellon = lonb_in(2,1) - lonb_in(1,1)
+    306       latb_max = MAXVAL (latb_deg(:,:))
+
+Page 8           Source Listing                  INITIALIZE_DIAGNOSTIC_COLUMNS
+2021-06-01 08:55                                 column_diagnostics.F90
+
+    307       latb_min = MINVAL (latb_deg(:,:))
+    308       lonb_max = MAXVAL (lonb_deg(:,:))
+    309       lonb_min = MINVAL (lonb_deg(:,:))
+    310       if (lonb_min < 10.0 .or. lonb_max > 350.) then
+    311         lonb_min = 0.
+    312         lonb_max = 360.0
+    313       endif
+    314 
+    315       allow_ij_input = .true.
+    316       ref_lat = latb_in(1,1)
+    317       do i =2,size(latb_in,1)
+    318         if (latb_in(i,1) /= ref_lat) then
+    319           allow_ij_input = .false.
+    320           exit
+    321         endif
+    322       end do
+    323 
+    324       if ( .not. allow_ij_input .and. num_diag_pts_ij /= 0) then
+    325         call error_mesg ('column_diagnostics_mod', &
+    326         'cannot specify column diagnostics column with (i,j) &
+    327            &coordinates when using cubed sphere -- must specify &
+    328                                     & lat/lon coordinates', FATAL)
+    329       endif
+    330 
+    331 !----------------------------------------------------------------------
+    332 !    initialize column_diagnostics flag and diag unit numbers. define
+    333 !    total number of diagnostic columns.
+    334 !----------------------------------------------------------------------
+    335       do_column_diagnostics = .false.
+    336       diag_units(:) = -1
+    337       diag_i(:) = -99
+    338       diag_j(:) = -99
+    339       diag_lat(:) = -999.
+    340       diag_lon(:) = -999.
+    341       num_diag_pts = size(diag_i(:))
+    342 
+    343 !--------------------------------------------------------------------
+    344 !    define an array of lat-lon values for all diagnostic columns.
+    345 !--------------------------------------------------------------------
+    346       do nn = 1, num_diag_pts_latlon
+    347         global_lat(nn) = global_lat_latlon(nn)
+    348         global_lon(nn) = global_lon_latlon(nn)
+    349       end do
+    350 
+    351       do nn = 1, num_diag_pts_ij
+    352         global_lat(nn+num_diag_pts_latlon) =    &
+    353                          ((-0.5*acos(-1.0) + 0.5*dellat) + &
+    354                          (global_j (nn)-1) *dellat)*RADIAN
+    355         global_lon(nn+num_diag_pts_latlon) = (0.5*dellon +     &
+    356                           (global_i (nn)-1)*dellon)*RADIAN
+    357       end do
+    358 
+    359 !----------------------------------------------------------------------
+    360 !    loop over all diagnostic points to check for their presence on
+    361 !    this processor.
+    362 !----------------------------------------------------------------------
+    363       do nn=1,num_diag_pts
+
+Page 9           Source Listing                  INITIALIZE_DIAGNOSTIC_COLUMNS
+2021-06-01 08:55                                 column_diagnostics.F90
+
+    364         open_file = .false.
+    365 
+    366 !----------------------------------------------------------------------
+    367 !    verify that the values of lat and lon are valid.
+    368 !----------------------------------------------------------------------
+    369         if (global_lon(nn) >= 0. .and. global_lon(nn) <= 360.0) then
+    370         else
+    371           call error_mesg ('column_diagnostics_mod', &
+    372                ' invalid longitude', FATAL)
+    373         endif
+    374         if (global_lat(nn) >= -90.0 .and. global_lat(nn) <= 90.0) then
+    375         else
+    376           call error_mesg ('column_diagnostics_mod', &
+    377                ' invalid latitude', FATAL)
+    378         endif
+    379 
+    380 !--------------------------------------------------------------------
+    381 !    if the desired diagnostics column is within the current
+    382 !    processor's domain, define the total and coordinate distances from
+    383 !    each of the processor's grid points to the diagnostics point.
+    384 !--------------------------------------------------------------------
+    385 
+    386         if (global_lat(nn) .ge. latb_min .and.  &
+    387             global_lat(nn) .le. latb_max) then
+    388           if (global_lon(nn) .ge. lonb_min     .and.&
+    389               global_lon(nn) .le. lonb_max)  then
+    390             do j=1,size(latb_deg,2) - 1
+    391               do i=1,size(lonb_deg,1) - 1
+    392                 distance_y(i,j) = ABS(global_lat(nn) - latb_deg(i,j))
+    393                 distance_x(i,j) = ABS(global_lon(nn) - lonb_deg(i,j))
+    394                 distance_x2(i,j) = ABS((global_lon(nn)-360.) -  &
+    395                                                        lonb_deg(i,j))
+    396                 distance(i,j) = (global_lat(nn) - latb_deg(i,j))**2 + &
+    397                                 (global_lon(nn) - lonb_deg(i,j))**2
+    398                 distance2(i,j) = (global_lat(nn) - latb_deg(i,j))**2 + &
+    399                                  ((global_lon(nn)-360.) -    &
+    400                                                    lonb_deg(i,j))**2
+    401               end do
+    402             end do
+    403 
+    404 !--------------------------------------------------------------------
+    405 !    find the grid point on the processor that is within the specified
+    406 !    critical distance and also closest to the requested diagnostics
+    407 !    column. save the (i,j) coordinates and (lon,lat) of this model
+    408 !    grid point. set a flag indicating that a disgnostics file should
+    409 !    be opened on this processor for this diagnostic point.
+    410 !--------------------------------------------------------------------
+    411             current_distance = distance(1,1)
+    412             do j=1,size(latb_deg,2) - 1
+    413               do i=1,size(lonb_deg,1) - 1
+    414                 if (distance_x(i,j) <= crit_xdistance .and. &
+    415                     distance_y(i,j) <= crit_ydistance ) then
+    416                   if (distance(i,j) < current_distance) then
+    417                     current_distance = distance(i,j)
+    418                     do_column_diagnostics(i,j) = .true.
+    419                     diag_j(nn) = j
+    420                     diag_i(nn) = i
+
+Page 10          Source Listing                  INITIALIZE_DIAGNOSTIC_COLUMNS
+2021-06-01 08:55                                 column_diagnostics.F90
+
+    421                     diag_lon(nn) = lonb_deg(i,j)
+    422                     diag_lat(nn) = latb_deg(i,j)
+    423                     open_file = .true.
+    424                   endif
+    425                 endif
+    426 
+    427 !---------------------------------------------------------------------
+    428 !    check needed because of the 0.0 / 360.0 longitude periodicity.
+    429 !---------------------------------------------------------------------
+    430                 if (distance_x2(i,j) <= crit_xdistance .and. &
+    431                     distance_y(i,j) <= crit_ydistance ) then
+    432                   if (distance2(i,j) < current_distance) then
+    433                     current_distance = distance2(i,j)
+    434                     do_column_diagnostics(i,j) = .true.
+    435                     diag_j(nn) = j
+    436                     diag_i(nn) = i
+    437                     diag_lon(nn) = lonb_deg(i,j)
+    438                     diag_lat(nn) = latb_deg(i,j)
+    439                     open_file = .true.
+    440                   endif
+    441                 endif
+    442               end do
+    443             end do
+    444 
+    445 !--------------------------------------------------------------------
+    446 !    if the point has been found on this processor, open a diagnostics
+    447 !    file.
+    448 !--------------------------------------------------------------------
+    449             if (open_file) then
+    450               write (char, '(i2)') nn
+    451               filename = trim(module) // '_point' //    &
+    452                          trim(adjustl(char)) // '.out'
+    453               if(mpp_npes() > 10000) then
+    454                  write( filename,'(a,i6.6)' )trim(filename)//'.', mpp_pe()-mpp_root_pe()
+    455               else
+    456                  write( filename,'(a,i4.4)' )trim(filename)//'.', mpp_pe()-mpp_root_pe()
+    457               endif
+    458               diag_units(nn) = get_unit()
+    459               open(diag_units(nn), file=trim(filename), action='WRITE', position='rewind', iostat=io)
+    460               if(io/=0) call error_mesg ('column_diagnostics_mod', 'Error in opening file '//trim(filename), FATAL)
+    461             endif  ! (open_file)
+    462           endif
+    463         endif
+    464       end do
+    465 
+    466 !---------------------------------------------------------------------
+    467 
+    468 
+    469 end subroutine initialize_diagnostic_columns
+
+Page 11          Source Listing                  INITIALIZE_DIAGNOSTIC_COLUMNS
+2021-06-01 08:55 Entry Points                    column_diagnostics.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                                
+                                                                      
+ column_diagnostics_mod_mp_initialize_diagnostic_columns_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ABS                        Func   392                                  scalar                    392,393,394                       
+ ACOS                       Func   353                                  scalar                    353                               
+ ADJUSTL                    Func   452                                  scalar                    452                               
+ ALLOW_IJ_INPUT             Local  280      L(4)            4           scalar                    315,319,324                       
+ CHAR                       Local  278      CHAR            8           scalar                    450,452                           
+ COLUMN_DIAGNOSTICS_INIT    Subr   296                                                            90,296,534                        
+ CRIT_XDISTANCE             Local  414      R(8)            8           scalar                    102,114,414,430                   
+ CRIT_YDISTANCE             Local  415      R(8)            8           scalar                    107,115,415,431                   
+ CURRENT_DISTANCE           Local  277      R(8)            8           scalar                    411,416,417,432,433               
+ DELLAT                     Local  269      R(8)            8           scalar                    304,353,354                       
+ DELLON                     Local  269      R(8)            8           scalar                    305,355,356                       
+ DIAG_I                     Dummy  206      I(4)            4     1     1        ARG,INOUT        262,263,337,341,420,436           
+ DIAG_J                     Dummy  206      I(4)            4     1     1        ARG,INOUT        338,419,435                       
+ DIAG_LAT                   Dummy  206      R(8)            8     1     1        ARG,OUT          339,422,438                       
+ DIAG_LON                   Dummy  206      R(8)            8     1     1        ARG,OUT          340,421,437                       
+ DIAG_UNITS                 Dummy  206      I(4)            4     1     1        ARG,OUT          336,458,459                       
+ DISTANCE                   Local  265      R(8)            8     2     0                         396,411,416,417                   
+ DISTANCE2                  Local  266      R(8)            8     2     0                         398,432,433                       
+ DISTANCE_X                 Local  265      R(8)            8     2     0                         393,414                           
+ DISTANCE_X2                Local  266      R(8)            8     2     0                         394,430                           
+ DISTANCE_Y                 Local  265      R(8)            8     2     0                         392,415,431                       
+ DO_COLUMN_DIAGNOSTICS      Dummy  205      L(4)            4     2     1        ARG,OUT          335,418,434                       
+ ERROR_MESG                 Subr   325                                           PRIV             32,325,371,376,460,609            
+ FATAL                      Param  328      I(4)            4           scalar   PRIV             32,328,372,377,460,609            
+ FILENAME                   Local  279      CHAR            32          scalar                    451,454,456,459,460               
+ GET_UNIT                   Func   458      I(4)            4           scalar   PRIV             37,458                            
+ GLOBAL_I                   Dummy  203      I(4)            4     1     1        ARG,IN           356                               
+ GLOBAL_J                   Dummy  203      I(4)            4     1     1        ARG,IN           354                               
+ GLOBAL_LAT                 Local  262      R(8)            8     1     0                         347,352,374,386,387,392,396,398   
+ GLOBAL_LAT_LATLON          Dummy  203      R(8)            8     1     1        ARG,IN           347                               
+ GLOBAL_LON                 Local  263      R(8)            8     1     0                         348,355,369,388,389,393,394,397,39
+                                                                                                  9                                 
+ GLOBAL_LON_LATLON          Dummy  204      R(8)            8     1     1        ARG,IN           348                               
+ I                          Local  273      I(4)            4           scalar                    317,318,391,392,393,394,395,396,39
+                                                                                                  7,398,400,413,414,415,416,417,418,
+                                                                                                  420,421,422,430,431,432,433,434,43
+                                                                                                  6,437,438                         
+ INITIALIZE_DIAGNOSTIC_COLU                                                                                                         
+ MNS                        Subr   201                                                                                              
+ IO                         Local  282      I(4)            4           scalar                    459,460                           
+ J                          Local  274      I(4)            4           scalar                    390,392,393,394,395,396,397,398,40
+                                                                                                  0,412,414,415,416,417,418,419,421,
+                                                                                                  422,430,431,432,433,434,435,437,43
+                                                                                                  8                                 
+
+Page 12          Source Listing                  INITIALIZE_DIAGNOSTIC_COLUMNS
+2021-06-01 08:55 Symbol Table                    column_diagnostics.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ LATB_DEG                   Local  267      R(8)            8     2     0                         302,306,307,390,392,396,398,412,42
+                                                                                                  2,438                             
+ LATB_IN                    Dummy  204      R(8)            8     2     1        ARG,IN           267,302,304,316,317,318           
+ LATB_MAX                   Local  270      R(8)            8           scalar                    306,387                           
+ LATB_MIN                   Local  270      R(8)            8           scalar                    307,386                           
+ LONB_DEG                   Local  268      R(8)            8     2     0                         303,308,309,391,393,395,397,400,41
+                                                                                                  3,421,437                         
+ LONB_IN                    Dummy  204      R(8)            8     2     1        ARG,IN           268,303,305                       
+ LONB_MAX                   Local  270      R(8)            8           scalar                    308,310,312,389                   
+ LONB_MIN                   Local  270      R(8)            8           scalar                    309,310,311,388                   
+ MAXVAL                     Func   306                                  scalar                    306,308                           
+ MINVAL                     Func   307                                  scalar                    307,309                           
+ MODULE                     Dummy  202      CHAR                        scalar   ARG,IN           451                               
+ MPP_NPES                   Func   453      I(4)            4           scalar   PRIV             31,453                            
+ NN                         Local  275      I(4)            4           scalar                    346,347,348,351,352,354,355,356,36
+                                                                                                  3,369,374,386,387,388,389,392,393,
+                                                                                                  394,396,397,398,399,419,420,421,42
+                                                                                                  2,435,436,437,438,450,458,459     
+ NUM_DIAG_PTS               Local  272      I(4)            4           scalar                    341,363                           
+ NUM_DIAG_PTS_IJ            Dummy  202      I(4)            4           scalar   ARG,IN           324,351                           
+ NUM_DIAG_PTS_LATLON        Dummy  202      I(4)            4           scalar   ARG,IN           346,352,355                       
+ OPEN_FILE                  Local  281      L(4)            4           scalar                    364,423,439,449                   
+ RADIAN                     Param  302      R(8)            8           scalar   PRIV             36,302,303,354,356                
+ REF_LAT                    Local  276      R(8)            8           scalar                    316,318                           
+ SIZE                       Func   262                                  scalar                    262,263,267,268,317,341,390,391,41
+                                                                                                  2,413                             
+ TRIM                       Func   451                                  scalar                    451,452,454,456,459,460           
+
+Page 13          Source Listing                  INITIALIZE_DIAGNOSTIC_COLUMNS
+2021-06-01 08:55                                 column_diagnostics.F90
+
+    470 
+    471 
+    472 
+    473 
+    474 !####################################################################
+    475 !> @brief column_diagnostics_header writes out information concerning
+    476 !!    time and location of following data into the column_diagnostics
+    477 !!    output file.
+    478 subroutine column_diagnostics_header     &
+    479                               (module, diag_unit, Time, nn, diag_lon, &
+    480                                diag_lat, diag_i, diag_j)
+    481 
+    482 !--------------------------------------------------------------------
+    483 !    column_diagnostics_header writes out information concerning
+    484 !    time and location of following data into the column_diagnostics
+    485 !    output file.
+    486 !--------------------------------------------------------------------
+    487 
+    488 !--------------------------------------------------------------------
+    489 character(len=*),      intent(in)  :: module    !< module name calling this subroutine
+    490 type(time_type),       intent(in)  :: Time      !< current model time [ time_type ]
+    491 integer,               intent(in)  :: diag_unit !< unit number for column_diagnostics output
+    492 integer,               intent(in)  :: nn        !< index of diagnostic column currently active
+    493 real,    dimension(:), intent(in)  :: diag_lon  !< longitude of current diagnostic column [ degrees ]
+    494 real,    dimension(:), intent(in)  :: diag_lat  !< latitude of current diagnostic column [ degrees ]
+    495 integer, dimension(:), intent(in)  :: diag_i    !< i coordinate of current diagnostic column
+    496 integer, dimension(:), intent(in)  :: diag_j    !< j coordinate of current diagnostic column
+    497 
+    498 !--------------------------------------------------------------------
+    499 !    intent(in) variables
+    500 !
+    501 !       module     module name calling this subroutine
+    502 !       Time       current model time [ time_type ]
+    503 !       diag_unit  unit number for column_diagnostics output
+    504 !       nn         index of diagnostic column currently active
+    505 !       diag_lon   longitude of current diagnostic column [ degrees ]
+    506 !       diag_lat   latitude of current diagnostic column [ degrees ]
+    507 !       diag_i     i coordinate of current diagnostic column
+    508 !       diag_j     j coordinate of current diagnostic column
+    509 !
+    510 !---------------------------------------------------------------------
+    511 
+    512 !--------------------------------------------------------------------
+    513 !     local variables:
+    514 
+    515       integer           :: year   !< integers defining the current time
+    516       integer           :: month  !< integers defining the current time
+    517       integer           :: day    !< integers defining the current time
+    518       integer           :: hour   !< integers defining the current time
+    519       integer           :: minute !< integers defining the current time
+    520       integer           :: second !< integers defining the current time
+    521       character(len=8)  :: mon    !< character string for the current month
+    522       character(len=64) :: header !< title for the output
+    523 
+    524 !--------------------------------------------------------------------
+    525 !     local variables:
+    526 !
+
+Page 14          Source Listing                  COLUMN_DIAGNOSTICS_HEADER
+2021-06-01 08:55                                 column_diagnostics.F90
+
+    527 !       year, month, day, hour, minute, seconds
+    528 !                      integers defining the current time
+    529 !       mon            character string for the current month
+    530 !       header         title for the output
+    531 !
+    532 !--------------------------------------------------------------------
+    533 
+    534       if (.not. module_is_initialized) call column_diagnostics_init
+    535 
+    536 !--------------------------------------------------------------------
+    537 !    convert the time type to a date and time for printing. convert
+    538 !    month to a character string.
+    539 !--------------------------------------------------------------------
+    540       call get_date (Time, year, month, day, hour, minute, second)
+    541       mon = month_name(month)
+    542 
+    543 !---------------------------------------------------------------------
+    544 !    write timestamp and column location information to the diagnostic
+    545 !    columns output unit.
+    546 !---------------------------------------------------------------------
+    547       write (diag_unit,'(a)')  ' '
+    548       write (diag_unit,'(a)')  ' '
+    549       write (diag_unit,'(a)')   &
+    550               '======================================================'
+    551       write (diag_unit,'(a)')  ' '
+    552       header = '               PRINTING ' // module // '  DIAGNOSTICS'
+    553       write (diag_unit,'(a)')  header
+    554       write (diag_unit,'(a)')  ' '
+    555       write (diag_unit,'(a, i6,2x, a,i4,i4,i4,i4)')  ' time stamp:',  &
+    556                                            year, trim(mon), day, &
+    557                                            hour, minute, second
+    558       write (diag_unit,'(a, i4)')      &
+    559             ' DIAGNOSTIC POINT COORDINATES, point #', nn
+    560       write (diag_unit,'(a)')  ' '
+    561       write (diag_unit,'(a,f8.3,a,f8.3)') ' longitude = ',    &
+    562                    diag_lon(nn), ' latitude  = ', diag_lat(nn)
+    563       write (diag_unit,'(a, i6, a,i6,a,i6)')    &
+    564                                ' on processor # ', mpp_pe(),   &
+    565                                ' :   processor i =', diag_i(nn),     &
+    566                                ' ,   processor j =', diag_j(nn)
+    567       write (diag_unit,'(a)')  ' '
+    568 
+    569 !---------------------------------------------------------------------
+    570 
+    571 
+    572 
+    573 end subroutine column_diagnostics_header
+
+Page 15          Source Listing                  COLUMN_DIAGNOSTICS_HEADER
+2021-06-01 08:55 Entry Points                    column_diagnostics.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                            
+                                                                  
+ column_diagnostics_mod_mp_column_diagnostics_header_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ COLUMN_DIAGNOSTICS_HEADER  Subr   478                                                                                              
+ DAY                        Local  517      I(4)            4           scalar                    540,556                           
+ DIAG_I                     Dummy  480      I(4)            4     1     1        ARG,IN           565                               
+ DIAG_J                     Dummy  480      I(4)            4     1     1        ARG,IN           566                               
+ DIAG_LAT                   Dummy  480      R(8)            8     1     1        ARG,IN           562                               
+ DIAG_LON                   Dummy  479      R(8)            8     1     1        ARG,IN           562                               
+ DIAG_UNIT                  Dummy  479      I(4)            4           scalar   ARG,IN           547,548,549,551,553,554,555,558,56
+                                                                                                  0,561,563,567                     
+ GET_DATE                   Subr   540                                           PRIV             35,540                            
+ HEADER                     Local  522      CHAR            64          scalar                    552,553                           
+ HOUR                       Local  518      I(4)            4           scalar                    540,557                           
+ MINUTE                     Local  519      I(4)            4           scalar                    540,557                           
+ MODULE                     Dummy  479      CHAR                        scalar   ARG,IN           552                               
+ MON                        Local  521      CHAR            8           scalar                    541,556                           
+ MONTH                      Local  516      I(4)            4           scalar                    540,541                           
+ MONTH_NAME                 Func   541      CHAR            9           scalar   PRIV             34,541                            
+ NN                         Dummy  479      I(4)            4           scalar   ARG,IN           559,562,565,566                   
+ SECOND                     Local  520      I(4)            4           scalar                    540,557                           
+ TIME                       Dummy  479      TIME_TYPE       16          scalar   ARG,IN           540                               
+ TIME_TYPE                  Type   490                                  scalar   PRIV             35,490                            
+ TRIM                       Func   556                                  scalar                    556                               
+ YEAR                       Local  515      I(4)            4           scalar                    540,556                           
+
+Page 16          Source Listing                  COLUMN_DIAGNOSTICS_HEADER
+2021-06-01 08:55                                 column_diagnostics.F90
+
+    574 
+    575 
+    576 
+    577 !######################################################################
+    578 !> @brief close_column_diagnostics_units closes any open column_diagnostics
+    579 !!    files associated with the calling module.
+    580 subroutine close_column_diagnostics_units (diag_units)
+    581 
+    582 !---------------------------------------------------------------------
+    583 !    close_column_diagnostics_units closes any open column_diagnostics
+    584 !    files associated with the calling module.
+    585 !----------------------------------------------------------------------
+    586 
+    587 !----------------------------------------------------------------------
+    588 integer, dimension(:), intent(in)  :: diag_units !< array of column diagnostic unit numbers
+    589 !----------------------------------------------------------------------
+    590 
+    591 !--------------------------------------------------------------------
+    592 !    intent(in) variable:
+    593 !
+    594 !      diag_units    array of column diagnostic unit numbers
+    595 !
+    596 !--------------------------------------------------------------------
+    597 
+    598 !--------------------------------------------------------------------
+    599 !    local variable
+    600 
+    601       integer   :: nn    !< do loop index
+    602       integer   :: io
+    603 !--------------------------------------------------------------------
+    604 !    close the unit associated with each diagnostic column.
+    605 !--------------------------------------------------------------------
+    606       do nn=1, size(diag_units(:))
+    607         if (diag_units(nn) /= -1) then
+    608           close(diag_units(nn), iostat=io )
+    609           if(io/=0) call error_mesg('column_diagnostics_mod', 'Error in closing file ', FATAL)
+    610         endif
+    611       end do
+    612 
+    613 !---------------------------------------------------------------------
+    614 
+    615 
+    616 end subroutine close_column_diagnostics_units
+
+Page 17          Source Listing                  CLOSE_COLUMN_DIAGNOSTICS_UNITS
+2021-06-01 08:55 Entry Points                    column_diagnostics.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                                 
+                                                                       
+ column_diagnostics_mod_mp_close_column_diagnostics_units_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CLOSE_COLUMN_DIAGNOSTICS_U                                                                                                         
+ NITS                       Subr   580                                                                                              
+ DIAG_UNITS                 Dummy  580      I(4)            4     1     1        ARG,IN           606,607,608                       
+ IO                         Local  602      I(4)            4           scalar                    608,609                           
+ NN                         Local  601      I(4)            4           scalar                    606,607,608                       
+ SIZE                       Func   606                                  scalar                    606                               
+
+Page 18          Source Listing                  CLOSE_COLUMN_DIAGNOSTICS_UNITS
+2021-06-01 08:55                                 column_diagnostics.F90
+
+    617 
+    618 
+    619 !#####################################################################
+    620 
+    621 
+    622 
+    623 
+    624                end module column_diagnostics_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CLOSE_COLUMN_DIAGNOSTICS_U                                                                                                         
+ NITS                       Subr   93                                                             93                                
+ COLUMN_DIAGNOSTICS_HEADER  Subr   92                                                             92                                
+ COLUMN_DIAGNOSTICS_MOD     Module 25                                                                                               
+ CONSTANTS_MOD              Module 36                                                             36                                
+ FMS_MOD                    Module 30                                                             30                                
+ INITIALIZE_DIAGNOSTIC_COLU                                                                                                         
+ MNS                        Subr   91                                                             91                                
+ MPP_IO_MOD                 Module 29                                                             29                                
+ MPP_MOD                    Module 37                                                             37                                
+ NOTE                       Param  32       I(4)            4           scalar   PRIV             32                                
+ PI                         Param  36       R(8)            8           scalar   PRIV             36                                
+ TIME_MANAGER_MOD           Module 34                                                             34                                
+ WARNING                    Param  32       I(4)            4           scalar   PRIV             32                                
+
+Page 19          Source Listing                  CLOSE_COLUMN_DIAGNOSTICS_UNITS
+2021-06-01 08:55 Subprograms/Common Blocks       column_diagnostics.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CLOSE_COLUMN_DIAGNOSTICS_U                                                                                                         
+ NITS                       Subr   580                                                                                              
+ COLUMN_DIAGNOSTICS_HEADER  Subr   478                                                                                              
+ COLUMN_DIAGNOSTICS_INIT    Subr   139                                                                                              
+ COLUMN_DIAGNOSTICS_MOD     Module 25                                                                                               
+ INITIALIZE_DIAGNOSTIC_COLU                                                                                                         
+ MNS                        Subr   201                                                                                              
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+
+Page 20          Source Listing                  CLOSE_COLUMN_DIAGNOSTICS_UNITS
+2021-06-01 08:55                                 column_diagnostics.F90
+
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+
+Page 21          Source Listing                  CLOSE_COLUMN_DIAGNOSTICS_UNITS
+2021-06-01 08:55                                 column_diagnostics.F90
+
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : column_diagnostics.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

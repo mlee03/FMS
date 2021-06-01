@@ -1,0 +1,1853 @@
+Page 1           Source Listing                  FMS_INIT
+2021-06-01 08:54                                 /tmp/ifortpWFDcc.i90
+
+      1 # 1 "fms.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 !> @file
+     22 !! @brief The fms module provides routines that are commonly used
+     23 !!   by most FMS modules.
+     24 !! @author Bruce Wyman
+     25 !! @email gfdl.climate.model.info@noaa.gov
+     26 !!
+     27 !! Here is a summary of the functions performed by routines
+     28 !!     in the fms module.
+     29 !!
+     30 !!   1. Output module version numbers to a common (<TT>log</TT>) file
+     31 !!     using a common format.<BR/>
+     32 !!   2. Open specific types of files common to many FMS modules.
+     33 !!     These include namelist files, restart files, and 32-bit IEEE
+     34 !!     data files. There also is a matching interface to close the files.
+     35 !!     If other file types are needed the <TT>mpp_open</TT> and <TT>mpp_close</TT>
+     36 !!     interfaces in module <LINK SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/shared/mpp/mpp_io.html">mpp_io</L
+     36 INK> must be used.<BR/>
+     37 !!    3. Read and write distributed data to simple native unformatted files.
+     38 !!     This type of file (called a restart file) is used to checkpoint
+     39 !!     model integrations for a subsequent restart of the run.<BR/>
+     40 !!    4. For convenience there are several routines published from
+     41 !!     the <LINK SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/shared/mpp/mpp.html">mpp</LINK> module. These are 
+     41 routines for getting processor
+     42 !!     numbers, commonly used I/O unit numbers, error handling, and timing sections of code.
+     43 module fms_mod
+     44 
+     45 ! <CONTACT EMAIL="Bruce.Wyman@noaa.gov">
+     46 !   Bruce Wyman
+     47 ! </CONTACT>
+     48 
+     49 ! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
+     50 
+     51 ! <OVERVIEW>
+     52 !   The fms module provides routines that are commonly used
+     53 !   by most FMS modules.
+     54 ! </OVERVIEW>
+     55 
+
+Page 2           Source Listing                  FMS_INIT
+2021-06-01 08:54                                 fms.F90
+
+     56 ! <DESCRIPTION>
+     57 !   Here is a summary of the functions performed by routines
+     58 !     in the fms module.
+     59 !
+     60 !   1. Output module version numbers to a common (<TT>log</TT>) file
+     61 !     using a common format.<BR/>
+     62 !   2. Open specific types of files common to many FMS modules.
+     63 !     These include namelist files, restart files, and 32-bit IEEE
+     64 !     data files. There also is a matching interface to close the files.
+     65 !     If other file types are needed the <TT>mpp_open</TT> and <TT>mpp_close</TT>
+     66 !     interfaces in module <LINK SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/shared/mpp/mpp_io.html">mpp_io</LI
+     66 NK> must be used.<BR/>
+     67 !    3. Read and write distributed data to simple native unformatted files.
+     68 !     This type of file (called a restart file) is used to checkpoint
+     69 !     model integrations for a subsequent restart of the run.<BR/>
+     70 !    4. For convenience there are several routines published from
+     71 !     the <LINK SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/shared/mpp/mpp.html">mpp</LINK> module. These are r
+     71 outines for getting processor
+     72 !     numbers, commonly used I/O unit numbers, error handling, and timing sections of code.
+     73 ! </DESCRIPTION>
+     74 
+     75 !-----------------------------------------------------------------------
+     76 !
+     77 !         A collection of commonly used routines.
+     78 !
+     79 !  The routines are primarily I/O related, however, there also
+     80 !  exists several simple miscellaneous utility routines.
+     81 !
+     82 !-----------------------------------------------------------------------
+     83 !
+     84 !  file_exist         Checks the existence of the given file name.
+     85 !
+     86 !  check_nml_error    Checks the iostat argument that is returned after
+     87 !                     reading a namelist and determines if the error
+     88 !                     code is valid.
+     89 !
+     90 !  write_version_number  Prints to the log file (or a specified unit)
+     91 !                        the (cvs) version id string and (cvs) tag name.
+     92 !
+     93 !  error_mesg          Print notes, warnings and error messages,
+     94 !                      terminates program for error messages.
+     95 !                      (use error levels NOTE,WARNING,FATAL)
+     96 !
+     97 !  open_namelist_file  Opens namelist file for reading only.
+     98 !
+     99 !  open_restart_file   Opens a file that will be used for reading or writing
+    100 !                      restart files with native unformatted data.
+    101 !
+    102 !  open_ieee32_file    Opens a file that will be used for reading or writing
+    103 !                      unformatted 32-bit ieee data.
+    104 !
+    105 !  close_file          Closes a file that was opened using
+    106 !                      open_namelist_file, open_restart_file, or
+    107 !                      open_ieee32_file.
+    108 !
+    109 !  set_domain          Call this routine to internally store in fms_mod the
+    110 !                      domain2d data type prior to calling the distributed
+
+Page 3           Source Listing                  FMS_INIT
+2021-06-01 08:54                                 fms.F90
+
+    111 !                      data I/O routines read_data and write_data.
+    112 !
+    113 !  read_data           Reads distributed data from a single threaded file.
+    114 !
+    115 !  write_data          Writes distributed data to a single threaded file.
+    116 !
+    117 !  fms_init            Initializes the fms module and also the
+    118 !                      mpp_io module (which initializes all mpp mods).
+    119 !                      Will be called automatically if the user does
+    120 !                      not call it.
+    121 !
+    122 !  fms_end             Calls mpp exit routines.
+    123 !
+    124 !  lowercase           Convert character strings to all lower case
+    125 !
+    126 !  uppercase           Convert character strings to all upper case
+    127 !
+    128 !  monotonic_array     Determines if the real input array has
+    129 !                      monotonically increasing or decreasing values.
+    130 !
+    131 !  string_array_index  Match the input character string to a string
+    132 !                      in an array/list of character strings.
+    133 !
+    134 !-----------------------------------------------------------------------
+    135 !---- published routines from mpp_mod ----
+    136 !
+    137 !   mpp_error, NOTE, WARNING, FATAL
+    138 !   mpp_error_state
+    139 !   mpp_pe, mpp_npes, mpp_root_pe
+    140 !   stdin, stdout, stderr, stdlog
+    141 !   mpp_chksum
+    142 !
+    143 !   mpp_clock_id, mpp_clock_begin , mpp_clock_end
+    144 !   MPP_CLOCK_SYNC, MPP_CLOCK_DETAILED
+    145 !   CLOCK_COMPONENT, CLOCK_SUBCOMPONENT, CLOCK_MODULE_DRIVER,
+    146 !   CLOCK_MODULE, CLOCK_ROUTINE, CLOCK_LOOP, CLOCK_INFRA
+    147 !
+    148 !-----------------------------------------------------------------------
+    149 
+    150 use          mpp_mod, only:  mpp_error, NOTE, WARNING, FATAL,    &
+    151                              mpp_set_warn_level,                 &
+    152                              mpp_transmit, ALL_PES,              &
+    153                              mpp_pe, mpp_npes, mpp_root_pe,      &
+    154                              mpp_sync, mpp_chksum,               &
+    155                              mpp_clock_begin, mpp_clock_end,     &
+    156                              mpp_clock_id, mpp_init, mpp_exit,   &
+    157                              MPP_CLOCK_SYNC, MPP_CLOCK_DETAILED, &
+    158                              CLOCK_COMPONENT, CLOCK_SUBCOMPONENT,&
+    159                              CLOCK_MODULE_DRIVER, CLOCK_MODULE,  &
+    160                              CLOCK_ROUTINE, CLOCK_LOOP,          &
+    161                              CLOCK_INFRA, mpp_clock_set_grain,   &
+    162                              mpp_set_stack_size,                 &
+    163                              stdin, stdout, stderr, stdlog,      &
+    164                              mpp_error_state, lowercase,         &
+    165                              uppercase, mpp_broadcast, input_nml_file, &
+    166                              get_unit, read_input_nml
+    167 
+
+Page 4           Source Listing                  FMS_INIT
+2021-06-01 08:54                                 fms.F90
+
+    168 use  mpp_domains_mod, only:  domain2D, mpp_define_domains, &
+    169                              mpp_update_domains, GLOBAL_DATA_DOMAIN, &
+    170                              mpp_domains_init, mpp_domains_exit,     &
+    171                              mpp_global_field, mpp_domains_set_stack_size,  &
+    172                              mpp_get_compute_domain, mpp_get_global_domain, &
+    173                              mpp_get_data_domain
+    174 
+    175 use       mpp_io_mod, only:  mpp_io_init, mpp_open, mpp_close,         &
+    176                        MPP_ASCII, MPP_NATIVE, MPP_IEEE32, MPP_NETCDF,  &
+    177                        MPP_RDONLY, MPP_WRONLY, MPP_APPEND, MPP_OVERWR, &
+    178                        MPP_SEQUENTIAL, MPP_DIRECT,                     &
+    179                        MPP_SINGLE, MPP_MULTI, MPP_DELETE, mpp_io_exit, &
+    180                        fieldtype, mpp_get_atts, mpp_get_info, mpp_get_fields, &
+    181                        do_cf_compliance
+    182 
+    183 use fms_io_mod, only : fms_io_init, fms_io_exit, field_size, &
+    184                        read_data, write_data, read_compressed, read_distributed, &
+    185                        open_namelist_file, open_restart_file, open_ieee32_file, close_file, &
+    186                        get_domain_decomp, &
+    187                        open_file, open_direct_file, get_mosaic_tile_grid, &
+    188                        get_mosaic_tile_file, get_global_att_value, file_exist, field_exist, &
+    189                        set_domain, nullify_domain
+    190 use fms2_io_mod, only: fms2_io_init
+    191 use memutils_mod, only: print_memuse_stats, memutils_init
+    192 use grid2_mod, only: grid_init, grid_end
+    193 
+    194 
+    195 implicit none
+    196 private
+    197 
+    198 ! routines for initialization and termination of module
+    199 public :: fms_init, fms_end
+    200 
+    201 ! routines for opening/closing specific types of file
+    202 public :: open_namelist_file, open_restart_file, &
+    203           open_ieee32_file, close_file, &
+    204           open_file, open_direct_file
+    205 
+    206 ! routines for reading/writing distributed data
+    207 public :: read_data, write_data, read_compressed, read_distributed
+    208 public :: get_domain_decomp, field_size
+    209 public :: get_global_att_value
+    210 
+    211 ! routines for get mosaic information
+    212 public :: get_mosaic_tile_grid, get_mosaic_tile_file
+    213 
+    214 ! miscellaneous i/o routines
+    215 public :: file_exist, check_nml_error, field_exist,     &
+    216           error_mesg, fms_error_handler
+    217 ! version logging routine (originally from fms_io)
+    218 public :: write_version_number
+    219 
+    220 ! miscellaneous utilities (non i/o)
+    221 public :: lowercase, uppercase,        &
+    222           string_array_index, monotonic_array, &
+    223           set_domain, nullify_domain
+    224 
+
+Page 5           Source Listing                  FMS_INIT
+2021-06-01 08:54                                 fms.F90
+
+    225 ! public mpp interfaces
+    226 public :: mpp_error, NOTE, WARNING, FATAL, &
+    227           mpp_error_state,                 &
+    228           mpp_pe, mpp_npes, mpp_root_pe,   &
+    229           stdin, stdout, stderr, stdlog,   &
+    230           mpp_chksum, get_unit, read_input_nml
+    231 public :: input_nml_file
+    232 public :: mpp_clock_id, mpp_clock_begin, mpp_clock_end
+    233 public :: MPP_CLOCK_SYNC, MPP_CLOCK_DETAILED
+    234 public :: CLOCK_COMPONENT, CLOCK_SUBCOMPONENT, &
+    235           CLOCK_MODULE_DRIVER, CLOCK_MODULE,   &
+    236           CLOCK_ROUTINE, CLOCK_LOOP, CLOCK_INFRA
+    237 !public from the old fms_io but not exists here
+    238 public :: string
+    239 
+    240 ! public mpp-io interfaces
+    241 public :: do_cf_compliance
+    242 
+    243 !Balaji
+    244 !this is published by fms and applied to any initialized clocks
+    245 !of course you can go and set the flag to SYNC or DETAILED by hand
+    246 integer, public :: clock_flag_default
+    247 
+    248 ! Namelist read error values
+    249   TYPE nml_errors_type
+    250      INTEGER :: multipleNMLSinFile
+    251      INTEGER :: badType1
+    252      INTEGER :: badType2
+    253      INTEGER :: missingVar
+    254      INTEGER :: NotInFile
+    255   END TYPE nml_errors_type
+    256   TYPE(nml_errors_type), SAVE :: nml_errors
+    257 
+    258 
+    259 !------ namelist interface -------
+    260 !------ adjustable severity level for warnings ------
+    261 
+    262   logical           :: read_all_pe   = .true.
+    263   character(len=16) :: clock_grain = 'NONE', clock_flags='NONE'
+    264   character(len=8)  :: warning_level = 'warning'
+    265   integer           :: stack_size = 0
+    266   integer           :: domains_stack_size = 0
+    267   logical, public   :: print_memory_usage = .FALSE.
+    268 
+    269 !------ namelist interface -------
+    270 
+    271 ! <NAMELIST NAME="fms_nml">
+    272 !   <DATA NAME="clock_grain"  TYPE="character"  DEFAULT="'NONE'">
+    273 !     The level of clock granularity used for performance timing sections
+    274 !     of code. Possible values in order of increasing detail are:
+    275 !     'NONE', 'COMPONENT', 'SUBCOMPONENT', 'MODULE_DRIVER', 'MODULE', 'ROUTINE',
+    276 !     'LOOP', and 'INFRA'.  Code sections are defined using routines in MPP
+    277 !     module: mpp_clock_id, mpp_clock_begin, and mpp_clock_end.
+    278 !     The fms module makes these routines public.
+    279 !     A list of timed code sections will be printed to STDOUT.
+    280 !     See the <LINK SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/shared/mpp/mpp.html">MPP</LINK>
+    281 !     module for more details.
+
+Page 6           Source Listing                  FMS_INIT
+2021-06-01 08:54                                 fms.F90
+
+    282 !   </DATA>
+    283 !   <DATA NAME="clock_flags"  TYPE="character"  DEFAULT="'NONE'">
+    284 !     Possible values are 'NONE', 'SYNC', or 'DETAILED'.
+    285 !     SYNC will give accurate information on load balance of the clocked
+    286 !     portion of code.
+    287 !     DETAILED also turns on detailed message-passing performance diagnosis.
+    288 !     Both SYNC and DETAILED will  work correctly on innermost clock nest
+    289 !     and distort outer clocks, and possibly the overall code time.
+    290 !     See the <LINK SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/shared/mpp/mpp.html">MPP</LINK>
+    291 !     module for more details.
+    292 !   </DATA>
+    293 !   <DATA NAME="read_all_pe"  TYPE="logical"  DEFAULT="true">
+    294 !     Read global data on all processors extracting local part needed (TRUE) or
+    295 !     read global data on PE0 and broadcast to all PEs (FALSE).
+    296 !   </DATA>
+    297 !   <DATA NAME="warning_level"  TYPE="character"  DEFAULT="'warning'">
+    298 !     Sets the termination condition for the WARNING flag to interfaces
+    299 !     error_mesg/mpp_error. set warning_level = 'fatal' (program crashes for
+    300 !     warning messages) or 'warning' (prints warning message and continues).
+    301 !   </DATA>
+    302 !   <DATA NAME="stack_size"  TYPE="integer"  DEFAULT="0">
+    303 !     The size in words of the MPP user stack. If stack_size > 0, the following
+    304 !     MPP routine is called: call mpp_set_stack_size (stack_size). If stack_size
+    305 !     = 0 (default) then the default size set by mpp_mod is used.
+    306 !   </DATA>
+    307 !   <DATA NAME="domains_stack_size" TYPE="integer"  DEFAULT="0">
+    308 !     The size in words of the MPP_DOMAINS user stack. If
+    309 !     domains_stack_size > 0, the following MPP_DOMAINS routine is called:
+    310 !     call mpp_domains_set_stack_size (domains_stack_size). If
+    311 !     domains_stack_size = 0 (default) then the default size set by
+    312 !     mpp_domains_mod is used.
+    313 !   </DATA>
+    314 !   <DATA NAME="print_memory_usage"  TYPE="logical"  DEFAULT=".FALSE.">
+    315 !     If set to .TRUE., memory usage statistics will be printed at various
+    316 !     points in the code. It is used to study memory usage, e.g to detect
+    317 !     memory leaks.
+    318 !   </DATA>
+    319 ! </NAMELIST>
+    320 
+    321   namelist /fms_nml/  read_all_pe, clock_grain, clock_flags,         &
+    322                       warning_level, stack_size, domains_stack_size, &
+    323                       print_memory_usage
+    324 
+    325 !   ---- private data for check_nml_error ----
+    326 
+    327    integer, private :: num_nml_error_codes, nml_error_codes(20)
+    328    logical, private :: do_nml_error_init = .true.
+    329    private  nml_error_init
+    330 
+    331 
+    332 !  ---- version number -----
+    333 
+    334 ! Include variable "version" to be written to log file.
+    335 # 1 "../include/file_version.h" 1 
+    336 ! -*-f90-*-
+    337 !***********************************************************************
+    338 !*                   GNU Lesser General Public License
+
+Page 7           Source Listing                  FMS_INIT
+2021-06-01 08:54                                 ../include/file_version.h
+
+    339 !*
+    340 !* This file is part of the GFDL Flexible Modeling System (FMS).
+    341 !*
+    342 !* FMS is free software: you can redistribute it and/or modify it under
+    343 !* the terms of the GNU Lesser General Public License as published by
+    344 !* the Free Software Foundation, either version 3 of the License, or (at
+    345 !* your option) any later version.
+    346 !*
+    347 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+    348 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+    349 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+    350 !* for more details.
+    351 !*
+    352 !* You should have received a copy of the GNU Lesser General Public
+    353 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+    354 !***********************************************************************
+    355 
+    356 # 23
+    357 
+    358   character(len=*), parameter :: version = 'unknown'
+    359 
+    360 # 335 "fms.F90" 2 
+    361 
+    362   logical :: module_is_initialized = .FALSE.
+    363 
+    364   logical, private :: fms_io_initialized = .FALSE.!> used to make sure fms_io version is only
+    365 !! written to log once
+    366 
+    367 !> Converts a number to a string
+    368 interface string
+    369    module procedure string_from_integer
+    370    module procedure string_from_real
+    371 end interface
+    372 
+    373 contains
+    374 
+    375 !#######################################################################
+    376 
+    377 ! <SUBROUTINE NAME="fms_init">
+    378 
+    379 !   <OVERVIEW>
+    380 !     Initializes the FMS module and also calls the initialization routines for all
+    381 !     modules in the MPP package. Will be called automatically if the user does
+    382 !     not call it.
+    383 !   </OVERVIEW>
+    384 !   <DESCRIPTION>
+    385 !      Initialization routine for the fms module. It also calls initialization routines
+    386 !      for the mpp, mpp_domains, and mpp_io modules. Although this routine
+    387 !      will be called automatically by other fms_mod routines, users should
+    388 !      explicitly call fms_init. If this routine is called more than once it will
+    389 !      return silently. There are no arguments.
+    390 !   </DESCRIPTION>
+    391 !   <TEMPLATE>
+    392 !     call fms_init ( )
+    393 !   </TEMPLATE>
+    394 
+    395 
+
+Page 8           Source Listing                  FMS_INIT
+2021-06-01 08:54                                 fms.F90
+
+    396 !   <ERROR MSG="invalid entry for namelist variable warning_level" STATUS="FATAL">
+    397 !     The namelist variable warning_level must be either 'fatal' or 'warning'
+    398 !     (case-insensitive).
+    399 !   </ERROR>
+    400 !   <ERROR MSG="invalid entry for namelist variable clock_grain" STATUS="FATAL">
+    401 !     The namelist variable clock_grain must be one of the following values:
+    402 !     'NONE', 'COMPONENT', 'SUBCOMPONENT', 'MODULE_DRIVER', 'MODULE', 'ROUTINE',
+    403 !     'LOOP', or 'INFRA' (case-insensitive).
+    404 !   </ERROR>
+    405 
+    406 ! initializes the fms module/package
+    407 ! also calls mpp initialization routines and reads fms namelist
+    408 
+    409 !> @brief Initializes the FMS module and also calls the initialization routines for all
+    410 !!     modules in the MPP package. Will be called automatically if the user does
+    411 !!     not call it.
+    412 !! @details Initialization routine for the fms module. It also calls initialization routines
+    413 !!      for the mpp, mpp_domains, and mpp_io modules. Although this routine
+    414 !!      will be called automatically by other fms_mod routines, users should
+    415 !!      explicitly call fms_init. If this routine is called more than once it will
+    416 !!      return silently. There are no arguments.
+    417 subroutine fms_init (localcomm )
+    418 
+    419 !--- needed to output the version number of constants_mod to the logfile ---
+    420  use constants_mod, only: constants_version=>version !pjp: PI not computed
+    421  use fms_io_mod,    only: fms_io_version
+    422 
+    423  integer, intent(in), optional :: localcomm
+    424  integer :: unit, ierr, io
+    425  integer :: logunitnum
+    426 
+    427     if (module_is_initialized) return    ! return silently if already called
+    428     module_is_initialized = .true.
+    429 !---- initialize mpp routines ----
+    430     if(present(localcomm)) then
+    431        call mpp_init(localcomm=localcomm)
+    432     else
+    433        call mpp_init()
+    434     endif
+    435     call mpp_domains_init()
+    436     call fms_io_init()
+    437 !! write_version_number is inaccesible from fms_io_mod so write it from here if not written
+    438     if(.not.fms_io_initialized) then
+    439       call write_version_number("FMS_IO_MOD", fms_io_version)
+    440       fms_io_initialized = .true.
+    441     endif
+    442     call fms2_io_init()
+    443     logunitnum = stdlog()
+    444 !---- read namelist input ----
+    445 
+    446     call nml_error_init()  ! first initialize namelist iostat error codes
+    447 
+    448 
+    449       read (input_nml_file, fms_nml, iostat=io)
+    450       ierr = check_nml_error(io,'fms_nml')
+    451 # 434
+    452 
+
+Page 9           Source Listing                  FMS_INIT
+2021-06-01 08:54                                 fms.F90
+
+    453 
+    454 !---- define mpp stack sizes if non-zero -----
+    455 
+    456     if (        stack_size > 0) call         mpp_set_stack_size (        stack_size)
+    457     if (domains_stack_size > 0) call mpp_domains_set_stack_size (domains_stack_size)
+    458 
+    459 !---- set severity level for warnings ----
+    460 
+    461     select case( trim(lowercase(warning_level)) )
+    462     case( 'fatal' )
+    463         call mpp_set_warn_level ( FATAL )
+    464     case( 'warning' )
+    465         call mpp_set_warn_level ( WARNING )
+    466     case default
+    467         call error_mesg ( 'fms_init',  &
+    468              'invalid entry for namelist variable warning_level', FATAL )
+    469     end select
+    470 
+    471 !--- set granularity for timing code sections ---
+    472 
+    473     select case( trim(uppercase(clock_grain)) )
+    474     case( 'NONE' )
+    475         call mpp_clock_set_grain (0)
+    476     case( 'COMPONENT' )
+    477         call mpp_clock_set_grain (CLOCK_COMPONENT)
+    478     case( 'SUBCOMPONENT' )
+    479         call mpp_clock_set_grain (CLOCK_SUBCOMPONENT)
+    480     case( 'MODULE_DRIVER' )
+    481         call mpp_clock_set_grain (CLOCK_MODULE_DRIVER)
+    482     case( 'MODULE' )
+    483         call mpp_clock_set_grain (CLOCK_MODULE)
+    484     case( 'ROUTINE' )
+    485         call mpp_clock_set_grain (CLOCK_ROUTINE)
+    486     case( 'LOOP' )
+    487         call mpp_clock_set_grain (CLOCK_LOOP)
+    488     case( 'INFRA' )
+    489         call mpp_clock_set_grain (CLOCK_INFRA)
+    490     case default
+    491         call error_mesg ( 'fms_init',  &
+    492              'invalid entry for namelist variable clock_grain', FATAL )
+    493     end select
+    494 !Balaji
+    495     select case( trim(uppercase(clock_flags)) )
+    496     case( 'NONE' )
+    497        clock_flag_default = 0
+    498     case( 'SYNC' )
+    499        clock_flag_default = MPP_CLOCK_SYNC
+    500     case( 'DETAILED' )
+    501        clock_flag_default = MPP_CLOCK_DETAILED
+    502     case default
+    503        call error_mesg ( 'fms_init',  &
+    504             'invalid entry for namelist variable clock_flags', FATAL )
+    505    end select
+    506 
+    507 !--- write version info and namelist to logfile ---
+    508 
+    509     call write_version_number("FMS_MOD", version)
+
+Page 10          Source Listing                  FMS_INIT
+2021-06-01 08:54                                 fms.F90
+
+    510     if (mpp_pe() == mpp_root_pe()) then
+    511       unit = stdlog()
+    512       write (unit, nml=fms_nml)
+    513       write (unit,*) 'nml_error_codes=', nml_error_codes(1:num_nml_error_codes)
+    514     endif
+    515 
+    516     call memutils_init( print_memory_usage )
+    517     call print_memuse_stats('fms_init')
+    518 
+    519 !--- output version information constants to the logfile
+    520     call write_version_number("CONSTANTS_MOD", constants_version)
+    521     call grid_init
+    522 
+    523 end subroutine fms_init
+
+
+ENTRY POINTS
+
+  Name                            
+                                  
+ fms_mod_mp_fms_init_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CHECK_NML_ERROR            Func   450      I(4)            4           scalar                    215,450,764                       
+ CHECK_NML_ERROR@0          Local  450      I(4)            4           scalar                                                      
+ CLOCK_COMPONENT            Param  477      I(4)            4           scalar                    158,234,477                       
+ CLOCK_FLAGS                Local  495      CHAR            16          scalar                    263,321,495                       
+ CLOCK_FLAG_DEFAULT         Local  497      I(4)            4           scalar                    246,497,499,501                   
+ CLOCK_GRAIN                Local  473      CHAR            16          scalar                    263,321,473                       
+ CLOCK_INFRA                Param  489      I(4)            4           scalar                    161,236,489                       
+ CLOCK_LOOP                 Param  487      I(4)            4           scalar                    160,236,487                       
+ CLOCK_MODULE               Param  483      I(4)            4           scalar                    159,235,483                       
+ CLOCK_MODULE_DRIVER        Param  481      I(4)            4           scalar                    159,235,481                       
+ CLOCK_ROUTINE              Param  485      I(4)            4           scalar                    160,236,485                       
+ CLOCK_SUBCOMPONENT         Param  479      I(4)            4           scalar                    158,234,479                       
+ CONSTANTS_MOD              Module 420                                                            420                               
+ CONSTANTS_VERSION          Param  420      CHAR            7           scalar                    520                               
+ DOMAINS_STACK_SIZE         Local  457      I(4)            4           scalar                    266,322,457                       
+ ERROR_MESG                 Subr   467                                                            216,467,491,503,774,778           
+ FATAL                      Param  463      I(4)            4           scalar                    150,226,463,468,492,504,674,774,77
+                                                                                                  8                                 
+ FMS2_IO_INIT               Subr   442                                           PRIV             190,442                           
+ FMS_INIT                   Subr   417                                                                                              
+ FMS_IO_INIT                Subr   436                                           PRIV             183,436                           
+ FMS_IO_INITIALIZED         Local  438      L(4)            4           scalar   PRIV             364,438,440                       
+ FMS_IO_MOD                 Module 421                                                            421                               
+ FMS_IO_VERSION             Param  421      CHAR            7           scalar                    421,439                           
+ FMS_NML                    Local  449                                  scalar                    449,512                           
+ GRID_INIT                  Subr   521                                           PRIV             192,521                           
+ IERR                       Local  424      I(4)            4           scalar                    450                               
+ INPUT_NML_FILE             Local  449      CHAR                  1     1        ALC,TGT          165,231,449                       
+ IO                         Local  424      I(4)            4           scalar                    449,450                           
+ LOCALCOMM                  Dummy  417      I(4)            4           scalar   ARG,IN           430,431                           
+
+Page 11          Source Listing                  FMS_INIT
+2021-06-01 08:54 Symbol Table                    fms.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ LOGUNITNUM                 Local  425      I(4)            4           scalar                    443                               
+ LOWERCASE                  Func   461      CHAR                        scalar   TGT              164,221,461                       
+ MEMUTILS_INIT              Subr   516                                           PRIV             191,516                           
+ MODULE_IS_INITIALIZED      Local  427      L(4)            4           scalar                    362,427,428,552,558,621,762,1074  
+ MPP_CLOCK_DETAILED         Param  501      I(4)            4           scalar                    157,233,501                       
+ MPP_CLOCK_SET_GRAIN        Subr   475                                           PRIV             161,475,477,479,481,483,485,487,48
+                                                                                                  9                                 
+ MPP_CLOCK_SYNC             Param  499      I(4)            4           scalar                    157,233,499                       
+ MPP_DOMAINS_INIT           Subr   435                                           PRIV             170,435                           
+ MPP_DOMAINS_SET_STACK_SIZE Subr   457                                           PRIV             171,457                           
+ MPP_INIT                   Subr   431                                           PRIV             156,431,433                       
+ MPP_PE                     Func   510      I(4)            4           scalar                    153,228,510,819,1082              
+ MPP_ROOT_PE                Func   510      I(4)            4           scalar                    153,228,510,819,877,1082          
+ MPP_SET_STACK_SIZE         Subr   456                                           PRIV             162,456                           
+ MPP_SET_WARN_LEVEL         Subr   463                                           PRIV             151,463,465                       
+ NML_ERROR_CODES            Local  513      I(4)            4     1     20       PRIV             327,513                           
+ NML_ERROR_INIT             Subr   446                                           PRIV             329,446                           
+ NUM_NML_ERROR_CODES        Local  513      I(4)            4           scalar   PRIV             327,513                           
+ PRESENT                    Func   430                                  scalar                    430                               
+ PRINT_MEMORY_USAGE         Local  516      L(4)            4           scalar                    267,323,516                       
+ PRINT_MEMUSE_STATS         Subr   517                                           PRIV             191,517                           
+ STACK_SIZE                 Local  456      I(4)            4           scalar                    265,322,456                       
+ STDLOG                     Func   443      I(4)            4           scalar                    163,229,443,511,1076              
+ TRIM                       Func   461                                  scalar                    461,473,495                       
+ UNIT                       Local  424      I(4)            4           scalar                    511,512,513                       
+ UPPERCASE                  Func   473      CHAR                        scalar   TGT              165,221,473,495                   
+ VERSION                    Param  509      CHAR            7           scalar                    509                               
+ WARNING                    Param  465      I(4)            4           scalar                    150,226,465                       
+ WARNING_LEVEL              Local  461      CHAR            8           scalar                    264,322,461                       
+ WRITE_VERSION_NUMBER       Subr   439                                                            218,439,509,520                   
+
+Page 12          Source Listing                  FMS_INIT
+2021-06-01 08:54                                 fms.F90
+
+    524 ! </SUBROUTINE>
+    525 
+    526 !#######################################################################
+    527 
+    528 
+    529 ! <SUBROUTINE NAME="fms_end">
+    530 
+    531 !   <OVERVIEW>
+    532 !     Calls the termination routines for all modules in the MPP package.
+    533 !   </OVERVIEW>
+    534 !   <DESCRIPTION>
+    535 !     Termination routine for the fms module. It also calls destructor routines
+    536 !      for the mpp, mpp_domains, and mpp_io modules. If this routine is called
+    537 !      more than once it will return silently. There are no arguments.
+    538 !   </DESCRIPTION>
+    539 !   <TEMPLATE>
+    540 !     call fms_end ( )
+    541 !   </TEMPLATE>
+    542 
+    543 ! terminates the fms module/package
+    544 ! also calls mpp destructor routines
+    545 
+    546 !> @brief Calls the termination routines for all modules in the MPP package.
+    547 !! @details Termination routine for the fms module. It also calls destructor routines
+    548 !!      for the mpp, mpp_domains, and mpp_io modules. If this routine is called
+    549 !!      more than once it will return silently. There are no arguments.
+    550 subroutine fms_end ( )
+    551 
+    552     if (.not.module_is_initialized) return  ! return silently
+    553 !    call fms_io_exit  ! now called from coupler_end
+    554     call grid_end
+    555     call mpp_io_exit
+    556     call mpp_domains_exit
+    557     call mpp_exit
+    558     module_is_initialized =.FALSE.
+    559 
+    560 end subroutine fms_end
+
+Page 13          Source Listing                  FMS_END
+2021-06-01 08:54 Entry Points                    fms.F90
+
+
+
+ENTRY POINTS
+
+  Name                           
+                                 
+ fms_mod_mp_fms_end_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FMS_END                    Subr   550                                                                                              
+ GRID_END                   Subr   554                                           PRIV             192,554                           
+ MPP_DOMAINS_EXIT           Subr   556                                           PRIV             170,556                           
+ MPP_EXIT                   Subr   557                                           PRIV             156,557                           
+ MPP_IO_EXIT                Subr   555                                           PRIV             179,555                           
+
+Page 14          Source Listing                  FMS_END
+2021-06-01 08:54                                 fms.F90
+
+    561 ! </SUBROUTINE>
+    562 
+    563 
+    564 !#######################################################################
+    565 ! <SUBROUTINE NAME="error_mesg">
+    566 
+    567 !   <OVERVIEW>
+    568 !     Print notes, warnings and error messages; terminates program for warning
+    569 !     and error messages. (use error levels NOTE,WARNING,FATAL, see example below)
+    570 !   </OVERVIEW>
+    571 !   <DESCRIPTION>
+    572 !     Print notes, warnings and error messages; and terminates the program for
+    573 !     error messages. This routine is a wrapper around mpp_error, and is provided
+    574 !     for backward compatibility. This module also publishes mpp_error,
+    575 !      <B>users should try to use the mpp_error interface</B>.
+    576 !   </DESCRIPTION>
+    577 !   <TEMPLATE>
+    578 !     call error_mesg ( routine, message, level )
+    579 !   </TEMPLATE>
+    580 
+    581 !   <IN NAME="routine"  TYPE="character" >
+    582 !     Routine name where the warning or error has occurred.
+    583 !   </IN>
+    584 !   <IN NAME="message"  TYPE="character" >
+    585 !     Warning or error message to be printed.
+    586 !   </IN>
+    587 !   <IN NAME="level"  TYPE="integer" >
+    588 !     Level of severity; set to NOTE, WARNING, or FATAL Termination always occurs
+    589 !     for FATAL, never for NOTE, and is settable for WARNING (see namelist).
+    590 !   </IN>
+    591 !   <NOTE>
+    592 !
+    593 !     Examples:
+    594 !     <PRE>
+    595 !        use fms_mod, only: error_mesg, FATAL, NOTE
+    596 
+    597 !        call error_mesg ('fms_mod', 'initialization not called', FATAL)
+    598 !        call error_mesg ('fms_mod', 'fms_mod message', NOTE)
+    599 !     </PRE>
+    600 !   </NOTE>
+    601 ! wrapper for the mpp error handler
+    602 ! users should try to use the mpp_error interface
+    603 
+    604 !> @brief Print notes, warnings and error messages; terminates program for warning
+    605 !!     and error messages. (use error levels NOTE,WARNING,FATAL, see example below)
+    606 !! @details Print notes, warnings and error messages; and terminates the program for
+    607 !!     error messages. This routine is a wrapper around mpp_error, and is provided
+    608 !!     for backward compatibility. This module also publishes mpp_error,
+    609 !!      <B>users should try to use the mpp_error interface</B>.
+    610  subroutine error_mesg (routine, message, level)
+    611   character(len=*), intent(in) :: routine !< Routine name where the warning or error has occurred.
+    612   character(len=*), intent(in) :: message !< Warning or error message to be printed.
+    613   integer,          intent(in) :: level !< Level of severity; set to NOTE, WARNING, or FATAL Termination always occurs
+    614 !! for FATAL, never for NOTE, and is settable for WARNING (see namelist).
+    615 
+    616 !  input:
+    617 !      routine   name of the calling routine (character string)
+
+Page 15          Source Listing                  ERROR_MESG
+2021-06-01 08:54                                 fms.F90
+
+    618 !      message   message written to output   (character string)
+    619 !      level     set to NOTE, MESSAGE, or FATAL (integer)
+    620 
+    621     if (.not.module_is_initialized) call fms_init ( )
+    622     call mpp_error ( routine, message, level )
+    623 
+    624  end subroutine error_mesg
+
+
+ENTRY POINTS
+
+  Name                              
+                                    
+ fms_mod_mp_error_mesg_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ERROR_MESG                 Subr   610                                                                                              
+ FMS_INIT                   Subr   621                                                            199,621,762,1074                  
+ LEVEL                      Dummy  610      I(4)            4           scalar   ARG,IN           622                               
+ MESSAGE                    Dummy  610      CHAR                        scalar   ARG,IN           622                               
+ MPP_ERROR                  Local  622                                  scalar                    150,226,622,674                   
+ MPP_ERROR_MESG             Subr   622                                           PRIV             622,674                           
+ ROUTINE                    Dummy  610      CHAR                        scalar   ARG,IN           622                               
+
+Page 16          Source Listing                  ERROR_MESG
+2021-06-01 08:54                                 fms.F90
+
+    625 ! </SUBROUTINE>
+    626 
+    627 !#######################################################################
+    628 ! <FUNCTION NAME="fms_error_handler">
+    629 
+    630 !   <OVERVIEW>
+    631 !     Facilitates the control of fatal error conditions
+    632 !   </OVERVIEW>
+    633 !   <DESCRIPTION>
+    634 !     When err_msg is present, message is copied into err_msg
+    635 !     and the function returns a value of .true.
+    636 !     Otherwise calls mpp_error to terminate execution.
+    637 !     The intended use is as shown below.
+    638 !   </DESCRIPTION>
+    639 !   <TEMPLATE>
+    640 !     if(fms_error_handler(routine, message, err_msg)) return
+    641 !   </TEMPLATE>
+    642 !   <IN NAME="routine"  TYPE="character">
+    643 !     Routine name where the fatal error has occurred.
+    644 !   </IN>
+    645 !   <IN NAME="message"  TYPE="character">
+    646 !     fatal error message to be printed.
+    647 !   </IN>
+    648 !   <OUT NAME="fms_error_handler"  TYPE="logical">
+    649 !     .true.  when err_msg is present
+    650 !     .false. when err_msg is not present
+    651 !   </OUT>
+    652 !   <OUT NAME="err_msg"  TYPE="character">
+    653 !     When err_msg is present: err_msg = message
+    654 !   </OUT>
+    655 
+    656 !> @brief Facilitates the control of fatal error conditions
+    657 !! @return logical fms_error_handler
+    658 !! @details When err_msg is present, message is copied into err_msg
+    659 !!     and the function returns a value of .true.
+    660 !!     Otherwise calls mpp_error to terminate execution.
+    661 !!     The intended use is as shown below.
+    662  function fms_error_handler(routine, message, err_msg)
+    663 
+    664  logical :: fms_error_handler
+    665  character(len=*), intent(in) :: routine !< Routine name where the fatal error has occurred.
+    666  character(len=*), intent(in) :: message !< fatal error message to be printed.
+    667  character(len=*), intent(out), optional :: err_msg !< When err_msg is present: err_msg = message
+    668 
+    669  fms_error_handler = .false.
+    670  if(present(err_msg)) then
+    671    err_msg = message
+    672    fms_error_handler = .true.
+    673  else
+    674    call mpp_error(trim(routine),trim(message),FATAL)
+    675  endif
+    676 
+    677  end function fms_error_handler
+
+Page 17          Source Listing                  FMS_ERROR_HANDLER
+2021-06-01 08:54 Entry Points                    fms.F90
+
+
+
+ENTRY POINTS
+
+  Name                                     
+                                           
+ fms_mod_mp_fms_error_handler_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ERR_MSG                    Dummy  662      CHAR                        scalar   ARG,OUT          670,671                           
+ FMS_ERROR_HANDLER          Func   662      L(4)            4           scalar                                                      
+ MESSAGE                    Dummy  662      CHAR                        scalar   ARG,IN           671,674                           
+ PRESENT                    Func   670                                  scalar                    670                               
+ ROUTINE                    Dummy  662      CHAR                        scalar   ARG,IN           674                               
+ TRIM                       Func   674                                  scalar                    674                               
+
+Page 18          Source Listing                  FMS_ERROR_HANDLER
+2021-06-01 08:54                                 fms.F90
+
+    678 ! </FUNCTION>
+    679 
+    680 !#######################################################################
+    681 ! <FUNCTION NAME="check_nml_error">
+    682 
+    683 !   <OVERVIEW>
+    684 !     Checks the iostat argument that is returned after reading a namelist
+    685 !     and determines if the error code is valid.
+    686 !   </OVERVIEW>
+    687 !   <DESCRIPTION>
+    688 !     The FMS allows multiple namelist records to reside in the same file.
+    689 !     Use this interface to check the iostat argument that is returned after
+    690 !     reading a record from the namelist file. If an invalid iostat value
+    691 !     is detected this routine will produce a fatal error. See the NOTE below.
+    692 !   </DESCRIPTION>
+    693 !   <TEMPLATE>
+    694 !     check_nml_error ( iostat, nml_name )
+    695 !   </TEMPLATE>
+    696 
+    697 !   <IN NAME="iostat"  TYPE="integer" >
+    698 !     The iostat value returned when reading a namelist record.
+    699 !   </IN>
+    700 !   <IN NAME="nml_name"  TYPE="character" >
+    701 !     The name of the namelist. This name will be printed if an error is
+    702 !     encountered, otherwise the name is not used.
+    703 !   </IN>
+    704 !   <OUT NAME=""  TYPE="integer" >
+    705 !     This function returns the input iostat value (integer) if it is an
+    706 !     allowable error code. If the iostat error code is not
+    707 !     allowable, an error message is printed and the program terminated.
+    708 !   </OUT>
+    709 !   <NOTE>
+    710 !     Some compilers will return non-zero iostat values when reading through
+    711 !     files with multiple namelist. This routine
+    712 !     will try skip these errors and only terminate for true namelist errors.
+    713 !
+    714 !     Examples
+    715 !
+    716 !       The following example checks if a file exists, reads a namelist input
+    717 !       from that file, and checks for errors in that
+    718 !       namelist. When the correct namelist is read and it has no errors the
+    719 !       routine check_nml_error will return zero and the while loop will exit.
+    720 !       This code segment should be used to read namelist files.
+    721 !       <PRE>
+    722 !          integer :: unit, ierr, io
+    723 !
+    724 !          if ( file_exist('input.nml') ) then
+    725 !              unit = open_namelist_file ( )
+    726 !              ierr=1
+    727 !              do while (ierr > 0)
+    728 !                read  (unit, nml=moist_processes_nml, iostat=io)
+    729 !                ierr = check_nml_error(io,'moist_processes_nml')
+    730 !              enddo
+    731 !              call close_file (unit)
+    732 !          endif
+    733 !       </PRE>
+    734 !   </NOTE>
+
+Page 19          Source Listing                  FMS_ERROR_HANDLER
+2021-06-01 08:54                                 fms.F90
+
+    735 
+    736 !   <ERROR MSG="Unknown error while reading namelist ...., (IOSTAT = ####)" STATUS="FATAL">
+    737 !     There was an error reading the namelist specified. Carefully examine all namelist and variables
+    738 !     for anything incorrect (e.g. malformed, hidden characters).
+    739 !   </ERROR>
+    740 !   <ERROR MSG="Unknown namelist, or mistyped namelist variable in namelist ...., (IOSTAT = ####)" STATUS="FATAL">
+    741 !     The name list given doesn't exist in the namelist file, or a variable in the namelist is mistyped or isn't a
+    742 !     namelist variable.
+    743 !   </ERROR>
+    744 
+    745 ! used to check the iostat argument that is
+    746 ! returned after reading a namelist
+    747 ! see the online documentation for how this routine might be used
+    748 !> @brief Checks the iostat argument that is returned after reading a namelist
+    749 !!     and determines if the error code is valid.
+    750 !! @return integer check_nml_error
+    751 !! @details The FMS allows multiple namelist records to reside in the same file.
+    752 !!     Use this interface to check the iostat argument that is returned after
+    753 !!     reading a record from the namelist file. If an invalid iostat value
+    754 !!     is detected this routine will produce a fatal error. See the NOTE below.
+    755   INTEGER FUNCTION check_nml_error(IOSTAT, NML_NAME)
+    756     INTEGER, INTENT(in) :: IOSTAT !< The iostat value returned when reading a namelist record.
+    757     CHARACTER(len=*), INTENT(in) :: NML_NAME !< The name of the namelist. This name will be printed if an error is
+    758 !! encountered, otherwise the name is not used.
+    759 
+    760     CHARACTER(len=256) :: err_str
+    761 
+    762     IF ( .NOT.module_is_initialized) CALL fms_init()
+    763 
+    764     check_nml_error = IOSTAT
+    765 
+    766 ! Return on valid IOSTAT values
+    767     IF ( IOSTAT <= 0 .OR.&
+    768        & IOSTAT == nml_errors%multipleNMLSinFile .OR.&
+    769        & IOSTAT == nml_errors%NotInFile) RETURN
+    770 
+    771 ! Everything else is a FATAL
+    772     IF ( (IOSTAT == nml_errors%badType1 .OR. IOSTAT == nml_errors%badType2) .OR. IOSTAT == nml_errors%missingVar ) THEN
+    773        WRITE (err_str,*) 'Unknown namelist, or mistyped namelist variable in namelist ',TRIM(NML_NAME),', (IOSTAT = ',IOSTAT
+    773 ,')'
+    774        CALL error_mesg ('check_nml_error in fms_mod', err_str, FATAL)
+    775        CALL mpp_sync()
+    776     ELSE
+    777        WRITE (err_str,*) 'Unknown error while reading namelist ',TRIM(NML_NAME),', (IOSTAT = ',IOSTAT,')'
+    778        CALL error_mesg ('check_nml_error in fms_mod', err_str, FATAL)
+    779        CALL mpp_sync()
+    780     END IF
+    781   END FUNCTION check_nml_error
+
+Page 20          Source Listing                  CHECK_NML_ERROR
+2021-06-01 08:54 Entry Points                    fms.F90
+
+
+
+ENTRY POINTS
+
+  Name                                   
+                                         
+ fms_mod_mp_check_nml_error_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CHECK_NML_ERROR            Func   755      I(4)            4           scalar                                                      
+ ERR_STR                    Local  760      CHAR            256         scalar                    773,774,777,778                   
+ IOSTAT                     Dummy  755      I(4)            4           scalar   ARG,IN           764,767,768,769,772,773,777       
+ MPP_SYNC                   Subr   775                                           PRIV             154,775,779                       
+ NML_ERRORS                 Local  768      NML_ERRORS_TYPE 20          scalar   SAVE             768,769,772,878,879,880,881,882   
+ NML_NAME                   Dummy  755      CHAR                        scalar   ARG,IN           773,777                           
+ TRIM                       Func   773                                  scalar                    773,777                           
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ NML_ERRORS_TYPE.BADTYPE1   I(4)            4     4              scalar                    772,879                            
+ NML_ERRORS_TYPE.BADTYPE2   I(4)            4     8              scalar                    772,880                            
+ NML_ERRORS_TYPE.MISSINGVAR I(4)            4     12             scalar                    772,881                            
+ NML_ERRORS_TYPE.MULTIPLENMLSINFILE                                                                                        ...
+                            I(4)            4     0              scalar                    768,878                            
+ NML_ERRORS_TYPE.NOTINFILE  I(4)            4     16             scalar                    769,882                            
+
+Page 21          Source Listing                  CHECK_NML_ERROR
+2021-06-01 08:54                                 fms.F90
+
+    782 ! </FUNCTION>
+    783 
+    784 !-----------------------------------------------------------------------
+    785 !   private routine for initializing allowable error codes
+    786 
+    787 !> @brief Determines the IOSTAT error value for some common Namelist errors.
+    788 !!   Also checks if the compiler returns a non-zero status if there are
+    789 !!   multiple namelist records in a single file.
+    790   SUBROUTINE nml_error_init
+    791 ! Determines the IOSTAT error value for some common Namelist errors.
+    792 ! Also checks if the compiler returns a non-zero status if there are
+    793 ! multiple namelist records in a single file.
+    794     INTEGER, PARAMETER :: unit_begin = 20, unit_end = 1024
+    795     INTEGER :: fileunit, io_stat
+    796     INTEGER, DIMENSION(5) :: nml_iostats
+    797     LOGICAL :: opened
+    798 
+    799 ! Variables for sample namelists
+    800     INTEGER :: i1 !< Variables for sample namelists
+    801     INTEGER :: i2 !< Variables for sample namelists
+    802     REAL :: r1, r2
+    803     LOGICAL :: l1
+    804     NAMELIST /a_nml/ i1, r1
+    805     NAMELIST /b_nml/ i2, r2, l1
+    806     NAMELIST /badType1_nml/ i1, r1
+    807     NAMELIST /badType2_nml/ i1, r1
+    808     NAMELIST /missingVar_nml/ i2, r2
+    809     NAMELIST /not_in_file_nml/ i2, r2
+    810 
+    811 ! Initialize the sample namelist variables
+    812     i1 = 1
+    813     i2 = 2
+    814     r1 = 1.0
+    815     r2 = 2.0
+    816     l1 = .FALSE.
+    817 
+    818 ! Create a dummy namelist file
+    819     IF ( mpp_pe() == mpp_root_pe() ) THEN
+    820 ! Find a free file unit for a scratch file
+    821        file_opened: DO fileunit = unit_begin, unit_end
+    822           INQUIRE(UNIT=fileunit, OPENED=opened)
+    823           IF ( .NOT.opened ) EXIT file_opened
+    824        END DO file_opened
+    825 
+    826 # 810
+    827 
+    828        OPEN (UNIT=fileunit, STATUS='SCRATCH', IOSTAT=io_stat)
+    829 
+    830 
+    831 ! Write sample namelist to the SCRATCH file.
+    832        WRITE (UNIT=fileunit, NML=a_nml, IOSTAT=io_stat)
+    833        WRITE (UNIT=fileunit, NML=b_nml, IOSTAT=io_stat)
+    834        WRITE (UNIT=fileunit, IOSTAT=io_stat, FMT='(/,"&badType1_nml  i1=1, r1=''bad'' /",/)')
+    835        WRITE (UNIT=fileunit, IOSTAT=io_stat, FMT='(/,"&badType2_nml  i1=1, r1=.true. /",/)')
+    836        WRITE (UNIT=fileunit, IOSTAT=io_stat, FMT='(/,"&missingVar_nml  i2=1, r2=1.0e0, l1=.true. /",/)')
+    837 
+    838 ! Rewind for reading
+
+Page 22          Source Listing                  NML_ERROR_INIT
+2021-06-01 08:54                                 fms.F90
+
+    839        REWIND(UNIT=fileunit)
+    840 
+    841 ! Read the second namelist from the file -- check for namelist bug
+    842        READ (UNIT=fileunit, NML=b_nml, IOSTAT=nml_iostats(1))
+    843        REWIND(UNIT=fileunit)
+    844 
+    845 ! Read in bad type 1 --- Some compilers treat the string cast differently
+    846        READ (UNIT=fileunit, NML=badType1_nml, IOSTAT=nml_iostats(2))
+    847        REWIND(UNIT=fileunit)
+    848 
+    849 ! Read in bad type 2
+    850        READ (UNIT=fileunit, NML=badType2_nml, IOSTAT=nml_iostats(3))
+    851        REWIND(UNIT=fileunit)
+    852 
+    853 ! Read in missing variable/misstyped
+    854        READ (UNIT=fileunit, NML=missingVar_nml, IOSTAT=nml_iostats(4))
+    855        REWIND(UNIT=fileunit)
+    856 
+    857 ! Code for namelist not in file
+    858        READ (UNIT=fileunit, NML=not_in_file_nml, IOSTAT=nml_iostats(5))
+    859 
+    860 ! Done, close file
+    861        CLOSE (UNIT=fileunit)
+    862 
+    863 ! Some compilers don't handle the type casting as well as we would like.
+    864        IF ( nml_iostats(2) * nml_iostats(3) .EQ. 0 ) THEN
+    865           IF ( nml_iostats(2) .NE. 0 .AND. nml_iostats(3) .EQ. 0 ) THEN
+    866              nml_iostats(3) = nml_iostats(2)
+    867           ELSE IF ( nml_iostats(2) .EQ. 0 .AND. nml_iostats(3) .NE.0 ) THEN
+    868              nml_iostats(2) = nml_iostats(3)
+    869           ELSE
+    870              nml_iostats(2) = nml_iostats(4)
+    871              nml_iostats(2) = nml_iostats(4)
+    872           END IF
+    873        END IF
+    874     END IF
+    875 
+    876 ! Broadcast nml_errors
+    877     CALL mpp_broadcast(nml_iostats,5,mpp_root_pe())
+    878     nml_errors%multipleNMLSinFile = nml_iostats(1)
+    879     nml_errors%badType1 = nml_iostats(2)
+    880     nml_errors%badType2 = nml_iostats(3)
+    881     nml_errors%missingVar = nml_iostats(4)
+    882     nml_errors%NotInFile = nml_iostats(5)
+    883 
+    884     do_nml_error_init = .FALSE.
+    885   END SUBROUTINE nml_error_init
+
+Page 23          Source Listing                  NML_ERROR_INIT
+2021-06-01 08:54 Entry Points                    fms.F90
+
+
+
+ENTRY POINTS
+
+  Name                                  
+                                        
+ fms_mod_mp_nml_error_init_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ A_NML                      Local  804                                  scalar                    832                               
+ BADTYPE1_NML               Local  806                                  scalar                    846                               
+ BADTYPE2_NML               Local  807                                  scalar                    850                               
+ B_NML                      Local  805                                  scalar                    833,842                           
+ DO_NML_ERROR_INIT          Local  884      L(4)            4           scalar   PRIV             328,884                           
+ FILEUNIT                   Local  795      I(4)            4           scalar                    821,822,828,832,833,834,835,836,83
+                                                                                                  9,842,843,846,847,850,851,854,855,
+                                                                                                  858,861                           
+ FILE_OPENED                Label  821                                  scalar                    823,824                           
+ I1                         Local  800      I(4)            4           scalar                    804,806,807,812                   
+ I2                         Local  801      I(4)            4           scalar                    805,808,809,813                   
+ IO_STAT                    Local  795      I(4)            4           scalar                    828,832,833,834,835,836           
+ L1                         Local  803      L(4)            4           scalar                    805,816                           
+ MISSINGVAR_NML             Local  808                                  scalar                    854                               
+ MPP_BROADCAST              Local  877                                  scalar   PRIV             165,877                           
+ MPP_BROADCAST_INT4         Subr   877                                           PRIV             877                               
+ NML_ERROR_INIT             Subr   790                                                                                              
+ NML_IOSTATS                Local  796      I(4)            4     1     5                         842,846,850,854,858,864,865,866,86
+                                                                                                  7,868,870,871,877,878,879,880,881,
+                                                                                                  882                               
+ NOT_IN_FILE_NML            Local  809                                  scalar                    858                               
+ OPENED                     Local  797      L(4)            4           scalar                    822,823                           
+ R1                         Local  802      R(8)            8           scalar                    804,806,807,814                   
+ R2                         Local  802      R(8)            8           scalar                    805,808,809,815                   
+ UNIT_BEGIN                 Param  794      I(4)            4           scalar                    821                               
+ UNIT_END                   Param  794      I(4)            4           scalar                    821                               
+
+Page 24          Source Listing                  NML_ERROR_INIT
+2021-06-01 08:54                                 fms.F90
+
+    886 
+    887 !#######################################################################
+    888 
+    889 
+    890 ! <FUNCTION NAME="string_array_index">
+    891 
+    892 !   <OVERVIEW>
+    893 !     match the input character string to a string
+    894 !     in an array/list of character strings
+    895 !   </OVERVIEW>
+    896 !   <DESCRIPTION>
+    897 !      Tries to find a match for a character string in a list of character strings.
+    898 !      The match is case sensitive and disregards blank characters to the right of
+    899 !      the string.
+    900 !   </DESCRIPTION>
+    901 !   <TEMPLATE>
+    902 !      string_array_index ( string, string_array [, index] )
+    903 !   </TEMPLATE>
+    904 
+    905 !   <IN NAME="string"  TYPE="character(len=*), scalar" >
+    906 !     Character string of arbitrary length.
+    907 !   </IN>
+    908 !   <IN NAME="string_array"  TYPE="character(len=*)" DIM="(:)">
+    909 !     Array/list of character strings.
+    910 !   </IN>
+    911 !   <OUT NAME="index"  TYPE="integer" >
+    912 !     The index of string_array where the first match was found. If
+    913 !            no match was found then index = 0.
+    914 !   </OUT>
+    915 !   <OUT NAME="string_array_index"  TYPE="logical" >
+    916 !     If an exact match was found then TRUE is returned, otherwise FALSE is returned.
+    917 !   </OUT>
+    918 !   <NOTE>
+    919 !     Examples
+    920 !      <PRE>
+    921 !       string = "def"
+    922 !       string_array = (/ "abcd", "def ", "fghi" /)
+    923 
+    924 !       string_array_index ( string, string_array, index )
+    925 
+    926 !       Returns: TRUE, index = 2
+    927 !      </PRE>
+    928 !   </NOTE>
+    929 ! match the input character string to a string
+    930 ! in an array/list of character strings
+    931 
+    932 !> @brief match the input character string to a string
+    933 !!     in an array/list of character strings
+    934 !! @return logical found
+    935 !! @details Tries to find a match for a character string in a list of character strings.
+    936 !!      The match is case sensitive and disregards blank characters to the right of
+    937 !!      the string.
+    938 function string_array_index ( string, string_array, index ) result (found)
+    939 character(len=*),  intent(in)  :: string !< Character string of arbitrary length.
+    940 character(len=*),  intent(in)  :: string_array(:) !< Array/list of character strings.
+    941 integer, optional, intent(out) :: index !< The index of string_array where the first match was found. If
+    942 !! no match was found then index = 0.
+
+Page 25          Source Listing                  STRING_ARRAY_INDEX
+2021-06-01 08:54                                 fms.F90
+
+    943 logical :: found !< If an exact match was found then TRUE is returned, otherwise FALSE is returned.
+    944 integer :: i
+    945 
+    946 ! initialize this function to false
+    947 ! loop thru string_array and exit when a match is found
+    948 
+    949   found = .false.
+    950   if (present(index)) index = 0
+    951 
+    952   do i = 1, size(string_array(:))
+    953 ! found a string match ?
+    954     if ( trim(string) == trim(string_array(i)) ) then
+    955          found = .true.
+    956          if (present(index)) index = i
+    957          exit
+    958     endif
+    959   enddo
+    960 
+    961 end function string_array_index
+
+
+ENTRY POINTS
+
+  Name                                      
+                                            
+ fms_mod_mp_string_array_index_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FOUND                      Local  943      L(4)            4           scalar                    949,955                           
+ I                          Local  944      I(4)            4           scalar                    952,954,956                       
+ INDEX                      Dummy  938      I(4)            4           scalar   ARG,OUT          950,956                           
+ PRESENT                    Func   950                                  scalar                    950,956                           
+ SIZE                       Func   952                                  scalar                    952                               
+ STRING                     Dummy  938      CHAR                        scalar   ARG,IN           954                               
+ STRING_ARRAY               Dummy  938      CHAR                  1     1        ARG,IN           952,954                           
+ STRING_ARRAY_INDEX         Func   938      L(4)            4           scalar                                                      
+ TRIM                       Func   954                                  scalar                    954                               
+
+Page 26          Source Listing                  STRING_ARRAY_INDEX
+2021-06-01 08:54                                 fms.F90
+
+    962 ! </FUNCTION>
+    963 
+    964 !#######################################################################
+    965 
+    966 ! <FUNCTION NAME="monotonic_array">
+    967 
+    968 !   <OVERVIEW>
+    969 !     Determines if a real input array has monotonically increasing or
+    970 !     decreasing values.
+    971 !   </OVERVIEW>
+    972 !   <DESCRIPTION>
+    973 !     Determines if the real input array has monotonically increasing or
+    974 !     decreasing values.
+    975 !   </DESCRIPTION>
+    976 !   <TEMPLATE>
+    977 !     monotonic_array ( array [, direction] )
+    978 !   </TEMPLATE>
+    979 
+    980 !   <IN NAME="array"  TYPE="real" DIM="(:)">
+    981 !     An array of real values. If the size(array) < 2 this function
+    982 !     assumes the array is not monotonic, no fatal error will occur.
+    983 !   </IN>
+    984 !   <OUT NAME="direction"  TYPE="integer" >
+    985 !     If the input array is:
+    986 !                >> monotonic (small to large) then direction = +1.
+    987 !                >> monotonic (large to small) then direction = -1.
+    988 !                >> not monotonic then direction = 0.
+    989 !   </OUT>
+    990 !   <OUT NAME="monotonic_array"  TYPE="logical" >
+    991 !     If the input array of real values either increases or decreases monotonically
+    992 !      then TRUE is returned, otherwise FALSE is returned.
+    993 !   </OUT>
+    994 ! determines if the real input array has
+    995 ! monotonically increasing or decreasing values
+    996 
+    997 !> @brief Determines if a real input array has monotonically increasing or
+    998 !!     decreasing values.
+    999 !! @return logical monotonic_array
+   1000 function monotonic_array ( array, direction )
+   1001 real,    intent(in)            :: array(:) !< An array of real values. If the size(array) < 2 this function
+   1002 !! assumes the array is not monotonic, no fatal error will occur.
+   1003 integer, intent(out), optional :: direction !< If the input array is:
+   1004 !! >> monotonic (small to large) then direction = +1.
+   1005 !! >> monotonic (large to small) then direction = -1.
+   1006 !! >> not monotonic then direction = 0.
+   1007 logical :: monotonic_array !< If the input array of real values either increases or decreases monotonically
+   1008 !! then TRUE is returned, otherwise FALSE is returned.
+   1009 integer :: i
+   1010 
+   1011 ! initialize
+   1012   monotonic_array = .false.
+   1013   if (present(direction)) direction = 0
+   1014 
+   1015 ! array too short
+   1016   if ( size(array(:)) < 2 ) return
+   1017 
+   1018 ! ascending
+
+Page 27          Source Listing                  MONOTONIC_ARRAY
+2021-06-01 08:54                                 fms.F90
+
+   1019   if ( array(1) < array(size(array(:))) ) then
+   1020      do i = 2, size(array(:))
+   1021        if (array(i-1) < array(i)) cycle
+   1022        return
+   1023      enddo
+   1024      monotonic_array = .true.
+   1025      if (present(direction)) direction = +1
+   1026 
+   1027 ! descending
+   1028   else
+   1029      do i = 2, size(array(:))
+   1030        if (array(i-1) > array(i)) cycle
+   1031        return
+   1032      enddo
+   1033      monotonic_array = .true.
+   1034      if (present(direction)) direction = -1
+   1035   endif
+   1036 
+   1037 end function monotonic_array
+
+
+ENTRY POINTS
+
+  Name                                   
+                                         
+ fms_mod_mp_monotonic_array_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ARRAY                      Dummy  1000     R(8)            8     1     1        ARG,IN           1016,1019,1020,1021,1029,1030     
+ DIRECTION                  Dummy  1000     I(4)            4           scalar   ARG,OUT          1013,1025,1034                    
+ I                          Local  1009     I(4)            4           scalar                    1020,1021,1029,1030               
+ MONOTONIC_ARRAY            Func   1000     L(4)            4           scalar                                                      
+ PRESENT                    Func   1013                                 scalar                    1013,1025,1034                    
+ SIZE                       Func   1016                                 scalar                    1016,1019,1020,1029               
+
+Page 28          Source Listing                  MONOTONIC_ARRAY
+2021-06-01 08:54                                 fms.F90
+
+   1038 ! </FUNCTION>
+   1039 !! Functions from the old fms_io
+   1040 !> \brief Converts an integer to a string
+   1041 !! This has been updated from the fms_io function.
+   1042   function string_from_integer(i) result (res)
+   1043     integer, intent(in) :: i !< Integer to be converted to a string
+   1044     character(:),allocatable :: res !< String converted frominteger
+   1045     character(range(i)+2) :: tmp !< Temp string that is set to correct size
+   1046     write(tmp,'(i0)') i
+   1047     res = trim(tmp)
+   1048    return
+   1049 
+   1050   end function string_from_integer
+
+
+ENTRY POINTS
+
+  Name                                       
+                                             
+ fms_mod_mp_string_from_integer_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ I                          Dummy  1042     I(4)            4           scalar   ARG,IN           1045,1046                         
+ RANGE                      Func   1045                                 scalar                    1045                              
+ RES                        Local  1044     CHAR                        scalar   ALC              1047                              
+ STRING_FROM_INTEGER        Func   1042     CHAR                        scalar   ALC,PRIV                                           
+ TMP                        Local  1045     CHAR            11          scalar                    1046,1047                         
+ TRIM                       Func   1047                                 scalar                    1047                              
+
+Page 29          Source Listing                  STRING_FROM_INTEGER
+2021-06-01 08:54                                 fms.F90
+
+   1051 
+   1052 !#######################################################################
+   1053 !> \brief Converts a real to a string
+   1054   function string_from_real(a)
+   1055     real, intent(in) :: a
+   1056     character(len=32) :: string_from_real
+   1057 
+   1058     write(string_from_real,*) a
+   1059 
+   1060     return
+   1061 
+   1062   end function string_from_real
+
+
+ENTRY POINTS
+
+  Name                                    
+                                          
+ fms_mod_mp_string_from_real_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ A                          Dummy  1054     R(8)            8           scalar   ARG,IN           1058                              
+ STRING_FROM_REAL           Func   1054     CHAR            32          scalar   PRIV             1058                              
+
+Page 30          Source Listing                  STRING_FROM_REAL
+2021-06-01 08:54                                 fms.F90
+
+   1063 
+   1064 !#######################################################################
+   1065 !> @brief Prints to the log file (or a specified unit) the version id string and
+   1066 !!  tag name.
+   1067 subroutine write_version_number (version, tag, unit)
+   1068   character(len=*), intent(in) :: version !> string that contains routine name
+   1069   character(len=*), intent(in), optional :: tag !> tag name that code was checked out with
+   1070   integer,          intent(in), optional :: unit !> alternate unit number to direct output,
+   1071 !! defaults to stdlog
+   1072   integer :: logunit
+   1073 
+   1074   if (.not.module_is_initialized) call fms_init ( )
+   1075 
+   1076   logunit = stdlog()
+   1077 
+   1078   if (present(unit)) then
+   1079     logunit = unit
+   1080   else
+   1081 ! only allow stdlog messages on root pe
+   1082     if ( mpp_pe() /= mpp_root_pe() ) return
+   1083   endif
+   1084 
+   1085   if (present(tag)) then
+   1086     write (logunit,'(/,80("="),/(a))') trim(version), trim(tag)
+   1087   else
+   1088     write (logunit,'(/,80("="),/(a))') trim(version)
+   1089   endif
+   1090 
+   1091 end subroutine write_version_number
+
+Page 31          Source Listing                  WRITE_VERSION_NUMBER
+2021-06-01 08:54 Entry Points                    fms.F90
+
+
+
+ENTRY POINTS
+
+  Name                                        
+                                              
+ fms_mod_mp_write_version_number_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ LOGUNIT                    Local  1072     I(4)            4           scalar                    1076,1079,1086,1088               
+ PRESENT                    Func   1078                                 scalar                    1078,1085                         
+ TAG                        Dummy  1067     CHAR                        scalar   ARG,IN           1085,1086                         
+ TRIM                       Func   1086                                 scalar                    1086,1088                         
+ UNIT                       Dummy  1067     I(4)            4           scalar   ARG,IN           1078,1079                         
+ VERSION                    Dummy  1067     CHAR                        scalar   ARG,IN           1086,1088                         
+ WRITE_VERSION_NUMBER       Subr   1067                                                                                             
+
+Page 32          Source Listing                  WRITE_VERSION_NUMBER
+2021-06-01 08:54                                 fms.F90
+
+   1092 
+   1093 end module fms_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALL_PES                    Param  152      I(4)            4           scalar   PRIV             152                               
+ CLOSE_FILE                 Subr   185                                                            185,203                           
+ DOMAIN2D                   Type   168                                  scalar                    168                               
+ DO_CF_COMPLIANCE           Func   181      L(4)            4           scalar                    181,241                           
+ FIELDTYPE                  Type   180                                  scalar                    180                               
+ FIELD_EXIST                Func   188      L(4)            4           scalar                    188,215                           
+ FIELD_SIZE                 Subr   183                                                            183,208                           
+ FILE_EXIST                 Func   188      L(4)            4           scalar                    188,215                           
+ FMS2_IO_MOD                Module 190                                                            190                               
+ FMS_END                    Subr   199                                                            199                               
+ FMS_ERROR_HANDLER@0        Local  662      L(4)            4           scalar                                                      
+ FMS_IO_EXIT                Subr   183                                           PRIV             183                               
+ FMS_IO_MOD                 Module 183                                                            183                               
+ FMS_MOD                    Module 43                                                                                               
+ GET_DOMAIN_DECOMP          Subr   186                                                            186,208                           
+ GET_GLOBAL_ATT_VALUE       Local  188                                  scalar                    188,209                           
+ GET_MOSAIC_TILE_FILE       Local  188                                  scalar                    188,212                           
+ GET_MOSAIC_TILE_GRID       Subr   187                                                            187,212                           
+ GET_UNIT                   Func   166      I(4)            4           scalar                    166,230                           
+ GLOBAL_DATA_DOMAIN         Param  169      I(4)            4           scalar   PRIV             169                               
+ GRID2_MOD                  Module 192                                                            192                               
+ MEMUTILS_MOD               Module 191                                                            191                               
+ MONOTONIC_ARRAY@0          Local  1000     L(4)            4           scalar                                                      
+ MPP_APPEND                 Param  177      I(4)            4           scalar   PRIV             177                               
+ MPP_ASCII                  Param  176      I(4)            4           scalar   PRIV             176                               
+ MPP_CHKSUM                 Local  154                                  scalar                    154,230                           
+ MPP_CLOCK_BEGIN            Subr   155                                                            155,232                           
+ MPP_CLOCK_END              Subr   155                                                            155,232                           
+ MPP_CLOCK_ID               Func   156      I(4)            4           scalar                    156,232                           
+ MPP_CLOSE                  Subr   175                                           PRIV             175                               
+ MPP_DEFINE_DOMAINS         Local  168                                  scalar   PRIV             168                               
+ MPP_DELETE                 Param  179      I(4)            4           scalar   PRIV             179                               
+ MPP_DIRECT                 Param  178      I(4)            4           scalar   PRIV             178                               
+ MPP_DOMAINS_MOD            Module 168                                                            168                               
+ MPP_ERROR_STATE            Func   164      I(4)            4           scalar                    164,227                           
+ MPP_GET_ATTS               Local  180                                  scalar   PRIV             180                               
+ MPP_GET_COMPUTE_DOMAIN     Local  172                                  scalar   PRIV             172                               
+ MPP_GET_DATA_DOMAIN        Local  173                                  scalar   PRIV             173                               
+ MPP_GET_FIELDS             Subr   180                                           PRIV             180                               
+ MPP_GET_GLOBAL_DOMAIN      Local  172                                  scalar   PRIV             172                               
+ MPP_GET_INFO               Subr   180                                           PRIV             180                               
+ MPP_GLOBAL_FIELD           Local  171                                  scalar   PRIV             171                               
+ MPP_IEEE32                 Param  176      I(4)            4           scalar   PRIV             176                               
+ MPP_IO_INIT                Subr   175                                           PRIV             175                               
+ MPP_IO_MOD                 Module 175                                                            175                               
+ MPP_MOD                    Module 150                                                            150                               
+ MPP_MULTI                  Param  179      I(4)            4           scalar   PRIV             179                               
+ MPP_NATIVE                 Param  176      I(4)            4           scalar   PRIV             176                               
+ MPP_NETCDF                 Param  176      I(4)            4           scalar   PRIV             176                               
+
+Page 33          Source Listing                  WRITE_VERSION_NUMBER
+2021-06-01 08:54 Symbol Table                    fms.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ MPP_NPES                   Func   153      I(4)            4           scalar                    153,228                           
+ MPP_OPEN                   Subr   175                                           PRIV             175                               
+ MPP_OVERWR                 Param  177      I(4)            4           scalar   PRIV             177                               
+ MPP_RDONLY                 Param  177      I(4)            4           scalar   PRIV             177                               
+ MPP_SEQUENTIAL             Param  178      I(4)            4           scalar   PRIV             178                               
+ MPP_SINGLE                 Param  179      I(4)            4           scalar   PRIV             179                               
+ MPP_TRANSMIT               Local  152                                  scalar   PRIV             152                               
+ MPP_UPDATE_DOMAINS         Local  169                                  scalar   PRIV             169                               
+ MPP_WRONLY                 Param  177      I(4)            4           scalar   PRIV             177                               
+ NML_ERRORS_TYPE            Type   249                      20          scalar                    255,256                           
+ NOTE                       Param  150      I(4)            4           scalar                    150,226                           
+ NULLIFY_DOMAIN             Subr   189                                                            189,223                           
+ OPEN_DIRECT_FILE           Func   187      I(4)            4           scalar                    187,204                           
+ OPEN_FILE                  Func   187      I(4)            4           scalar                    187,204                           
+ OPEN_IEEE32_FILE           Func   185      I(4)            4           scalar                    185,203                           
+ OPEN_NAMELIST_FILE         Func   185      I(4)            4           scalar                    185,202                           
+ OPEN_RESTART_FILE          Func   185      I(4)            4           scalar                    185,202                           
+ READ_ALL_PE                Local  262      L(4)            4           scalar                    262,321                           
+ READ_COMPRESSED            Local  184                                  scalar                    184,207                           
+ READ_DATA                  Local  184                                  scalar                    184,207                           
+ READ_DISTRIBUTED           Local  184                                  scalar                    184,207                           
+ READ_INPUT_NML             Subr   166                                                            166,230                           
+ SET_DOMAIN                 Subr   189                                                            189,223                           
+ STDERR                     Func   163      I(4)            4           scalar                    163,229                           
+ STDIN                      Func   163      I(4)            4           scalar                    163,229                           
+ STDOUT                     Func   163      I(4)            4           scalar                    163,229                           
+ STRING                     Local  368                                  scalar                    238                               
+ STRING_FROM_REAL@0         Local  1054     CHAR            32          scalar                                                      
+ WRITE_DATA                 Local  184                                  scalar                    184,207                           
+
+Page 34          Source Listing                  WRITE_VERSION_NUMBER
+2021-06-01 08:54                                 fms.F90
+
+   1094 ! <INFO>
+   1095 !   <BUG>
+   1096 !     Namelist error checking may not work correctly with some compilers.
+   1097 !
+   1098 !     Users should beware when mixing Fortran reads and read_data calls. If a
+   1099 !     Fortran read follows read_data and namelist variable read_all_pe = FALSE
+   1100 !     (not the default), then the code will fail. It is safest if Fortran reads
+   1101 !     precede calls to read_data.
+   1102 !   </BUG>
+   1103 !   <ERROR MSG="unexpected EOF" STATUS="FATAL">
+   1104 !     An unexpected end-of-file was encountered in a read_data call.
+   1105 !     You may want to use the optional end argument to detect the EOF.
+   1106 !   </ERROR>
+   1107 !   <NOTE>
+   1108 !     1) If the <B>MPP</B> or <B>MPP_DOMAINS</B> stack size is exceeded the
+   1109 !     program will terminate after printing the required size.
+   1110 !
+   1111 !     2) When running on a very small number of processors or for high
+   1112 !     resolution models the default domains_stack_size will
+   1113 !     probably be insufficient.
+   1114 !
+   1115 !     3) The following performance routines in the <B>MPP</B> module are published by this module.
+   1116 !<PRE>
+   1117 !        mpp_clock_id, mpp_clock_begin, mpp_clock_end
+   1118 !</PRE>
+   1119 !        and associated parameters that are published:
+   1120 !<PRE>
+   1121 !        MPP_CLOCK_SYNC, MPP_CLOCK_DETAILED, CLOCK_COMPONENT, CLOCK_SUBCOMPONENT,
+   1122 !        CLOCK_MODULE_DRIVER, CLOCK_MODULE, CLOCK_ROUTINE, CLOCK_LOOP, CLOCK_INFRA
+   1123 !</PRE>
+   1124 !
+   1125 !     4) Here is an example of how to time a section of code.<BR/>
+   1126 !<PRE>
+   1127 !          use fms_mod, only: mpp_clock_id, mpp_clock_begin, &
+   1128 !                             mpp_clock_end. MPP_CLOCK_SYNC, &
+   1129 !                             CLOCK_MODULE_DRIVER
+   1130 !          integer :: id_mycode
+   1131 !
+   1132 !          id_mycode = mpp_clock_id ('mycode loop', flags=MPP_CLOCK_SYNC, grain=CLOCK_MODULE_DRIVER)
+   1133 !          call mpp_clock_begin (id_mycode)
+   1134 !                        :
+   1135 !                        :
+   1136 !           ~~ this code will be timed ~~
+   1137 !                        :
+   1138 !                        :
+   1139 !          call mpp_clock_end (id_mycode)
+   1140 ! </PRE>
+   1141 !        Note: <TT>CLOCK_MODULE_DRIVER</TT> can be replaced with
+   1142 !        CLOCK_COMPONENT, CLOCK_SUBCOMPONENT, CLOCK_MODULE_DRIVER, CLOCK_MODULE, CLOCK_ROUTINE,
+   1143 !        CLOCK_LOOP, or CLOCK_INFRA.
+   1144 !
+   1145 !   </NOTE>
+   1146 !   <FUTURE>
+   1147 !     NetCDF facilities for reading and writing restart files and (IEEE32)
+   1148 !       data files.
+   1149 !    </FUTURE>
+   1150 !    <FUTURE>
+
+Page 35          Source Listing                  WRITE_VERSION_NUMBER
+2021-06-01 08:54                                 fms.F90
+
+   1151 !     May possible split the FMS module into two modules.
+   1152 !
+   1153 !      i.general utilities (FMS_MOD) <BR/>
+   1154 !     ii.I/O utilities (FMS_IO_MOD)
+   1155 !    </FUTURE>
+   1156 ! </INFO>
+
+Page 36          Source Listing                  WRITE_VERSION_NUMBER
+2021-06-01 08:54 Subprograms/Common Blocks       fms.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CHECK_NML_ERROR            Func   755      I(4)            4           scalar                                                      
+ ERROR_MESG                 Subr   610                                                                                              
+ FMS_END                    Subr   550                                                                                              
+ FMS_ERROR_HANDLER          Func   662      L(4)            4           scalar                                                      
+ FMS_INIT                   Subr   417                                                                                              
+ FMS_MOD                    Module 43                                                                                               
+ MONOTONIC_ARRAY            Func   1000     L(4)            4           scalar                                                      
+ NML_ERROR_INIT             Subr   790                                                                                              
+ STRING_ARRAY_INDEX         Func   938      L(4)            4           scalar                                                      
+ STRING_FROM_INTEGER        Func   1042     CHAR                        scalar   ALC,PRIV                                           
+ STRING_FROM_REAL           Func   1054     CHAR            32          scalar   PRIV             1058                              
+ WRITE_VERSION_NUMBER       Subr   1067                                                                                             
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+
+Page 37          Source Listing                  WRITE_VERSION_NUMBER
+2021-06-01 08:54                                 fms.F90
+
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+
+Page 38          Source Listing                  WRITE_VERSION_NUMBER
+2021-06-01 08:54                                 fms.F90
+
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : fms.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

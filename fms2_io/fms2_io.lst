@@ -1,0 +1,706 @@
+Page 1           Source Listing                  FMS2_IO_INIT
+2021-06-01 08:53                                 /tmp/ifortbCY9eA.i90
+
+      1 # 1 "fms2_io.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 !> @file
+     22 !! @brief Public API for fms I/O.
+     23 !! @email gfdl.climate.model.info@noaa.gov
+     24 module fms2_io_mod
+     25 use fms_io_utils_mod
+     26 use netcdf_io_mod
+     27 use fms_netcdf_domain_io_mod
+     28 use fms_netcdf_unstructured_domain_io_mod
+     29 use blackboxio
+     30 use mpp_mod, only: mpp_init, input_nml_file, mpp_error, FATAL
+     31 use mpp_domains_mod, only: mpp_domains_init
+     32 implicit none
+     33 private
+     34 
+     35 public :: unlimited
+     36 public :: FmsNetcdfFile_t
+     37 public :: FmsNetcdfDomainFile_t
+     38 public :: FmsNetcdfUnstructuredDomainFile_t
+     39 public :: open_file
+     40 public :: open_virtual_file
+     41 public :: close_file
+     42 public :: register_axis
+     43 public :: register_field
+     44 public :: register_restart_field
+     45 public :: write_data
+     46 public :: read_data
+     47 public :: write_restart
+     48 public :: write_new_restart
+     49 public :: read_restart
+     50 public :: read_new_restart
+     51 public :: global_att_exists
+     52 public :: variable_att_exists
+     53 public :: register_global_attribute
+     54 public :: register_variable_attribute
+     55 public :: get_global_attribute
+     56 public :: get_variable_attribute
+     57 public :: get_num_dimensions
+
+Page 2           Source Listing                  FMS2_IO_INIT
+2021-06-01 08:53                                 fms2_io.F90
+
+     58 public :: get_dimension_names
+     59 public :: dimension_exists
+     60 public :: is_dimension_unlimited
+     61 public :: get_dimension_size
+     62 public :: get_num_variables
+     63 public :: get_variable_names
+     64 public :: variable_exists
+     65 public :: get_variable_num_dimensions
+     66 public :: get_variable_dimension_names
+     67 public :: get_variable_size
+     68 public :: get_compute_domain_dimension_indices
+     69 public :: get_global_io_domain_indices
+     70 public :: Valid_t
+     71 public :: get_valid
+     72 public :: is_valid
+     73 public :: get_unlimited_dimension_name
+     74 public :: get_variable_unlimited_dimension_index
+     75 public :: file_exists
+     76 public :: compressed_start_and_count
+     77 public :: get_variable_sense
+     78 public :: get_variable_missing
+     79 public :: get_variable_units
+     80 public :: get_time_calendar
+     81 public :: open_check
+     82 public :: is_registered_to_restart
+     83 public :: check_if_open
+     84 public :: set_fileobj_time_name
+     85 public :: is_dimension_registered
+     86 public :: fms2_io_init
+     87 public :: write_restart_bc
+     88 public :: read_restart_bc
+     89 public :: get_mosaic_tile_grid
+     90 public :: ascii_read
+     91 public :: get_mosaic_tile_file
+     92 public :: parse_mask_table
+     93 public :: get_filename_appendix
+     94 public :: set_filename_appendix
+     95 public :: get_instance_filename
+     96 public :: nullify_filename_appendix
+     97 public :: string2
+     98 
+     99 interface open_file
+    100   module procedure netcdf_file_open_wrap
+    101   module procedure open_domain_file
+    102   module procedure open_unstructured_domain_file
+    103 end interface open_file
+    104 
+    105 
+    106 interface open_virtual_file
+    107   module procedure create_diskless_netcdf_file_wrap
+    108   module procedure create_diskless_domain_file
+    109   module procedure create_diskless_unstructured_domain_file
+    110 end interface open_virtual_file
+    111 
+    112 
+    113 interface close_file
+    114   module procedure netcdf_file_close_wrap
+
+Page 3           Source Listing                  FMS2_IO_INIT
+2021-06-01 08:53                                 fms2_io.F90
+
+    115   module procedure close_domain_file
+    116   module procedure close_unstructured_domain_file
+    117 end interface close_file
+    118 
+    119 
+    120 interface register_axis
+    121   module procedure netcdf_add_dimension
+    122   module procedure register_compressed_dimension
+    123   module procedure register_domain_decomposed_dimension
+    124   module procedure register_unstructured_dimension
+    125 end interface register_axis
+    126 
+    127 
+    128 interface register_field
+    129   module procedure netcdf_add_variable_wrap
+    130   module procedure register_domain_variable
+    131   module procedure register_unstructured_domain_variable
+    132 end interface register_field
+    133 
+    134 
+    135 interface register_restart_field
+    136   module procedure netcdf_add_restart_variable_0d_wrap
+    137   module procedure netcdf_add_restart_variable_1d_wrap
+    138   module procedure netcdf_add_restart_variable_2d_wrap
+    139   module procedure netcdf_add_restart_variable_3d_wrap
+    140   module procedure netcdf_add_restart_variable_4d_wrap
+    141   module procedure netcdf_add_restart_variable_5d_wrap
+    142   module procedure register_domain_restart_variable_0d
+    143   module procedure register_domain_restart_variable_1d
+    144   module procedure register_domain_restart_variable_2d
+    145   module procedure register_domain_restart_variable_3d
+    146   module procedure register_domain_restart_variable_4d
+    147   module procedure register_domain_restart_variable_5d
+    148   module procedure register_unstructured_domain_restart_variable_0d
+    149   module procedure register_unstructured_domain_restart_variable_1d
+    150   module procedure register_unstructured_domain_restart_variable_2d
+    151   module procedure register_unstructured_domain_restart_variable_3d
+    152   module procedure register_unstructured_domain_restart_variable_4d
+    153   module procedure register_unstructured_domain_restart_variable_5d
+    154   module procedure register_restart_region_2d
+    155   module procedure register_restart_region_3d
+    156 end interface register_restart_field
+    157 
+    158 
+    159 interface write_data
+    160   module procedure compressed_write_0d_wrap
+    161   module procedure compressed_write_1d_wrap
+    162   module procedure compressed_write_2d_wrap
+    163   module procedure compressed_write_3d_wrap
+    164   module procedure compressed_write_4d_wrap
+    165   module procedure compressed_write_5d_wrap
+    166   module procedure domain_write_0d
+    167   module procedure domain_write_1d
+    168   module procedure domain_write_2d
+    169   module procedure domain_write_3d
+    170   module procedure domain_write_4d
+    171   module procedure domain_write_5d
+
+Page 4           Source Listing                  FMS2_IO_INIT
+2021-06-01 08:53                                 fms2_io.F90
+
+    172   module procedure unstructured_domain_write_0d
+    173   module procedure unstructured_domain_write_1d
+    174   module procedure unstructured_domain_write_2d
+    175   module procedure unstructured_domain_write_3d
+    176   module procedure unstructured_domain_write_4d
+    177   module procedure unstructured_domain_write_5d
+    178 end interface write_data
+    179 
+    180 
+    181 interface read_data
+    182   module procedure compressed_read_0d
+    183   module procedure compressed_read_1d
+    184   module procedure compressed_read_2d
+    185   module procedure compressed_read_3d
+    186   module procedure compressed_read_4d
+    187   module procedure compressed_read_5d
+    188   module procedure domain_read_0d
+    189   module procedure domain_read_1d
+    190   module procedure domain_read_2d
+    191   module procedure domain_read_3d
+    192   module procedure domain_read_4d
+    193   module procedure domain_read_5d
+    194   module procedure unstructured_domain_read_0d
+    195   module procedure unstructured_domain_read_1d
+    196   module procedure unstructured_domain_read_2d
+    197   module procedure unstructured_domain_read_3d
+    198   module procedure unstructured_domain_read_4d
+    199   module procedure unstructured_domain_read_5d
+    200 end interface read_data
+    201 
+    202 
+    203 interface write_restart
+    204   module procedure netcdf_save_restart_wrap
+    205   module procedure save_domain_restart
+    206   module procedure unstructured_write_restart
+    207 end interface write_restart
+    208 
+    209 
+    210 interface write_new_restart
+    211   module procedure netcdf_save_restart_wrap2
+    212   module procedure save_domain_restart_wrap
+    213   module procedure unstructured_write_restart_wrap
+    214 end interface write_new_restart
+    215 
+    216 
+    217 interface read_restart
+    218   module procedure netcdf_restore_state
+    219   module procedure restore_domain_state
+    220 end interface read_restart
+    221 
+    222 
+    223 interface read_new_restart
+    224   module procedure netcdf_restore_state_wrap
+    225   module procedure restore_domain_state_wrap
+    226 end interface read_new_restart
+    227 
+    228 logical, private :: fms2_io_is_initialized = .false. !< True after fms2_io_init is run
+
+Page 5           Source Listing                  FMS2_IO_INIT
+2021-06-01 08:53                                 fms2_io.F90
+
+    229 
+    230 !< Namelist variables
+    231 integer :: ncchksz = 64*1024  !< User defined chunksize (in bytes) argument in netcdf file
+    232 !! creation calls. Replaces setting the NC_CHKSZ environment variable.
+    233 character (len = 10) :: netcdf_default_format = "64bit" !< User defined netcdf file format, acceptable values
+    234 !! are: "64bit", "classic", "netcdf4". This can be overwritten if you specify
+    235 !! "nc_format" in the open_file call
+    236 integer :: header_buffer_val = 16384 !< Use defined netCDF header buffer size(in bytes) used in
+    237 !! NF__ENDDEF
+    238 namelist / fms2_io_nml / &
+    239                       ncchksz, netcdf_default_format, header_buffer_val
+    240 
+    241 contains
+    242 
+    243 !> @brief Reads the fms2_io_nml
+    244 subroutine fms2_io_init ()
+    245  integer :: mystat
+    246 
+    247 !> Check if the module has already been initialized
+    248   if (fms2_io_is_initialized) return
+    249 !> Call initialization routines that this module depends on
+    250   call mpp_init()
+    251   call mpp_domains_init()
+    252 !> Read the namelist
+    253   READ (input_nml_file, NML=fms2_io_nml, IOSTAT=mystat)
+    254 !>Send the namelist variables to their respective modules
+    255   if (ncchksz .le. 0) then
+    256         call mpp_error(FATAL, "ncchksz in fms2_io_nml must be a positive number.")
+    257   endif
+    258   call netcdf_io_init (ncchksz,header_buffer_val,netcdf_default_format)
+    259   if (header_buffer_val .le. 0) then
+    260         call mpp_error(FATAL, "header_buffer_val in fms2_io_nml must be a positive number.")
+    261   endif
+    262   call blackboxio_init (ncchksz)
+    263 !> Mark the fms2_io as initialized
+    264   fms2_io_is_initialized = .true.
+    265 end subroutine fms2_io_init
+
+Page 6           Source Listing                  FMS2_IO_INIT
+2021-06-01 08:53 Entry Points                    fms2_io.F90
+
+
+
+ENTRY POINTS
+
+  Name                                    
+                                          
+ fms2_io_mod_mp_fms2_io_init_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ BLACKBOXIO_INIT            Subr   262                                           PRIV             262                               
+ FATAL                      Param  256      I(4)            4           scalar   PRIV             30,256,260                        
+ FMS2_IO_INIT               Subr   244                                                                                              
+ FMS2_IO_IS_INITIALIZED     Local  248      L(4)            4           scalar   PRIV             228,248,264                       
+ FMS2_IO_NML                Local  253                                  scalar                    253                               
+ HEADER_BUFFER_VAL          Local  258      I(4)            4           scalar                    236,239,258,259                   
+ INPUT_NML_FILE             Local  253      CHAR                  1     1        ALC,TGT,PRIV     30,253                            
+ MPP_DOMAINS_INIT           Subr   251                                           PRIV             31,251                            
+ MPP_ERROR                  Local  256                                  scalar   PRIV             30,256,260                        
+ MPP_ERROR_BASIC            Subr   256                                           PRIV             256,260                           
+ MPP_INIT                   Subr   250                                           PRIV             30,250                            
+ MYSTAT                     Local  245      I(4)            4           scalar                    253                               
+ NCCHKSZ                    Local  255      I(4)            4           scalar                    231,239,255,258,262               
+ NETCDF_DEFAULT_FORMAT      Local  258      CHAR            10          scalar                    233,239,258                       
+ NETCDF_IO_INIT             Subr   258                                           PRIV             258                               
+
+Page 7           Source Listing                  FMS2_IO_INIT
+2021-06-01 08:53                                 fms2_io.F90
+
+    266 
+    267 end module fms2_io_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ASCII_READ                 Subr   90                                                             90                                
+ BLACKBOXIO                 Module 29                                                             29                                
+ CHECK_IF_OPEN              Func   83       L(4)            4           scalar                    83                                
+ CLOSE_DOMAIN_FILE          Subr   115                                           PRIV                                               
+ CLOSE_FILE                 Local  113                                  scalar                    41                                
+ CLOSE_UNSTRUCTURED_DOMAIN_                                                                                                         
+ FILE                       Subr   116                                           PRIV                                               
+ COMPRESSED_READ_0D         Subr   182                                           PRIV                                               
+ COMPRESSED_READ_1D         Subr   183                                           PRIV                                               
+ COMPRESSED_READ_2D         Subr   184                                           PRIV                                               
+ COMPRESSED_READ_3D         Subr   185                                           PRIV                                               
+ COMPRESSED_READ_4D         Subr   186                                           PRIV                                               
+ COMPRESSED_READ_5D         Subr   187                                           PRIV                                               
+ COMPRESSED_START_AND_COUNT Subr   76                                                             76                                
+ COMPRESSED_WRITE_0D_WRAP   Subr   160                                           PRIV                                               
+ COMPRESSED_WRITE_1D_WRAP   Subr   161                                           PRIV                                               
+ COMPRESSED_WRITE_2D_WRAP   Subr   162                                           PRIV                                               
+ COMPRESSED_WRITE_3D_WRAP   Subr   163                                           PRIV                                               
+ COMPRESSED_WRITE_4D_WRAP   Subr   164                                           PRIV                                               
+ COMPRESSED_WRITE_5D_WRAP   Subr   165                                           PRIV                                               
+ CREATE_DISKLESS_DOMAIN_FIL                                                                                                         
+ E                          Func   108      L(4)            4           scalar   PRIV                                               
+ CREATE_DISKLESS_NETCDF_FIL                                                                                                         
+ E_WRAP                     Func   107      L(4)            4           scalar   PRIV                                               
+ CREATE_DISKLESS_UNSTRUCTUR                                                                                                         
+ ED_DOMAIN_FILE             Func   109      L(4)            4           scalar   PRIV                                               
+ DIMENSION_EXISTS           Func   59       L(4)            4           scalar                    59                                
+ DOMAIN_READ_0D             Subr   188                                           PRIV                                               
+ DOMAIN_READ_1D             Subr   189                                           PRIV                                               
+ DOMAIN_READ_2D             Subr   190                                           PRIV                                               
+ DOMAIN_READ_3D             Subr   191                                           PRIV                                               
+ DOMAIN_READ_4D             Subr   192                                           PRIV                                               
+ DOMAIN_READ_5D             Subr   193                                           PRIV                                               
+ DOMAIN_WRITE_0D            Subr   166                                           PRIV                                               
+ DOMAIN_WRITE_1D            Subr   167                                           PRIV                                               
+ DOMAIN_WRITE_2D            Subr   168                                           PRIV                                               
+ DOMAIN_WRITE_3D            Subr   169                                           PRIV                                               
+ DOMAIN_WRITE_4D            Subr   170                                           PRIV                                               
+ DOMAIN_WRITE_5D            Subr   171                                           PRIV                                               
+ FILE_EXISTS                Func   75       L(4)            4           scalar                    75                                
+ FMS2_IO_INIT               Subr   86                                                             86                                
+ FMS2_IO_MOD                Module 24                                                                                               
+ FMSNETCDFDOMAINFILE_T      Type   37                                   scalar                    37                                
+ FMSNETCDFFILE_T            Type   36                                   scalar                    36                                
+ FMSNETCDFUNSTRUCTUREDDOMAI                                                                                                         
+ NFILE_T                    Type   38                                   scalar                    38                                
+ FMS_IO_UTILS_MOD           Module 25                                                             25                                
+ FMS_NETCDF_DOMAIN_IO_MOD   Module 27                                                             27                                
+ FMS_NETCDF_UNSTRUCTURED_DO                                                                                                         
+
+Page 8           Source Listing                  FMS2_IO_INIT
+2021-06-01 08:53 Symbol Table                    fms2_io.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ MAIN_IO_MOD                Module 28                                                             28                                
+ GET_COMPUTE_DOMAIN_DIMENSI                                                                                                         
+ ON_INDICES                 Subr   68                                                             68                                
+ GET_DIMENSION_NAMES        Subr   58                                                             58                                
+ GET_DIMENSION_SIZE         Subr   61                                                             61                                
+ GET_FILENAME_APPENDIX      Subr   93                                                             93                                
+ GET_GLOBAL_ATTRIBUTE       Local  55                                   scalar                    55                                
+ GET_GLOBAL_IO_DOMAIN_INDIC                                                                                                         
+ ES                         Subr   69                                                             69                                
+ GET_INSTANCE_FILENAME      Subr   95                                                             95                                
+ GET_MOSAIC_TILE_FILE       Local  91                                   scalar                    91                                
+ GET_MOSAIC_TILE_GRID       Subr   89                                                             89                                
+ GET_NUM_DIMENSIONS         Func   57       I(4)            4           scalar                    57                                
+ GET_NUM_VARIABLES          Func   62       I(4)            4           scalar                    62                                
+ GET_TIME_CALENDAR          Subr   80                                                             80                                
+ GET_UNLIMITED_DIMENSION_NA                                                                                                         
+ ME                         Subr   73                                                             73                                
+ GET_VALID                  Func   71       RECORD          56          scalar                    71                                
+ GET_VARIABLE_ATTRIBUTE     Local  56                                   scalar                    56                                
+ GET_VARIABLE_DIMENSION_NAM                                                                                                         
+ ES                         Subr   66                                                             66                                
+ GET_VARIABLE_MISSING       Func   78       R(8)            8           scalar                    78                                
+ GET_VARIABLE_NAMES         Subr   63                                                             63                                
+ GET_VARIABLE_NUM_DIMENSION                                                                                                         
+ S                          Func   65       I(4)            4           scalar                    65                                
+ GET_VARIABLE_SENSE         Func   77       I(4)            4           scalar                    77                                
+ GET_VARIABLE_SIZE          Subr   67                                                             67                                
+ GET_VARIABLE_UNITS         Subr   79                                                             79                                
+ GET_VARIABLE_UNLIMITED_DIM                                                                                                         
+ ENSION_INDEX               Func   74       I(4)            4           scalar                    74                                
+ GLOBAL_ATT_EXISTS          Func   51       L(4)            4           scalar                    51                                
+ IS_DIMENSION_REGISTERED    Func   85       L(4)            4           scalar                    85                                
+ IS_DIMENSION_UNLIMITED     Func   60       L(4)            4           scalar                    60                                
+ IS_REGISTERED_TO_RESTART   Func   82       L(4)            4           scalar                    82                                
+ IS_VALID                   Local  72                                   scalar                    72                                
+ MPP_DOMAINS_MOD            Module 31                                                             31                                
+ MPP_MOD                    Module 30                                                             30                                
+ NETCDF_ADD_DIMENSION       Subr   121                                           PRIV                                               
+ NETCDF_ADD_RESTART_VARIABL                                                                                                         
+ E_0D_WRAP                  Subr   136                                           PRIV                                               
+ NETCDF_ADD_RESTART_VARIABL                                                                                                         
+ E_1D_WRAP                  Subr   137                                           PRIV                                               
+ NETCDF_ADD_RESTART_VARIABL                                                                                                         
+ E_2D_WRAP                  Subr   138                                           PRIV                                               
+ NETCDF_ADD_RESTART_VARIABL                                                                                                         
+ E_3D_WRAP                  Subr   139                                           PRIV                                               
+ NETCDF_ADD_RESTART_VARIABL                                                                                                         
+ E_4D_WRAP                  Subr   140                                           PRIV                                               
+ NETCDF_ADD_RESTART_VARIABL                                                                                                         
+ E_5D_WRAP                  Subr   141                                           PRIV                                               
+ NETCDF_ADD_VARIABLE_WRAP   Subr   129                                           PRIV                                               
+ NETCDF_FILE_CLOSE_WRAP     Subr   114                                           PRIV                                               
+ NETCDF_FILE_OPEN_WRAP      Func   100      L(4)            4           scalar   PRIV                                               
+ NETCDF_IO_MOD              Module 26                                                             26                                
+ NETCDF_RESTORE_STATE       Subr   218                                           PRIV                                               
+
+Page 9           Source Listing                  FMS2_IO_INIT
+2021-06-01 08:53 Symbol Table                    fms2_io.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ NETCDF_RESTORE_STATE_WRAP  Subr   224                                           PRIV                                               
+ NETCDF_SAVE_RESTART_WRAP   Subr   204                                           PRIV                                               
+ NETCDF_SAVE_RESTART_WRAP2  Subr   211                                           PRIV                                               
+ NULLIFY_FILENAME_APPENDIX  Subr   96                                                             96                                
+ OPEN_CHECK                 Subr   81                                                             81                                
+ OPEN_DOMAIN_FILE           Func   101      L(4)            4           scalar   PRIV                                               
+ OPEN_FILE                  Local  99                                   scalar                    39                                
+ OPEN_UNSTRUCTURED_DOMAIN_F                                                                                                         
+ ILE                        Func   102      L(4)            4           scalar   PRIV                                               
+ OPEN_VIRTUAL_FILE          Local  106                                  scalar                    40                                
+ PARSE_MASK_TABLE           Local  92                                   scalar                    92                                
+ READ_DATA                  Local  181                                  scalar                    46                                
+ READ_NEW_RESTART           Local  223                                  scalar                    50                                
+ READ_RESTART               Local  217                                  scalar                    49                                
+ READ_RESTART_BC            Subr   88                                                             88                                
+ REGISTER_AXIS              Local  120                                  scalar                    42                                
+ REGISTER_COMPRESSED_DIMENS                                                                                                         
+ ION                        Subr   122                                           PRIV                                               
+ REGISTER_DOMAIN_DECOMPOSED                                                                                                         
+ _DIMENSION                 Subr   123                                           PRIV                                               
+ REGISTER_DOMAIN_RESTART_VA                                                                                                         
+ RIABLE_0D                  Subr   142                                           PRIV                                               
+ REGISTER_DOMAIN_RESTART_VA                                                                                                         
+ RIABLE_1D                  Subr   143                                           PRIV                                               
+ REGISTER_DOMAIN_RESTART_VA                                                                                                         
+ RIABLE_2D                  Subr   144                                           PRIV                                               
+ REGISTER_DOMAIN_RESTART_VA                                                                                                         
+ RIABLE_3D                  Subr   145                                           PRIV                                               
+ REGISTER_DOMAIN_RESTART_VA                                                                                                         
+ RIABLE_4D                  Subr   146                                           PRIV                                               
+ REGISTER_DOMAIN_RESTART_VA                                                                                                         
+ RIABLE_5D                  Subr   147                                           PRIV                                               
+ REGISTER_DOMAIN_VARIABLE   Subr   130                                           PRIV                                               
+ REGISTER_FIELD             Local  128                                  scalar                    43                                
+ REGISTER_GLOBAL_ATTRIBUTE  Local  53                                   scalar                    53                                
+ REGISTER_RESTART_FIELD     Local  135                                  scalar                    44                                
+ REGISTER_RESTART_REGION_2D Subr   154                                           PRIV                                               
+ REGISTER_RESTART_REGION_3D Subr   155                                           PRIV                                               
+ REGISTER_UNSTRUCTURED_DIME                                                                                                         
+ NSION                      Subr   124                                           PRIV                                               
+ REGISTER_UNSTRUCTURED_DOMA                                                                                                         
+ IN_RESTART_VARIABLE_0D     Subr   148                                           PRIV                                               
+ REGISTER_UNSTRUCTURED_DOMA                                                                                                         
+ IN_RESTART_VARIABLE_1D     Subr   149                                           PRIV                                               
+ REGISTER_UNSTRUCTURED_DOMA                                                                                                         
+ IN_RESTART_VARIABLE_2D     Subr   150                                           PRIV                                               
+ REGISTER_UNSTRUCTURED_DOMA                                                                                                         
+ IN_RESTART_VARIABLE_3D     Subr   151                                           PRIV                                               
+ REGISTER_UNSTRUCTURED_DOMA                                                                                                         
+ IN_RESTART_VARIABLE_4D     Subr   152                                           PRIV                                               
+ REGISTER_UNSTRUCTURED_DOMA                                                                                                         
+ IN_RESTART_VARIABLE_5D     Subr   153                                           PRIV                                               
+ REGISTER_UNSTRUCTURED_DOMA                                                                                                         
+ IN_VARIABLE                Subr   131                                           PRIV                                               
+ REGISTER_VARIABLE_ATTRIBUT                                                                                                         
+
+Page 10          Source Listing                  FMS2_IO_INIT
+2021-06-01 08:53 Symbol Table                    fms2_io.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ E                          Local  54                                   scalar                    54                                
+ RESTORE_DOMAIN_STATE       Subr   219                                           PRIV                                               
+ RESTORE_DOMAIN_STATE_WRAP  Subr   225                                           PRIV                                               
+ SAVE_DOMAIN_RESTART        Subr   205                                           PRIV                                               
+ SAVE_DOMAIN_RESTART_WRAP   Subr   212                                           PRIV                                               
+ SET_FILENAME_APPENDIX      Subr   94                                                             94                                
+ SET_FILEOBJ_TIME_NAME      Subr   84                                                             84                                
+ STRING2                    Local  97                                   scalar                    97                                
+ UNLIMITED                  Param  35       I(4)            4           scalar                    35                                
+ UNSTRUCTURED_DOMAIN_READ_0                                                                                                         
+ D                          Subr   194                                           PRIV                                               
+ UNSTRUCTURED_DOMAIN_READ_1                                                                                                         
+ D                          Subr   195                                           PRIV                                               
+ UNSTRUCTURED_DOMAIN_READ_2                                                                                                         
+ D                          Subr   196                                           PRIV                                               
+ UNSTRUCTURED_DOMAIN_READ_3                                                                                                         
+ D                          Subr   197                                           PRIV                                               
+ UNSTRUCTURED_DOMAIN_READ_4                                                                                                         
+ D                          Subr   198                                           PRIV                                               
+ UNSTRUCTURED_DOMAIN_READ_5                                                                                                         
+ D                          Subr   199                                           PRIV                                               
+ UNSTRUCTURED_DOMAIN_WRITE_                                                                                                         
+ 0D                         Subr   172                                           PRIV                                               
+ UNSTRUCTURED_DOMAIN_WRITE_                                                                                                         
+ 1D                         Subr   173                                           PRIV                                               
+ UNSTRUCTURED_DOMAIN_WRITE_                                                                                                         
+ 2D                         Subr   174                                           PRIV                                               
+ UNSTRUCTURED_DOMAIN_WRITE_                                                                                                         
+ 3D                         Subr   175                                           PRIV                                               
+ UNSTRUCTURED_DOMAIN_WRITE_                                                                                                         
+ 4D                         Subr   176                                           PRIV                                               
+ UNSTRUCTURED_DOMAIN_WRITE_                                                                                                         
+ 5D                         Subr   177                                           PRIV                                               
+ UNSTRUCTURED_WRITE_RESTART Subr   206                                           PRIV                                               
+ UNSTRUCTURED_WRITE_RESTART                                                                                                         
+ _WRAP                      Subr   213                                           PRIV                                               
+ VALID_T                    Type   70                                   scalar                    70                                
+ VARIABLE_ATT_EXISTS        Func   52       L(4)            4           scalar                    52                                
+ VARIABLE_EXISTS            Func   64       L(4)            4           scalar                    64                                
+ WRITE_DATA                 Local  159                                  scalar                    45                                
+ WRITE_NEW_RESTART          Local  210                                  scalar                    48                                
+ WRITE_RESTART              Local  203                                  scalar                    47                                
+ WRITE_RESTART_BC           Subr   87                                                             87                                
+
+Page 11          Source Listing                  FMS2_IO_INIT
+2021-06-01 08:53 Subprograms/Common Blocks       fms2_io.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FMS2_IO_INIT               Subr   244                                                                                              
+ FMS2_IO_MOD                Module 24                                                                                               
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+
+Page 12          Source Listing                  FMS2_IO_INIT
+2021-06-01 08:53                                 fms2_io.F90
+
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+
+Page 13          Source Listing                  FMS2_IO_INIT
+2021-06-01 08:53                                 fms2_io.F90
+
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : ./,/opt/intel/2020/compilers_and_libraries/linux/mkl/include/,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/,
+           /usr/include/,./,./,../fms2_io/include/,../include/,./,/opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/,/opt/intel/2020/compilers_and_libraries/linux/daal/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,/usr/local/include/,/usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/,
+           /usr/include/,/usr/include/,/usr/include/
+       -list filename : fms2_io.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

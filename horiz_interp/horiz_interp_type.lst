@@ -1,0 +1,580 @@
+Page 1           Source Listing                  STATS
+2021-06-01 08:55                                 /tmp/ifortNcyTsK.i90
+
+      1 # 1 "horiz_interp_type.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 !> @file
+     21 !! @brief define derived data type that contains indices and weights used for subsequent
+     22 !!      interpolations.
+     23 !! @author Zhi Liang
+     24 !! @email gfdl.climate.model.info@noaa.gov
+     25 module horiz_interp_type_mod
+     26 ! <CONTACT EMAIL="Zhi.Liang@noaa.gov"> Zhi Liang </CONTACT>
+     27 
+     28 ! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
+     29 
+     30 ! <OVERVIEW>
+     31 !     define derived data type that contains indices and weights used for subsequent
+     32 !      interpolations.
+     33 ! </OVERVIEW>
+     34 
+     35 ! <DESCRIPTION>
+     36 !     define derived data type that contains indices and weights used for subsequent
+     37 !      interpolations.
+     38 ! </DESCRIPTION>
+     39 
+     40 
+     41 use mpp_mod, only : mpp_send, mpp_recv, mpp_sync_self, mpp_error, FATAL
+     42 use mpp_mod, only : mpp_pe, mpp_root_pe, mpp_npes
+     43 use mpp_mod, only : COMM_TAG_1, COMM_TAG_2
+     44 
+     45 implicit none
+     46 private
+     47 
+     48 
+     49 ! parameter to determine interpolation method
+     50  integer, parameter :: CONSERVE = 1
+     51  integer, parameter :: BILINEAR = 2
+     52  integer, parameter :: SPHERICA = 3
+     53  integer, parameter :: BICUBIC  = 4
+     54 
+     55 public :: CONSERVE, BILINEAR, SPHERICA, BICUBIC
+     56 public :: horiz_interp_type, stats, assignment(=)
+     57 
+
+Page 2           Source Listing                  STATS
+2021-06-01 08:55                                 horiz_interp_type.F90
+
+     58 interface assignment(=)
+     59   module procedure horiz_interp_type_eq
+     60 end interface
+     61 
+     62 !<PUBLICTYPE >
+     63  type horiz_interp_type
+     64    real,    dimension(:,:), pointer   :: faci =>NULL()   !< weights for conservative scheme
+     65    real,    dimension(:,:), pointer   :: facj =>NULL()   !< weights for conservative scheme
+     66    integer, dimension(:,:), pointer   :: ilon =>NULL()   !< indices for conservative scheme
+     67    integer, dimension(:,:), pointer   :: jlat =>NULL()   !< indices for conservative scheme
+     68    real,    dimension(:,:), pointer   :: area_src =>NULL()              !< area of the source grid
+     69    real,    dimension(:,:), pointer   :: area_dst =>NULL()              !< area of the destination grid
+     70    real,    dimension(:,:,:), pointer :: wti =>NULL()      !< weights for bilinear interpolation
+     71 !! wti ist used for derivative "weights" in bicubic
+     72    real,    dimension(:,:,:), pointer :: wtj =>NULL()      !< weights for bilinear interpolation
+     73 !! wti ist used for derivative "weights" in bicubic
+     74    integer, dimension(:,:,:), pointer :: i_lon =>NULL() !< indices for bilinear interpolation
+     75 !! and spherical regrid
+     76    integer, dimension(:,:,:), pointer :: j_lat =>NULL() !< indices for bilinear interpolation
+     77 !! and spherical regrid
+     78    real,    dimension(:,:,:), pointer :: src_dist =>NULL()              !< distance between destination grid and
+     79 !! neighbor source grid.
+     80    logical, dimension(:,:), pointer   :: found_neighbors =>NULL()       !< indicate whether destination grid
+     81 !! has some source grid around it.
+     82    real                               :: max_src_dist
+     83    integer, dimension(:,:), pointer   :: num_found => NULL()
+     84    integer                            :: nlon_src !< size of source grid
+     85    integer                            :: nlat_src !< size of source grid
+     86    integer                            :: nlon_dst !< size of destination grid
+     87    integer                            :: nlat_dst !< size of destination grid
+     88    integer                            :: interp_method      !< interpolation method.
+     89 !! =1, conservative scheme
+     90 !! =2, bilinear interpolation
+     91 !! =3, spherical regrid
+     92 !! =4, bicubic regrid
+     93    real,    dimension(:,:), pointer   :: rat_x =>NULL() !< the ratio of coordinates of the dest grid
+     94 !! (x_dest -x_src_r)/(x_src_l -x_src_r) and (y_dest -y_src_r)/(y_src_l -y_src_r)
+     95    real,    dimension(:,:), pointer   :: rat_y =>NULL() !< the ratio of coordinates of the dest grid
+     96 !! (x_dest -x_src_r)/(x_src_l -x_src_r) and (y_dest -y_src_r)/(y_src_l -y_src_r)
+     97    real,    dimension(:), pointer     :: lon_in =>NULL()  !< the coordinates of the source grid
+     98    real,    dimension(:), pointer     :: lat_in =>NULL()  !< the coordinates of the source grid
+     99    logical                            :: I_am_initialized=.false.
+    100    integer                            :: version                            !< indicate conservative interpolation version w
+    100 ith value 1 or 2
+    101 !--- The following are for conservative interpolation scheme version 2 ( through xgrid)
+    102    integer                            :: nxgrid                             !< number of exchange grid between src and dst g
+    102 rid.
+    103    integer, dimension(:), pointer     :: i_src=>NULL()       !< indices in source grid.
+    104    integer, dimension(:), pointer     :: j_src=>NULL()       !< indices in source grid.
+    105    integer, dimension(:), pointer     :: i_dst=>NULL()       !< indices in destination grid.
+    106    integer, dimension(:), pointer     :: j_dst=>NULL()       !< indices in destination grid.
+    107    real,    dimension(:), pointer     :: area_frac_dst=>NULL()              !< area fraction in destination grid.
+    108    real,    dimension(:,:), pointer   :: mask_in=>NULL()
+    109  end type
+    110 !</PUBLICTYPE>
+    111 
+    112 contains
+
+Page 3           Source Listing                  STATS
+2021-06-01 08:55                                 horiz_interp_type.F90
+
+    113 
+    114 !#######################################################################
+    115 !> @brief This statistics is for bilinear interpolation and spherical regrid.
+    116  subroutine stats ( dat, low, high, avg, miss, missing_value, mask )
+    117  real,    intent(in)  :: dat(:,:)
+    118  real,    intent(out) :: low, high, avg
+    119  integer, intent(out) :: miss
+    120  real, intent(in), optional :: missing_value
+    121  real,    intent(in), optional :: mask(:,:)
+    122 
+    123  real :: dsum, npts, buffer_real(3)
+    124  integer :: pe, root_pe, npes, p, buffer_int(2)
+    125 
+    126    pe = mpp_pe()
+    127    root_pe = mpp_root_pe()
+    128    npes = mpp_npes()
+    129 
+    130    dsum = 0.0
+    131    miss = 0
+    132 
+    133    if (present(missing_value)) then
+    134       miss = count(dat(:,:) == missing_value)
+    135       low  = minval(dat(:,:), dat(:,:) /= missing_value)
+    136       high = maxval(dat(:,:), dat(:,:) /= missing_value)
+    137       dsum = sum(dat(:,:), dat(:,:) /= missing_value)
+    138    else if(present(mask)) then
+    139       miss = count(mask(:,:) <= 0.5)
+    140       low  = minval(dat(:,:),mask=mask(:,:) > 0.5)
+    141       high = maxval(dat(:,:),mask=mask(:,:) > 0.5)
+    142       dsum = sum(dat(:,:), mask=mask(:,:) > 0.5)
+    143    else
+    144       miss = 0
+    145       low  = minval(dat(:,:))
+    146       high = maxval(dat(:,:))
+    147       dsum = sum(dat(:,:))
+    148    endif
+    149    avg = 0.0
+    150 
+    151    npts = size(dat(:,:)) - miss
+    152    if(pe == root_pe) then
+    153       do p = 1, npes - 1  ! root_pe receive data from other pe
+    154 ! Force use of "scalar", integer pointer mpp interface
+    155          call mpp_recv(buffer_real(1),glen=3, from_pe=p+root_pe, tag=COMM_TAG_1)
+    156          dsum = dsum + buffer_real(1)
+    157          low  = min(low, buffer_real(2))
+    158          high = max(high, buffer_real(3))
+    159          call mpp_recv(buffer_int(1), glen=2, from_pe=p+root_pe, tag=COMM_TAG_2)
+    160          miss = miss + buffer_int(1)
+    161          npts = npts + buffer_int(2)
+    162       enddo
+    163       if(npts == 0.) then
+    164          print*, 'Warning: no points is valid'
+    165       else
+    166          avg = dsum/real(npts)
+    167       endif
+    168     else   ! other pe send data to the root_pe.
+    169       buffer_real(1) = dsum
+
+Page 4           Source Listing                  STATS
+2021-06-01 08:55                                 horiz_interp_type.F90
+
+    170       buffer_real(2) = low
+    171       buffer_real(3) = high
+    172 ! Force use of "scalar", integer pointer mpp interface
+    173       call mpp_send(buffer_real(1),plen=3,to_pe=root_pe, tag=COMM_TAG_1)
+    174       buffer_int(1) = miss
+    175       buffer_int(2) = npts
+    176       call mpp_send(buffer_int(1), plen=2, to_pe=root_pe, tag=COMM_TAG_2)
+    177     endif
+    178 
+    179     call mpp_sync_self()
+    180 
+    181     return
+    182 
+    183  end subroutine stats
+
+
+ENTRY POINTS
+
+  Name                                       
+                                             
+ horiz_interp_type_mod_mp_stats_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ AVG                        Dummy  116      R(8)            8           scalar   ARG,OUT          149,166                           
+ BUFFER_INT                 Local  124      I(4)            4     1     2                         159,160,161,174,175,176           
+ BUFFER_REAL                Local  123      R(8)            8     1     3                         155,156,157,158,169,170,171,173   
+ COMM_TAG_1                 Param  155      I(4)            4           scalar   PRIV             43,155,173                        
+ COMM_TAG_2                 Param  159      I(4)            4           scalar   PRIV             43,159,176                        
+ COUNT                      Func   134                                  scalar                    134,139                           
+ DAT                        Dummy  116      R(8)            8     2     1        ARG,IN           134,135,136,137,140,141,142,145,14
+                                                                                                  6,147,151                         
+ DSUM                       Local  123      R(8)            8           scalar                    130,137,142,147,156,166,169       
+ HIGH                       Dummy  116      R(8)            8           scalar   ARG,OUT          136,141,146,158,171               
+ LOW                        Dummy  116      R(8)            8           scalar   ARG,OUT          135,140,145,157,170               
+ MASK                       Dummy  116      R(8)            8     2     1        ARG,IN           138,139,140,141,142               
+ MAX                        Func   158                                  scalar                    158                               
+ MAXVAL                     Func   136                                  scalar                    136,141,146                       
+ MIN                        Func   157                                  scalar                    157                               
+ MINVAL                     Func   135                                  scalar                    135,140,145                       
+ MISS                       Dummy  116      I(4)            4           scalar   ARG,OUT          131,134,139,144,151,160,174       
+ MISSING_VALUE              Dummy  116      R(8)            8           scalar   ARG,IN           133,134,135,136,137               
+ MPP_NPES                   Func   128      I(4)            4           scalar   PRIV             42,128                            
+ MPP_PE                     Func   126      I(4)            4           scalar   PRIV             42,126                            
+ MPP_RECV                   Local  155                                  scalar   PRIV             41,155,159                        
+ MPP_RECV_INT4_SCALAR       Subr   159                                           PRIV             159                               
+ MPP_RECV_REAL8_SCALAR      Subr   155                                           PRIV             155                               
+ MPP_ROOT_PE                Func   127      I(4)            4           scalar   PRIV             42,127                            
+ MPP_SEND                   Local  173                                  scalar   PRIV             41,173,176                        
+ MPP_SEND_INT4_SCALAR       Subr   176                                           PRIV             176                               
+ MPP_SEND_REAL8_SCALAR      Subr   173                                           PRIV             173                               
+ MPP_SYNC_SELF              Subr   179                                           PRIV             41,179                            
+ NPES                       Local  124      I(4)            4           scalar                    128,153                           
+ NPTS                       Local  123      R(8)            8           scalar                    151,161,163,166,175               
+
+Page 5           Source Listing                  STATS
+2021-06-01 08:55 Symbol Table                    horiz_interp_type.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ P                          Local  124      I(4)            4           scalar                    153,155,159                       
+ PE                         Local  124      I(4)            4           scalar                    126,152                           
+ PRESENT                    Func   133                                  scalar                    133,138                           
+ REAL                       Func   166                                  scalar                    166                               
+ ROOT_PE                    Local  124      I(4)            4           scalar                    127,152,155,159,173,176           
+ SIZE                       Func   151                                  scalar                    151                               
+ STATS                      Subr   116                                                                                              
+ SUM                        Func   137                                  scalar                    137,142,147                       
+
+Page 6           Source Listing                  STATS
+2021-06-01 08:55                                 horiz_interp_type.F90
+
+    184 
+    185 !###########################################################################################################################
+    185 ######
+    186  subroutine horiz_interp_type_eq(horiz_interp_out, horiz_interp_in)
+    187     type(horiz_interp_type), intent(inout) :: horiz_interp_out
+    188     type(horiz_interp_type), intent(in)    :: horiz_interp_in
+    189 
+    190     if(.not.horiz_interp_in%I_am_initialized) then
+    191       call mpp_error(FATAL,'horiz_interp_type_eq: horiz_interp_type variable on right hand side is unassigned')
+    192     endif
+    193 
+    194     horiz_interp_out%faci            => horiz_interp_in%faci
+    195     horiz_interp_out%facj            => horiz_interp_in%facj
+    196     horiz_interp_out%ilon            => horiz_interp_in%ilon
+    197     horiz_interp_out%jlat            => horiz_interp_in%jlat
+    198     horiz_interp_out%area_src        => horiz_interp_in%area_src
+    199     horiz_interp_out%area_dst        => horiz_interp_in%area_dst
+    200     horiz_interp_out%wti             => horiz_interp_in%wti
+    201     horiz_interp_out%wtj             => horiz_interp_in%wtj
+    202     horiz_interp_out%i_lon           => horiz_interp_in%i_lon
+    203     horiz_interp_out%j_lat           => horiz_interp_in%j_lat
+    204     horiz_interp_out%src_dist        => horiz_interp_in%src_dist
+    205     horiz_interp_out%found_neighbors => horiz_interp_in%found_neighbors
+    206     horiz_interp_out%max_src_dist    =  horiz_interp_in%max_src_dist
+    207     horiz_interp_out%num_found       => horiz_interp_in%num_found
+    208     horiz_interp_out%nlon_src        =  horiz_interp_in%nlon_src
+    209     horiz_interp_out%nlat_src        =  horiz_interp_in%nlat_src
+    210     horiz_interp_out%nlon_dst        =  horiz_interp_in%nlon_dst
+    211     horiz_interp_out%nlat_dst        =  horiz_interp_in%nlat_dst
+    212     horiz_interp_out%interp_method   =  horiz_interp_in%interp_method
+    213     horiz_interp_out%rat_x           => horiz_interp_in%rat_x
+    214     horiz_interp_out%rat_y           => horiz_interp_in%rat_y
+    215     horiz_interp_out%lon_in          => horiz_interp_in%lon_in
+    216     horiz_interp_out%lat_in          => horiz_interp_in%lat_in
+    217     horiz_interp_out%I_am_initialized = .true.
+    218     horiz_interp_out%i_src           => horiz_interp_in%i_src
+    219     horiz_interp_out%j_src           => horiz_interp_in%j_src
+    220     horiz_interp_out%i_dst           => horiz_interp_in%i_dst
+    221     horiz_interp_out%j_dst           => horiz_interp_in%j_dst
+    222     horiz_interp_out%area_frac_dst   => horiz_interp_in%area_frac_dst
+    223     if(horiz_interp_in%interp_method == CONSERVE) then
+    224        horiz_interp_out%version =  horiz_interp_in%version
+    225        if(horiz_interp_in%version==2) horiz_interp_out%nxgrid = horiz_interp_in%nxgrid
+    226     end if
+    227 
+    228  end subroutine horiz_interp_type_eq
+
+Page 7           Source Listing                  HORIZ_INTERP_TYPE_EQ
+2021-06-01 08:55 Entry Points                    horiz_interp_type.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                      
+                                                            
+ horiz_interp_type_mod_mp_horiz_interp_type_eq_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CONSERVE                   Param  223      I(4)            4           scalar                    55,223                            
+ FATAL                      Param  191      I(4)            4           scalar   PRIV             41,191                            
+ HORIZ_INTERP_IN            Dummy  186      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar   ARG,IN           190,194,195,196,197,198,199,200,20
+                                                                                                  1,202,203,204,205,206,207,208,209,
+                                                                                                  210,211,212,213,214,215,216,218,21
+                                                                                                  9,220,221,222,223,224,225         
+ HORIZ_INTERP_OUT           Dummy  186      HORIZ_INTERP_TYPE                                                                       
+                                                            2208        scalar   ARG,INOUT        194,195,196,197,198,199,200,201,20
+                                                                                                  2,203,204,205,206,207,208,209,210,
+                                                                                                  211,212,213,214,215,216,217,218,21
+                                                                                                  9,220,221,222,224,225             
+ HORIZ_INTERP_TYPE          Type   187                      2208        scalar                    56,187,188                        
+ HORIZ_INTERP_TYPE_EQ       Subr   186                                           PRIV                                               
+ MPP_ERROR                  Local  191                                  scalar   PRIV             41,191                            
+ MPP_ERROR_BASIC            Subr   191                                           PRIV             191                               
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ HORIZ_INTERP_TYPE.AREA_DST R(8)            8     480      2     1        PTR              199                                
+ HORIZ_INTERP_TYPE.AREA_FRAC_DST                                                                                           ...
+                            R(8)            8     2040     1     1        PTR              222                                
+ HORIZ_INTERP_TYPE.AREA_SRC R(8)            8     384      2     1        PTR              198                                
+ HORIZ_INTERP_TYPE.FACI     R(8)            8     0        2     1        PTR              194                                
+ HORIZ_INTERP_TYPE.FACJ     R(8)            8     96       2     1        PTR              195                                
+ HORIZ_INTERP_TYPE.FOUND_NEIGHBORS                                                                                         ...
+                            L(4)            4     1176     2     1        PTR              205                                
+ HORIZ_INTERP_TYPE.ILON     I(4)            4     192      2     1        PTR              196                                
+ HORIZ_INTERP_TYPE.INTERP_METHOD                                                                                           ...
+                            I(4)            4     1392           scalar                    212,223                            
+ HORIZ_INTERP_TYPE.I_AM_INITIALIZED                                                                                        ...
+                            L(4)            4     1736           scalar                    190,217                            
+ HORIZ_INTERP_TYPE.I_DST    I(4)            4     1896     1     1        PTR              220                                
+ HORIZ_INTERP_TYPE.I_LON    I(4)            4     816      3     1        PTR              202                                
+ HORIZ_INTERP_TYPE.I_SRC    I(4)            4     1752     1     1        PTR              218                                
+ HORIZ_INTERP_TYPE.JLAT     I(4)            4     288      2     1        PTR              197                                
+ HORIZ_INTERP_TYPE.J_DST    I(4)            4     1968     1     1        PTR              221                                
+ HORIZ_INTERP_TYPE.J_LAT    I(4)            4     936      3     1        PTR              203                                
+ HORIZ_INTERP_TYPE.J_SRC    I(4)            4     1824     1     1        PTR              219                                
+ HORIZ_INTERP_TYPE.LAT_IN   R(8)            8     1664     1     1        PTR              216                                
+ HORIZ_INTERP_TYPE.LON_IN   R(8)            8     1592     1     1        PTR              215                                
+
+Page 8           Source Listing                  HORIZ_INTERP_TYPE_EQ
+2021-06-01 08:55 Symbol Table                    horiz_interp_type.F90
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ HORIZ_INTERP_TYPE.MAX_SRC_DIST                                                                                            ...
+                            R(8)            8     1272           scalar                    206                                
+ HORIZ_INTERP_TYPE.NLAT_DST I(4)            4     1388           scalar                    211                                
+ HORIZ_INTERP_TYPE.NLAT_SRC I(4)            4     1380           scalar                    209                                
+ HORIZ_INTERP_TYPE.NLON_DST I(4)            4     1384           scalar                    210                                
+ HORIZ_INTERP_TYPE.NLON_SRC I(4)            4     1376           scalar                    208                                
+ HORIZ_INTERP_TYPE.NUM_FOUND                                                                                               ...
+                            I(4)            4     1280     2     1        PTR              207                                
+ HORIZ_INTERP_TYPE.NXGRID   I(4)            4     1744           scalar                    225                                
+ HORIZ_INTERP_TYPE.RAT_X    R(8)            8     1400     2     1        PTR              213                                
+ HORIZ_INTERP_TYPE.RAT_Y    R(8)            8     1496     2     1        PTR              214                                
+ HORIZ_INTERP_TYPE.SRC_DIST R(8)            8     1056     3     1        PTR              204                                
+ HORIZ_INTERP_TYPE.VERSION  I(4)            4     1740           scalar                    224,225                            
+ HORIZ_INTERP_TYPE.WTI      R(8)            8     576      3     1        PTR              200                                
+ HORIZ_INTERP_TYPE.WTJ      R(8)            8     696      3     1        PTR              201                                
+
+Page 9           Source Listing                  HORIZ_INTERP_TYPE_EQ
+2021-06-01 08:55                                 horiz_interp_type.F90
+
+    229 !###########################################################################################################################
+    229 ######
+    230 
+    231 end module horiz_interp_type_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ Assignment (=)                    56                                                                                               
+ BICUBIC                    Param  53       I(4)            4           scalar                    55                                
+ BILINEAR                   Param  51       I(4)            4           scalar                    55                                
+ HORIZ_INTERP_TYPE_MOD      Module 25                                                                                               
+ MPP_MOD                    Module 41                                                             41,42,43                          
+ NULL                       Func   64                                   scalar   PTR              64,65,66,67,68,69,70,72,74,76,78,8
+                                                                                                  0,83,93,95,97,98,103,104,105,106,1
+                                                                                                  07,108                            
+ SPHERICA                   Param  52       I(4)            4           scalar                    55                                
+ STATS                      Subr   56                                                             56                                
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ HORIZ_INTERP_TYPE.MASK_IN  R(8)            8     2112     2     1        PTR                                                 
+
+Page 10          Source Listing                  HORIZ_INTERP_TYPE_EQ
+2021-06-01 08:55 Subprograms/Common Blocks       horiz_interp_type.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ HORIZ_INTERP_TYPE_EQ       Subr   186                                           PRIV                                               
+ HORIZ_INTERP_TYPE_MOD      Module 25                                                                                               
+ STATS                      Subr   116                                                                                              
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+
+Page 11          Source Listing                  HORIZ_INTERP_TYPE_EQ
+2021-06-01 08:55                                 horiz_interp_type.F90
+
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+
+Page 12          Source Listing                  HORIZ_INTERP_TYPE_EQ
+2021-06-01 08:55                                 horiz_interp_type.F90
+
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : horiz_interp_type.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

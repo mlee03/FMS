@@ -1,0 +1,758 @@
+Page 1           Source Listing                  DRIFTERS_CORE_NEW
+2021-06-01 08:54                                 /tmp/ifortqKS24G.i90
+
+      1 # 1 "drifters_core.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 !
+     21 ! nf95 -r8 -g -I ~/regression/ia64/23-Jun-2005/CM2.1U_Control-1990_E1.k32pe/include/ -D_TEST_DRIFTERS -D_F95 quicksort.F90 d
+     21 rifters_core.F90
+     22 
+     23 !> @file
+     24 !! @email gfdl.climate.model.info@noaa.gov
+     25 module drifters_core_mod
+     26   use platform_mod
+     27   implicit none
+     28   private
+     29 
+     30   public :: drifters_core_type, drifters_core_new, drifters_core_del, drifters_core_set_ids
+     31   public :: drifters_core_remove_and_add, drifters_core_set_positions, assignment(=)
+     32 !#ifdef _TEST_DRIFTERS_CORE
+     33   public :: drifters_core_print,  drifters_core_resize
+     34 !#endif
+     35 
+     36 ! Globals
+     37   integer, parameter, private   :: MAX_STR_LEN = 128
+     38 ! Include variable "version" to be written to log file.
+     39 # 1 "../include/file_version.h" 1 
+     40 ! -*-f90-*-
+     41 !***********************************************************************
+     42 !*                   GNU Lesser General Public License
+     43 !*
+     44 !* This file is part of the GFDL Flexible Modeling System (FMS).
+     45 !*
+     46 !* FMS is free software: you can redistribute it and/or modify it under
+     47 !* the terms of the GNU Lesser General Public License as published by
+     48 !* the Free Software Foundation, either version 3 of the License, or (at
+     49 !* your option) any later version.
+     50 !*
+     51 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     52 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     53 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     54 !* for more details.
+     55 !*
+     56 !* You should have received a copy of the GNU Lesser General Public
+
+Page 2           Source Listing                  DRIFTERS_CORE_NEW
+2021-06-01 08:54                                 ../include/file_version.h
+
+     57 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     58 !***********************************************************************
+     59 
+     60 # 23
+     61 
+     62   character(len=*), parameter :: version = 'unknown'
+     63 
+     64 # 39 "drifters_core.F90" 2 
+     65 
+     66 !! @brief Be sure to update drifters_core_new, drifters_core_del and drifters_core_copy_new
+     67 !!   when adding members
+     68   type drifters_core_type
+     69 ! Be sure to update drifters_core_new, drifters_core_del and drifters_core_copy_new
+     70 ! when adding members
+     71      integer(kind=i8_kind) :: it   ! time index
+     72      integer :: nd     ! number of dimensions
+     73      integer :: np     ! number of particles (drifters)
+     74      integer :: npdim  ! max number of particles (drifters)
+     75      integer, allocatable :: ids(:) ! particle id number
+     76      real   , allocatable :: positions(:,:)
+     77   end type drifters_core_type
+     78 
+     79   interface assignment(=)
+     80      module procedure drifters_core_copy_new
+     81   end interface
+     82 
+     83 contains
+     84 
+     85 !###############################################################################
+     86   subroutine drifters_core_new(self, nd, npdim, ermesg)
+     87     type(drifters_core_type)        :: self
+     88     integer, intent(in)       :: nd
+     89     integer, intent(in)       :: npdim
+     90     character(*), intent(out) :: ermesg
+     91     integer ier, iflag, i
+     92     ermesg = ''
+     93     ier    = 0
+     94 
+     95     call drifters_core_del(self, ermesg)
+     96 
+     97     allocate(self%positions(nd, npdim), stat=iflag)
+     98     if(iflag/=0) ier = ier + 1
+     99     self%positions   = 0.
+    100 
+    101     allocate(self%ids(npdim), stat=iflag)
+    102     if(iflag/=0) ier = ier + 1
+    103     self%ids         = (/(i, i=1,npdim)/)
+    104 
+    105     self%nd    = nd
+    106     self%npdim = npdim
+    107 
+    108     if(ier/=0) ermesg = 'drifters::ERROR in drifters_core_new'
+    109   end subroutine drifters_core_new
+
+Page 3           Source Listing                  DRIFTERS_CORE_NEW
+2021-06-01 08:54 Entry Points                    drifters_core.F90
+
+
+
+ENTRY POINTS
+
+  Name                                               
+                                                     
+ drifters_core_mod_mp_drifters_core_new_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_CORE_DEL          Subr   95                                                             30,95,139                         
+ DRIFTERS_CORE_NEW          Subr   86                                                                                               
+ DRIFTERS_CORE_TYPE         Type   87                       192         scalar                    30,77,87,113,133,134,155,190,204,2
+                                                                                                  19,282                            
+ ERMESG                     Dummy  86       CHAR                        scalar   ARG,OUT          92,95,108                         
+ I                          Local  91       I(4)            4           scalar                                                      
+ IER                        Local  91       I(4)            4           scalar                    93,98,102,108                     
+ IFLAG                      Local  91       I(4)            4           scalar                    97,98,101,102                     
+ ND                         Dummy  86       I(4)            4           scalar   ARG,IN           97,105                            
+ NPDIM                      Dummy  86       I(4)            4           scalar   ARG,IN           97,101,103,106                    
+ SELF                       Dummy  86       DRIFTERS_CORE_TYPE                                                                      
+                                                            192         scalar   ARG,INOUT        95,97,99,101,103,105,106          
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DRIFTERS_CORE_TYPE.IDS     I(4)            4     24       1     1        ALC              101,103,124,146,147,172,175,178,18 
+                                                                                           1,211,248,255,271,292              
+ DRIFTERS_CORE_TYPE.ND      I(4)            4     8              scalar                    105,119,143,168,177                
+ DRIFTERS_CORE_TYPE.NPDIM   I(4)            4     16             scalar                    106,145,165,183,196,210,243,288    
+ DRIFTERS_CORE_TYPE.POSITIONS                                                                                              ...
+                            R(8)            8     96       2     1        ALC              97,99,122,148,149,150,171,174,177, 
+                                                                                           179,182,197,249,256,272,292        
+
+Page 4           Source Listing                  DRIFTERS_CORE_NEW
+2021-06-01 08:54                                 drifters_core.F90
+
+    110 
+    111 !###############################################################################
+    112  subroutine drifters_core_del(self, ermesg)
+    113     type(drifters_core_type)        :: self
+    114     character(*), intent(out) :: ermesg
+    115     integer ier, iflag
+    116     ermesg = ''
+    117     ier    = 0
+    118     self%it  = 0
+    119     self%nd  = 0
+    120     self%np  = 0
+    121     iflag = 0
+    122     if(allocated(self%positions)) deallocate(self%positions, stat=iflag)
+    123     if(iflag/=0) ier = ier + 1
+    124     if(allocated(self%ids)) deallocate(self%ids, stat=iflag)
+    125     if(iflag/=0) ier = ier + 1
+    126 
+    127     if(ier/=0) ermesg = 'drifters::ERROR in drifters_core_del'
+    128   end subroutine drifters_core_del
+
+
+ENTRY POINTS
+
+  Name                                               
+                                                     
+ drifters_core_mod_mp_drifters_core_del_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALLOCATED                  Func   122                                  scalar                    122,124                           
+ DRIFTERS_CORE_DEL          Subr   112                                                                                              
+ ERMESG                     Dummy  112      CHAR                        scalar   ARG,OUT          116,127                           
+ IER                        Local  115      I(4)            4           scalar                    117,123,125,127                   
+ IFLAG                      Local  115      I(4)            4           scalar                    121,122,123,124,125               
+ SELF                       Dummy  112      DRIFTERS_CORE_TYPE                                                                      
+                                                            192         scalar   ARG,INOUT        118,119,120,122,124               
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DRIFTERS_CORE_TYPE.IT      I(8)            8     0              scalar                    118,142,198,287                    
+ DRIFTERS_CORE_TYPE.NP      I(4)            4     12             scalar                    120,144,168,169,171,172,182,196,19 
+                                                                                           7,237,243,244,255,256,258,269,271, 
+                                                                                           272,273,288,291                    
+
+Page 5           Source Listing                  DRIFTERS_CORE_DEL
+2021-06-01 08:54                                 drifters_core.F90
+
+    129 
+    130 !###############################################################################
+    131  subroutine drifters_core_copy_new(new_instance, old_instance)
+    132 
+    133     type(drifters_core_type), intent(inout)   :: new_instance
+    134     type(drifters_core_type), intent(in)      :: old_instance
+    135 
+    136     character(len=MAX_STR_LEN) :: ermesg
+    137 
+    138     ermesg = ''
+    139     call drifters_core_del(new_instance, ermesg)
+    140     if(ermesg/='') return
+    141 ! this should provide the right behavior for both pointers and allocatables
+    142     new_instance%it         = old_instance%it
+    143     new_instance%nd         = old_instance%nd
+    144     new_instance%np         = old_instance%np
+    145     new_instance%npdim      = old_instance%npdim
+    146     allocate(new_instance%ids( size(old_instance%ids) ))
+    147     new_instance%ids        = old_instance%ids
+    148     allocate(new_instance%positions( size(old_instance%positions,1), &
+    149          &                           size(old_instance%positions,2) ))
+    150     new_instance%positions  = old_instance%positions
+    151 
+    152  end subroutine drifters_core_copy_new
+
+
+ENTRY POINTS
+
+  Name                                                    
+                                                          
+ drifters_core_mod_mp_drifters_core_copy_new_             
+
+Page 6           Source Listing                  DRIFTERS_CORE_COPY_NEW
+2021-06-01 08:54 Symbol Table                    drifters_core.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_CORE_COPY_NEW     Subr   131                                           PRIV                                               
+ ERMESG                     Local  136      CHAR            128         scalar                    138,139,140                       
+ MAX_STR_LEN                Param  136      I(4)            4           scalar   PRIV             37,136                            
+ NEW_INSTANCE               Dummy  131      DRIFTERS_CORE_TYPE                                                                      
+                                                            192         scalar   ARG,INOUT        139,142,143,144,145,146,147,148,15
+                                                                                                  0                                 
+ OLD_INSTANCE               Dummy  131      DRIFTERS_CORE_TYPE                                                                      
+                                                            192         scalar   ARG,IN           142,143,144,145,146,147,148,149,15
+                                                                                                  0                                 
+ SIZE                       Func   146                                  scalar                    146,148,149                       
+
+Page 7           Source Listing                  DRIFTERS_CORE_COPY_NEW
+2021-06-01 08:54                                 drifters_core.F90
+
+    153 !###############################################################################
+    154   subroutine drifters_core_resize(self, npdim, ermesg)
+    155     type(drifters_core_type)        :: self
+    156     integer, intent(in)        :: npdim !< new max value
+    157     character(*), intent(out) :: ermesg
+    158     integer ier, iflag, i
+    159 
+    160     real   , allocatable :: positions(:,:)
+    161     integer, allocatable :: ids(:)
+    162 
+    163     ermesg = ''
+    164     ier    = 0
+    165     if(npdim <= self%npdim) return
+    166 
+    167 ! temps
+    168     allocate(positions(self%nd, self%np), stat=iflag)
+    169     allocate(               ids(self%np), stat=iflag)
+    170 
+    171     positions    = self%positions(:, 1:self%np)
+    172     ids          = self%ids(1:self%np)
+    173 
+    174     deallocate(self%positions, stat=iflag)
+    175     deallocate(self%ids      , stat=iflag)
+    176 
+    177     allocate(self%positions(self%nd, npdim), stat=iflag)
+    178     allocate(self%ids(npdim), stat=iflag)
+    179     self%positions = 0.0
+    180 ! default id numbers
+    181     self%ids       = (/ (i, i=1,npdim) /)
+    182     self%positions(:, 1:self%np) = positions
+    183     self%npdim = npdim
+    184 
+    185     if(ier/=0) ermesg = 'drifters::ERROR in drifters_core_resize'
+    186   end subroutine drifters_core_resize
+
+Page 8           Source Listing                  DRIFTERS_CORE_RESIZE
+2021-06-01 08:54 Entry Points                    drifters_core.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ drifters_core_mod_mp_drifters_core_resize_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_CORE_RESIZE       Subr   154                                                                                              
+ ERMESG                     Dummy  154      CHAR                        scalar   ARG,OUT          163,185                           
+ I                          Local  158      I(4)            4           scalar                                                      
+ IDS                        Local  161      I(4)            4     1     1        ALC              169,172                           
+ IER                        Local  158      I(4)            4           scalar                    164,185                           
+ IFLAG                      Local  158      I(4)            4           scalar                    168,169,174,175,177,178           
+ NPDIM                      Dummy  154      I(4)            4           scalar   ARG,IN           165,177,178,181,183               
+ POSITIONS                  Local  160      R(8)            8     2     1        ALC              168,171,182                       
+ SELF                       Dummy  154      DRIFTERS_CORE_TYPE                                                                      
+                                                            192         scalar   ARG,INOUT        165,168,169,171,172,174,175,177,17
+                                                                                                  8,179,181,182,183                 
+
+Page 9           Source Listing                  DRIFTERS_CORE_RESIZE
+2021-06-01 08:54                                 drifters_core.F90
+
+    187 
+    188 !###############################################################################
+    189   subroutine drifters_core_set_positions(self, positions, ermesg)
+    190     type(drifters_core_type)        :: self
+    191     real, intent(in)           :: positions(:,:)
+    192     character(*), intent(out)  :: ermesg
+    193     integer ier !, iflag
+    194     ermesg = ''
+    195     ier = 0
+    196     self%np = min(self%npdim, size(positions, 2))
+    197     self%positions(:,1:self%np) = positions(:,1:self%np)
+    198     self%it                = self%it + 1
+    199     if(ier/=0) ermesg = 'drifters::ERROR in drifters_core_set_positions'
+    200   end subroutine drifters_core_set_positions
+
+
+ENTRY POINTS
+
+  Name                                                         
+                                                               
+ drifters_core_mod_mp_drifters_core_set_positions_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_CORE_SET_POSITION                                                                                                         
+ S                          Subr   189                                                                                              
+ ERMESG                     Dummy  189      CHAR                        scalar   ARG,OUT          194,199                           
+ IER                        Local  193      I(4)            4           scalar                    195,199                           
+ MIN                        Func   196                                  scalar                    196                               
+ POSITIONS                  Dummy  189      R(8)            8     2     1        ARG,IN           196,197                           
+ SELF                       Dummy  189      DRIFTERS_CORE_TYPE                                                                      
+                                                            192         scalar   ARG,INOUT        196,197,198                       
+ SIZE                       Func   196                                  scalar                    196                               
+
+Page 10          Source Listing                  DRIFTERS_CORE_SET_POSITIONS
+2021-06-01 08:54                                 drifters_core.F90
+
+    201 
+    202 !###############################################################################
+    203   subroutine drifters_core_set_ids(self1, ids1, ermesg1)
+    204     type(drifters_core_type)        :: self1
+    205     integer, intent(in)        :: ids1(:)
+    206     character(*), intent(out)  :: ermesg1
+    207     integer ier, np !, iflag
+    208     ermesg1 = ''
+    209     ier = 0
+    210     np = min(self1%npdim, size(ids1))
+    211     self1%ids(1:np) = ids1(1:np)
+    212     if(ier/=0) ermesg1 = 'drifters::ERROR in drifters_core_set_ids'
+    213   end subroutine drifters_core_set_ids
+
+
+ENTRY POINTS
+
+  Name                                                   
+                                                         
+ drifters_core_mod_mp_drifters_core_set_ids_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_CORE_SET_IDS      Subr   203                                                                                              
+ ERMESG1                    Dummy  203      CHAR                        scalar   ARG,OUT          208,212                           
+ IDS1                       Dummy  203      I(4)            4     1     1        ARG,IN           210,211                           
+ IER                        Local  207      I(4)            4           scalar                    209,212                           
+ MIN                        Func   210                                  scalar                    210                               
+ NP                         Local  207      I(4)            4           scalar                    210,211                           
+ SELF1                      Dummy  203      DRIFTERS_CORE_TYPE                                                                      
+                                                            192         scalar   ARG,INOUT        210,211                           
+ SIZE                       Func   210                                  scalar                    210                               
+
+Page 11          Source Listing                  DRIFTERS_CORE_SET_IDS
+2021-06-01 08:54                                 drifters_core.F90
+
+    214 
+    215 !###############################################################################
+    216 subroutine drifters_core_remove_and_add(self, indices_to_remove_in, &
+    217      & ids_to_add, positions_to_add, &
+    218      & ermesg)
+    219     type(drifters_core_type)        :: self
+    220     integer, intent(in   )     :: indices_to_remove_in(:)
+    221     integer, intent(in   )     :: ids_to_add(:)
+    222     real   , intent(in   )     :: positions_to_add(:,:)
+    223     character(*), intent(out)  :: ermesg
+    224     integer ier, np_add, np_remove, i, j, n_diff !, iflag
+    225     integer indices_to_remove(size(indices_to_remove_in))
+    226     external qksrt_quicksort
+    227     ermesg = ''
+    228     ier = 0
+    229 
+    230 ! copy, required so we can have indices_to_remove_in intent(in)
+    231     indices_to_remove = indices_to_remove_in
+    232     np_remove = size(indices_to_remove)
+    233     np_add    = size(ids_to_add, 1)
+    234     n_diff = np_add - np_remove
+    235 
+    236 ! cannot remove more than there are elements
+    237     if(self%np + n_diff < 0) then
+    238        ermesg = 'drifters::ERROR attempting to remove more elements than there are elements in drifters_core_remove_and_add'
+    239        return
+    240     endif
+    241 
+    242 ! check for overflow, and resize if necessary
+    243     if(self%np + n_diff > self%npdim)  &
+    244          & call drifters_core_resize(self, int(1.2*(self%np + n_diff))+1, ermesg)
+    245 
+    246     do i = 1, min(np_add, np_remove)
+    247        j = indices_to_remove(i)
+    248        self%ids(j)            = ids_to_add(i)
+    249        self%positions(:,j)    = positions_to_add(:,i)
+    250     enddo
+    251 
+    252     if(n_diff > 0) then
+    253 ! all the particles to remove were removed and replaced. Just need to append
+    254 ! remaining particles to end of list
+    255        self%ids(         self%np+1:self%np+n_diff)   = ids_to_add(        np_remove+1:np_add)
+    256        self%positions(:, self%np+1:self%np+n_diff)   = positions_to_add(:,np_remove+1:np_add)
+    257 
+    258        self%np = self%np + n_diff
+    259 
+    260     else if(n_diff < 0) then
+    261 ! all the particles were added by filling in holes left by particles that
+    262 ! were previously removed. Now remove remaining particles, starting from the end,
+    263 ! by replacing the missing particle with a copy from the end.
+    264 
+    265 ! sort remaining indices in ascending order
+    266        call qksrt_quicksort(size(indices_to_remove), indices_to_remove, np_add+1, np_remove)
+    267 
+    268        do i = np_remove, np_add+1, -1
+    269           if(self%np <= 0) exit
+    270           j = indices_to_remove(i)
+
+Page 12          Source Listing                  DRIFTERS_CORE_REMOVE_AND_ADD
+2021-06-01 08:54                                 drifters_core.F90
+
+    271           self%ids      (  j)    = self%ids      (  self%np)
+    272           self%positions(:,j)    = self%positions(:,self%np)
+    273           self%np = self%np - 1
+    274        enddo
+    275     endif
+    276 
+    277     if(ier/=0) ermesg = 'drifters::ERROR in drifters_core_remove_and_add'
+    278   end subroutine drifters_core_remove_and_add
+
+
+ENTRY POINTS
+
+  Name                                                          
+                                                                
+ drifters_core_mod_mp_drifters_core_remove_and_add_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_CORE_REMOVE_AND_A                                                                                                         
+ DD                         Subr   216                                                                                              
+ DRIFTERS_CORE_RESIZE       Subr   244                                                            33,244                            
+ ERMESG                     Dummy  218      CHAR                        scalar   ARG,OUT          227,238,244,277                   
+ I                          Local  224      I(4)            4           scalar                    246,247,248,249,268,270           
+ IDS_TO_ADD                 Dummy  217      I(4)            4     1     1        ARG,IN           233,248,255                       
+ IER                        Local  224      I(4)            4           scalar                    228,277                           
+ INDICES_TO_REMOVE          Local  225      I(4)            4     1     0                         231,232,247,266,270               
+ INDICES_TO_REMOVE_IN       Dummy  216      I(4)            4     1     1        ARG,IN           225,231                           
+ INT                        Func   244                                  scalar                    244                               
+ J                          Local  224      I(4)            4           scalar                    247,248,249,270,271,272           
+ MIN                        Func   246                                  scalar                    246                               
+ NP_ADD                     Local  224      I(4)            4           scalar                    233,234,246,255,256,266,268       
+ NP_REMOVE                  Local  224      I(4)            4           scalar                    232,234,246,255,256,266,268       
+ N_DIFF                     Local  224      I(4)            4           scalar                    234,237,243,244,252,255,256,258,26
+                                                                                                  0                                 
+ POSITIONS_TO_ADD           Dummy  217      R(8)            8     2     1        ARG,IN           249,256                           
+ QKSRT_QUICKSORT            Subr   226                                                            266                               
+ SELF                       Dummy  216      DRIFTERS_CORE_TYPE                                                                      
+                                                            192         scalar   ARG,INOUT        237,243,244,248,249,255,256,258,26
+                                                                                                  9,271,272,273                     
+ SIZE                       Func   225                                  scalar                    225,232,233,266                   
+
+Page 13          Source Listing                  DRIFTERS_CORE_REMOVE_AND_ADD
+2021-06-01 08:54                                 drifters_core.F90
+
+    279 
+    280 !###############################################################################
+    281   subroutine drifters_core_print(self1, ermesg1)
+    282     type(drifters_core_type)        :: self1
+    283     character(*), intent(out) :: ermesg1
+    284     integer j
+    285     ermesg1 = ''
+    286 
+    287     print '(a,i10,a,i6,a,i6,a,i4,a,i4,a,i4)','it=',self1%it,  &
+    288          & ' np=', self1%np, ' npdim=', self1%npdim
+    289 
+    290     print *,'ids and positions:'
+    291     do j = 1, self1%np
+    292        print *,self1%ids(j), self1%positions(:,j)
+    293     enddo
+    294 
+    295   end subroutine drifters_core_print
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ drifters_core_mod_mp_drifters_core_print_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_CORE_PRINT        Subr   281                                                                                              
+ ERMESG1                    Dummy  281      CHAR                        scalar   ARG,OUT          285                               
+ J                          Local  284      I(4)            4           scalar                    291,292                           
+ SELF1                      Dummy  281      DRIFTERS_CORE_TYPE                                                                      
+                                                            192         scalar   ARG,INOUT        287,288,291,292                   
+
+Page 14          Source Listing                  DRIFTERS_CORE_PRINT
+2021-06-01 08:54                                 drifters_core.F90
+
+    296 
+    297 
+    298 end module drifters_core_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ Assignment (=)                    31                                                                                               
+ DRIFTERS_CORE_MOD          Module 25                                                                                               
+ DRIFTERS_CORE_NEW          Subr   30                                                             30                                
+ DRIFTERS_CORE_PRINT        Subr   33                                                             33                                
+ DRIFTERS_CORE_REMOVE_AND_A                                                                                                         
+ DD                         Subr   31                                                             31                                
+ DRIFTERS_CORE_SET_IDS      Subr   30                                                             30                                
+ DRIFTERS_CORE_SET_POSITION                                                                                                         
+ S                          Subr   31                                                             31                                
+ I8_KIND                    Param  71       I(4)            4           scalar   PRIV             71                                
+ PLATFORM_MOD               Module 26                                                             26                                
+ VERSION                    Param  62       CHAR            7           scalar                                                      
+
+Page 15          Source Listing                  DRIFTERS_CORE_PRINT
+2021-06-01 08:54                                 drifters_core.F90
+
+    299 !###############################################################################
+    300 !###############################################################################
+
+Page 16          Source Listing                  DRIFTERS_CORE_PRINT
+2021-06-01 08:54 Subprograms/Common Blocks       drifters_core.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_CORE_COPY_NEW     Subr   131                                           PRIV                                               
+ DRIFTERS_CORE_DEL          Subr   112                                                                                              
+ DRIFTERS_CORE_MOD          Module 25                                                                                               
+ DRIFTERS_CORE_NEW          Subr   86                                                                                               
+ DRIFTERS_CORE_PRINT        Subr   281                                                                                              
+ DRIFTERS_CORE_REMOVE_AND_A                                                                                                         
+ DD                         Subr   216                                                                                              
+ DRIFTERS_CORE_RESIZE       Subr   154                                                                                              
+ DRIFTERS_CORE_SET_IDS      Subr   203                                                                                              
+ DRIFTERS_CORE_SET_POSITION                                                                                                         
+ S                          Subr   189                                                                                              
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+
+Page 17          Source Listing                  DRIFTERS_CORE_PRINT
+2021-06-01 08:54                                 drifters_core.F90
+
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+
+Page 18          Source Listing                  DRIFTERS_CORE_PRINT
+2021-06-01 08:54                                 drifters_core.F90
+
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : drifters_core.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

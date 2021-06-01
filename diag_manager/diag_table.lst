@@ -1,0 +1,1803 @@
+Page 1           Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 /tmp/ifort510J4M.i90
+
+      1 # 1 "diag_table.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 !> @file
+     22 !! @brief <TT>diag_table_mod</TT> is a set of subroutines use to parse out the data from a <TT>diag_table</TT>.  This module
+     23 !!   will also setup the arrays required to store the information by counting the number of input fields, output files, and
+     24 !!   files.
+     25 !! @author Seth Underwood
+     26 !! @email gfdl.climate.model.info@noaa.gov
+     27 !!
+     28 !! @details <TT>diag_table_mod</TT> parses the <TT>diag_table</TT> file, and sets up the required arrays to hold the informa
+     28 tion
+     29 !!   needed for the <TT>diag_manager_mod</TT> to correctly write out the model history files.
+     30 !!
+     31 !!   The <I>diagnostics table</I> allows users to specify sampling rates and the choice of fields at run time.  The
+     32 !!   <TT>diag_table</TT> file consists of comma-separated ASCII values.  The <TT>diag_table</TT> essentially has three secti
+     32 ons:
+     33 !!   <B>Global</B>, <B>File</B>, and <B>Field</B> sections.  The <B>Global</B> section must be the first two lines of the fi
+     33 le,
+     34 !!   whereas the <B>File</B> and <B>Field</B> sections can be inter mixed to allow the file to be organized as desired.
+     35 !!   Comments can be added to the <TT>diag_table</TT> file by using the hash symbol (#) as the first character in the line.
+     36 !!
+     37 !!   All errors in the <TT>diag_table</TT> will throw a <TT>FATAL</TT> error.  A simple utility <TT>diag_table_chk</TT>has b
+     37 een
+     38 !!   added to the FRE tools suite to check a <TT>diag_table</TT> for errors.  A brief usage statement can be obtained by run
+     38 ning
+     39 !!   <TT>diag_table_chk --help</TT>, and a man page like description can views by running <TT>perldoc diag_table_chk</TT>.
+     40 !!
+     41 !!   Below is a description of the three sections.
+     42 !!   <OL>
+     43 !!     <LI>
+     44 !!       <B>Global Section:</B>  The first two lines of the <TT>diag_table</TT> must contain the <I>title</I> and the <I>bas
+     44 e
+     45 !!       date</I> of the experiment respectively.  The <I>title</I> must be a Fortran CHARACTER string.  The <I>base date</I
+     45 >
+     46 !!       is the reference time used for the time units, and must be greater than or equal to the model start time.
+     47 !!       The <I>base date</I> consists of six space-separated integer in the following format.<BR />
+     48 !!       <TT><NOBR>year month day hour minute second</NOBR></TT><BR />
+     49 !!     </LI>
+     50 !!     <LI>
+
+Page 2           Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+     51 !!       <B>File Section:</B> File lines contain 6 required and 5 optional fields (optional fields are surrounded with
+     52 !!       square brackets ([]).  File lines can be intermixed with the field lines, but the file must be defined before any
+     53 !!       fields that are to be written to the file.  File lines have the following format:<BR />
+     54 !!       <PRELN>
+     55 !!         "file_name", output_freq, "output_freq_units", file_format, "time_axis_units", "time_axis_name"
+     56 !!         [, new_file_freq, "new_file_freq_units"[, "start_time"[, file_duration, "file_duration_units"]]]
+     57 !!       </PRELN>
+     58 !!       <BR />
+     59 !!       with the following descriptions.
+     60 !!       <DL>
+     61 !!         <DT><TT>CHARACTER(len=128) :: file_name</TT></DT>
+     62 !!         <DD>
+     63 !!           Output file name without the trailing "<TT>.nc</TT>".
+     64 !!
+     65 !!           A single file description can produce multiple files using special time string suffix keywords.  This time stri
+     65 ng
+     66 !!           will append the time strings to the base file name each time a new file is opened.  They syntax for the time st
+     66 ring
+     67 !!           suffix keywords are <TT>%#tt</TT> Where <TT>#</TT> is a mandatory single digit number specifying the width of t
+     67 he
+     68 !!           field, and <TT>tt</TT> can be as follows:
+     69 !!           <NL>
+     70 !!             <LI><TT>yr</TT> <EN /> Years</LI>
+     71 !!             <LI><TT>mo</TT> <EN /> Months</LI>
+     72 !!             <LI><TT>dy</TT> <EN /> Days</LI>
+     73 !!             <LI><TT>hr</TT> <EN /> Hours</LI>
+     74 !!             <LI><TT>mi</TT> <EN /> Minutes</LI>
+     75 !!             <LI><TT>sc</TT> <EN /> Seconds</LI>
+     76 !!           </NL>
+     77 !!           Thus, a file name of <TT>file2_yr_dy%1yr%3dy</TT> will have a base file name of <TT>file2_yr_dy_1_001</TT> if t
+     77 he
+     78 !!           file is created on year 1 day 1 of the model run.  <B><I>NOTE:</I></B> The time suffix keywords must be used if
+     78  the
+     79 !!           optional fields <TT>new_file_freq</TT> and <TT>new_file_freq_units</TT> are used, otherwise a <TT>FATAL</TT> er
+     79 ror
+     80 !!           will occur.
+     81 !!         </DD>
+     82 !!
+     83 !!         <DT><TT>INTEGER :: output_freq</TT></DT>
+     84 !!         <DD>How often to write fields to file.
+     85 !!           <NL>
+     86 !!             <LI><TT>> 0</TT> <EN /> Output frequency in <TT>output_freq_units</TT>.</LI>
+     87 !!             <LI><TT>= 0</TT> <EN /> Output frequency every time set. (<TT>output_freq_units</TT> is ignored.)</LI>
+     88 !!             <LI><TT>=-1</TT> <EN /> Output at end of run only. (<TT>output_freq_units</TT> is ignored.)</LI>
+     89 !!           </NL>
+     90 !!         </DD>
+     91 !!         <DT><TT>CHARACTER(len=10) :: output_freq_units</TT></DT>
+     92 !!         <DD>
+     93 !!           Time units for output.  Can be either <TT>years</TT>, <TT>months</TT>, <TT>days</TT>, <TT>minutes</TT>,
+     94 !!           <TT>hours</TT>, or <TT>seconds</TT>.
+     95 !!         </DD>
+     96 !!         <DT><TT>INTEGER :: file_format</TT></DT>
+     97 !!         <DD>
+     98 !!           Output file format.  Currently only the <I>netCDF</I> file format is supported.
+     99 !!           <NL>
+    100 !!             <LI><TT>= 1</TT> <EN /> netCDF</LI>
+    101 !!           </NL>
+
+Page 3           Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    102 !!         </DD>
+    103 !!         <DT><TT>CHARACTER(len=10) :: time_axis_units</TT></DT>
+    104 !!         <DD>
+    105 !!           Time units for the output file time axis.  Can be either <TT>years</TT>, <TT>months</TT>, <TT>days</TT>,
+    106 !!           <TT>minutes</TT>, <TT>hours</TT>, or <TT>seconds</TT>.
+    107 !!         </DD>
+    108 !!         <DT><TT>CHARACTER(len=128) :: time_axis_name</TT></DT>
+    109 !!         <DD>
+    110 !!           Axis name for the output file time axis.  The character sting must contain the string 'time'. (mixed upper and
+    111 !!           lowercase allowed.)
+    112 !!         </DD>
+    113 !!         <DT><TT>INTEGER, OPTIONAL :: new_file_freq</TT></DT>
+    114 !!         <DD>
+    115 !!           Frequency for closing the existing file, and creating a new file in <TT>new_file_freq_units</TT>.
+    116 !!         </DD>
+    117 !!         <DT><TT>CHARACTER(len=10), OPTIONAL :: new_file_freq_units</TT></DT>
+    118 !!         <DD>
+    119 !!           Time units for creating a new file.  Can be either <TT>years</TT>, <TT>months</TT>, <TT>days</TT>,
+    120 !!           <TT>minutes</TT>, <TT>hours</TT>, or <TT>seconds</TT>.  <B><I>NOTE:</I></B> If the <TT>new_file_freq</TT> field
+    120  is
+    121 !!           present, then this field must also be present.
+    122 !!         </DD>
+    123 !!         <DT><TT>CHARACTER(len=25), OPTIONAL :: start_time</TT></DT>
+    124 !!         <DD>
+    125 !!           Time to start the file for the first time.  The format of this string is the same as the <I>global date</I>.  <
+    125 B><I>
+    126 !!           NOTE:</I></B> The <TT>new_file_freq</TT> and the <TT>new_file_freq_units</TT> fields must be present to use thi
+    126 s field.
+    127 !!         </DD>
+    128 !!         <DT><TT>INTEGER, OPTIONAL :: file_duration</TT></DT>
+    129 !!         <DD>
+    130 !!           How long file should receive data after start time in <TT>file_duration_units</TT>.  This optional field can on
+    130 ly
+    131 !!           be used if the <TT>start_time</TT> field is present.  If this field is absent, then the file duration will be e
+    131 qual
+    132 !!           to the frequency for creating new files.  <B><I>NOTE:</I></B> The <TT>file_duration_units</TT> field must also 
+    132 be
+    133 !!           present if this field is present.
+    134 !!         </DD>
+    135 !!         <DT><TT>CHARACTER(len=10), OPTIONAL :: file_duration_units</TT></DT>
+    136 !!         <DD>
+    137 !!           File duration units. Can be either <TT>years</TT>, <TT>months</TT>, <TT>days</TT>,
+    138 !!           <TT>minutes</TT>, <TT>hours</TT>, or <TT>seconds</TT>.  <B><I>NOTE:</I></B> If the <TT>file_duration</TT> field
+    138  is
+    139 !!           present, then this field must also be present.
+    140 !!         </DD>
+    141 !!       </DL>
+    142 !!     </LI>
+    143 !!     <LI>
+    144 !!       <B>Field Section:</B> Field lines contain 8 fields.  Field lines can be intermixed with file lines.  Fields line ca
+    144 n contain
+    145 !!       fields that are not written to any files.  The file name for these fields is <TT>null</TT>.
+    146 !!
+    147 !!       Field lines have the following format:<BR />
+    148 !!       <PRE>
+    149 !! "module_name", "field_name", "output_name", "file_name", "time_sampling", "reduction_method", "regional_section", packing
+    150 !!       </PRE>
+
+Page 4           Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    151 !!       with the following descriptions.
+    152 !!       <DL>
+    153 !!         <DT><TT>CHARACTER(len=128) :: module_name</TT></DT>
+    154 !!         <DD>Module that contains the <TT>field_name</TT> variable.  (e.g. <TT>atmos_mod</TT>, <TT>land_mod</TT>)</DD>
+    155 !!         <DT><TT>CHARACTER(len=128) :: field_name</TT></DT>
+    156 !!         <DD>Module variable name that has data to be written to file.</DD>
+    157 !!         <DT><TT>CHARACTER(len=128) :: output_name</TT></DT>
+    158 !!         <DD>Name of the field as written in <TT>file_name</TT>.</DD>
+    159 !!         <DT><TT>CHARACTER(len=128) :: file_name</TT></DT>
+    160 !!         <DD>
+    161 !!           Name of the file where the field is to be written. <B><I>NOTE:</I></B> The file <TT>file_name</TT> must be
+    162 !!           defined first.
+    163 !!         </DD>
+    164 !!         <DT><TT>CHARACTER(len=50) :: time_sampling</TT></DT>
+    165 !!         <DD>Currently not used.  Please use the string "all".</DD>
+    166 !!         <DT><TT>CHARACTER(len=50) :: reduction_method</TT></DT>
+    167 !!         <DD>
+    168 !!           The data reduction method to perform prior to writing data to disk.  Valid options are (redundant names are
+    169 !!           separated with commas):
+    170 !!           <DL>
+    171 !!             <DT><TT>.TRUE.</TT>, average, avg, mean</DT>
+    172 !!             <DD>Average from the last time written to the current time.</DD>
+    173 !!             <DT><TT>.FALSE.</TT>, none</DT>
+    174 !!             <DD>No reduction performed.  Write current time step value only.</DD>
+    175 !!             <DT>rms</DT> <DD>Calculate the root mean square from the last time written to the current time.</DD>
+    176 !!             <DT>pow##</DT> <DD>Calculate the mean of the power ## from the last time written to the current time.</DD>
+    177 !!             <DT>min</DT> <DD>Minimum value from last write to current time.</DD>
+    178 !!             <DT>max</DT> <DD>Maximum value from last write to current time.</DD>
+    179 !!             <DT>diurnal##</DT> <DD>## diurnal averages</DD>
+    180 !!           </DL>
+    181 !!         </DD>
+    182 !!         <DT><TT>CHARACTER(len=50) :: regional_section</TT></DT>
+    183 !!         <DD>
+    184 !!           Bounds of the regional section to capture.  A value of <TT>none</TT> indicates a global region.  The regional
+    185 !!           section has the following format:<BR />
+    186 !!           <TT>lat_min, lat_max, lon_min, lon_max, vert_min, vert_max</TT><BR />
+    187 !!           Use <TT>vert_min = -1</TT> and <TT>vert_max = -1</TT> to get the entire vertical axis.  <B><I>NOTE:</I></B>
+    188 !!           Currently, the defined region <I>MUST</I> be confined to a single tile.
+    189 !!         </DD>
+    190 !!         <DT><TT>INTEGER :: packing</TT></DT>
+    191 !!         <DD>
+    192 !!           Fortran number <TT>KIND</TT> of the data written.  Valid values:
+    193 !!           <NL>
+    194 !!             <LI><TT>= 1</TT> <EN /> double precision</LI>
+    195 !!             <LI><TT>= 2</TT> <EN /> float</LI>
+    196 !!             <LI><TT>= 4</TT> <EN /> packed 16-bit integers</LI>
+    197 !!             <LI><TT>= 8</TT> <EN /> packed 1-byte (not tested).</LI>
+    198 !!           </NL>
+    199 !!         </DD>
+    200 !!       </DL>
+    201 !!     </LI>
+    202 !!   </OL>
+    203 !!
+    204 !!   <H4><B>Sample <TT>diag_table</TT></B></H4>
+    205 !!   <NL>
+    206 !!     <LI>
+    207 !!       <PRE>
+
+Page 5           Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    208 !! "diag manager test"
+    209 !! 1999 1 1 0 0 0
+    210 !!
+    211 !! #output files
+    212 !! 10_days,               10, "days", 1, "hours", "Time"
+    213 !! "file1_hr%hr3",         5, "days", 1, "hours", "Time", 15, "days"
+    214 !! "file2_yr_dy%yr1%dy3",  5, "days", 1, "hours", "Time", 10, "days", "1 1 7 0 0 0"
+    215 !! "file3_yr_dy%yr1%dy3",  5, "days", 1, "hours", "Time", 20, "days", "1 1 7 0 0 0", 5, "years"
+    216 !!
+    217 !! #output variables
+    218 !! "ice_mod", "ice", "ice", "10_days", "all", .false., "none", 2
+    219 !!
+    220 !! # temp_local file and fields.
+    221 !! temp_local, 1, "days", 1, "hours", "Time"
+    222 !! "ocean_mod", "temp", "temp", "temp_local", "all", .FALSE., "5 259.5 -59.5 59.5 1 1", 2
+    223 !!       </PRE>
+    224 !!     </LI>
+    225 !!   </NL>
+    226 !!
+    227 !!   <H4>Useful Additional Utility</H4>
+    228 !!   A simple utility has been created to help discover
+    229 MODULE diag_table_mod
+    230 ! <CONTACT EMAIL="seth.underwood@noaa.gov">
+    231 !   Seth Underwood
+    232 ! </CONTACT>
+    233 ! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/" />
+    234 ! <OVERVIEW>
+    235 !   <TT>diag_table_mod</TT> is a set of subroutines use to parse out the data from a <TT>diag_table</TT>.  This module
+    236 !   will also setup the arrays required to store the information by counting the number of input fields, output files, and
+    237 !   files.
+    238 ! </OVERVIEW>
+    239 ! <DESCRIPTION>
+    240 !   <TT>diag_table_mod</TT> parses the <TT>diag_table</TT> file, and sets up the required arrays to hold the information
+    241 !   needed for the <TT>diag_manager_mod</TT> to correctly write out the model history files.
+    242 !
+    243 !   The <I>diagnostics table</I> allows users to specify sampling rates and the choice of fields at run time.  The
+    244 !   <TT>diag_table</TT> file consists of comma-separated ASCII values.  The <TT>diag_table</TT> essentially has three sectio
+    244 ns:
+    245 !   <B>Global</B>, <B>File</B>, and <B>Field</B> sections.  The <B>Global</B> section must be the first two lines of the fil
+    245 e,
+    246 !   whereas the <B>File</B> and <B>Field</B> sections can be inter mixed to allow the file to be organized as desired.
+    247 !   Comments can be added to the <TT>diag_table</TT> file by using the hash symbol (#) as the first character in the line.
+    248 !
+    249 !   All errors in the <TT>diag_table</TT> will throw a <TT>FATAL</TT> error.  A simple utility <TT>diag_table_chk</TT>has be
+    249 en
+    250 !   added to the FRE tools suite to check a <TT>diag_table</TT> for errors.  A brief usage statement can be obtained by runn
+    250 ing
+    251 !   <TT>diag_table_chk --help</TT>, and a man page like description can views by running <TT>perldoc diag_table_chk</TT>.
+    252 !
+    253 !   Below is a description of the three sections.
+    254 !   <OL>
+    255 !     <LI>
+    256 !       <B>Global Section:</B>  The first two lines of the <TT>diag_table</TT> must contain the <I>title</I> and the <I>base
+    257 !       date</I> of the experiment respectively.  The <I>title</I> must be a Fortran CHARACTER string.  The <I>base date</I>
+    258 !       is the reference time used for the time units, and must be greater than or equal to the model start time.
+    259 !       The <I>base date</I> consists of six space-separated integer in the following format.<BR />
+    260 !       <TT><NOBR>year month day hour minute second</NOBR></TT><BR />
+
+Page 6           Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    261 !     </LI>
+    262 !     <LI>
+    263 !       <B>File Section:</B> File lines contain 6 required and 5 optional fields (optional fields are surrounded with
+    264 !       square brackets ([]).  File lines can be intermixed with the field lines, but the file must be defined before any
+    265 !       fields that are to be written to the file.  File lines have the following format:<BR />
+    266 !       <PRELN>
+    267 !         "file_name", output_freq, "output_freq_units", file_format, "time_axis_units", "time_axis_name"
+    268 !         [, new_file_freq, "new_file_freq_units"[, "start_time"[, file_duration, "file_duration_units"]]]
+    269 !       </PRELN>
+    270 !       <BR />
+    271 !       with the following descriptions.
+    272 !       <DL>
+    273 !         <DT><TT>CHARACTER(len=128) :: file_name</TT></DT>
+    274 !         <DD>
+    275 !           Output file name without the trailing "<TT>.nc</TT>".
+    276 !
+    277 !           A single file description can produce multiple files using special time string suffix keywords.  This time strin
+    277 g
+    278 !           will append the time strings to the base file name each time a new file is opened.  They syntax for the time str
+    278 ing
+    279 !           suffix keywords are <TT>%#tt</TT> Where <TT>#</TT> is a mandatory single digit number specifying the width of th
+    279 e
+    280 !           field, and <TT>tt</TT> can be as follows:
+    281 !           <NL>
+    282 !             <LI><TT>yr</TT> <EN /> Years</LI>
+    283 !             <LI><TT>mo</TT> <EN /> Months</LI>
+    284 !             <LI><TT>dy</TT> <EN /> Days</LI>
+    285 !             <LI><TT>hr</TT> <EN /> Hours</LI>
+    286 !             <LI><TT>mi</TT> <EN /> Minutes</LI>
+    287 !             <LI><TT>sc</TT> <EN /> Seconds</LI>
+    288 !           </NL>
+    289 !           Thus, a file name of <TT>file2_yr_dy%1yr%3dy</TT> will have a base file name of <TT>file2_yr_dy_1_001</TT> if th
+    289 e
+    290 !           file is created on year 1 day 1 of the model run.  <B><I>NOTE:</I></B> The time suffix keywords must be used if 
+    290 the
+    291 !           optional fields <TT>new_file_freq</TT> and <TT>new_file_freq_units</TT> are used, otherwise a <TT>FATAL</TT> err
+    291 or
+    292 !           will occur.
+    293 !         </DD>
+    294 !
+    295 !         <DT><TT>INTEGER :: output_freq</TT></DT>
+    296 !         <DD>How often to write fields to file.
+    297 !           <NL>
+    298 !             <LI><TT>> 0</TT> <EN /> Output frequency in <TT>output_freq_units</TT>.</LI>
+    299 !             <LI><TT>= 0</TT> <EN /> Output frequency every time set. (<TT>output_freq_units</TT> is ignored.)</LI>
+    300 !             <LI><TT>=-1</TT> <EN /> Output at end of run only. (<TT>output_freq_units</TT> is ignored.)</LI>
+    301 !           </NL>
+    302 !         </DD>
+    303 !         <DT><TT>CHARACTER(len=10) :: output_freq_units</TT></DT>
+    304 !         <DD>
+    305 !           Time units for output.  Can be either <TT>years</TT>, <TT>months</TT>, <TT>days</TT>, <TT>minutes</TT>,
+    306 !           <TT>hours</TT>, or <TT>seconds</TT>.
+    307 !         </DD>
+    308 !         <DT><TT>INTEGER :: file_format</TT></DT>
+    309 !         <DD>
+    310 !           Output file format.  Currently only the <I>netCDF</I> file format is supported.
+    311 !           <NL>
+
+Page 7           Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    312 !             <LI><TT>= 1</TT> <EN /> netCDF</LI>
+    313 !           </NL>
+    314 !         </DD>
+    315 !         <DT><TT>CHARACTER(len=10) :: time_axis_units</TT></DT>
+    316 !         <DD>
+    317 !           Time units for the output file time axis.  Can be either <TT>years</TT>, <TT>months</TT>, <TT>days</TT>,
+    318 !           <TT>minutes</TT>, <TT>hours</TT>, or <TT>seconds</TT>.
+    319 !         </DD>
+    320 !         <DT><TT>CHARACTER(len=128) :: time_axis_name</TT></DT>
+    321 !         <DD>
+    322 !           Axis name for the output file time axis.  The character sting must contain the string 'time'. (mixed upper and
+    323 !           lowercase allowed.)
+    324 !         </DD>
+    325 !         <DT><TT>INTEGER, OPTIONAL :: new_file_freq</TT></DT>
+    326 !         <DD>
+    327 !           Frequency for closing the existing file, and creating a new file in <TT>new_file_freq_units</TT>.
+    328 !         </DD>
+    329 !         <DT><TT>CHARACTER(len=10), OPTIONAL :: new_file_freq_units</TT></DT>
+    330 !         <DD>
+    331 !           Time units for creating a new file.  Can be either <TT>years</TT>, <TT>months</TT>, <TT>days</TT>,
+    332 !           <TT>minutes</TT>, <TT>hours</TT>, or <TT>seconds</TT>.  <B><I>NOTE:</I></B> If the <TT>new_file_freq</TT> field 
+    332 is
+    333 !           present, then this field must also be present.
+    334 !         </DD>
+    335 !         <DT><TT>CHARACTER(len=25), OPTIONAL :: start_time</TT></DT>
+    336 !         <DD>
+    337 !           Time to start the file for the first time.  The format of this string is the same as the <I>global date</I>.  <B
+    337 ><I>
+    338 !           NOTE:</I></B> The <TT>new_file_freq</TT> and the <TT>new_file_freq_units</TT> fields must be present to use this
+    338  field.
+    339 !         </DD>
+    340 !         <DT><TT>INTEGER, OPTIONAL :: file_duration</TT></DT>
+    341 !         <DD>
+    342 !           How long file should receive data after start time in <TT>file_duration_units</TT>.  This optional field can onl
+    342 y
+    343 !           be used if the <TT>start_time</TT> field is present.  If this field is absent, then the file duration will be eq
+    343 ual
+    344 !           to the frequency for creating new files.  <B><I>NOTE:</I></B> The <TT>file_duration_units</TT> field must also b
+    344 e
+    345 !           present if this field is present.
+    346 !         </DD>
+    347 !         <DT><TT>CHARACTER(len=10), OPTIONAL :: file_duration_units</TT></DT>
+    348 !         <DD>
+    349 !           File duration units. Can be either <TT>years</TT>, <TT>months</TT>, <TT>days</TT>,
+    350 !           <TT>minutes</TT>, <TT>hours</TT>, or <TT>seconds</TT>.  <B><I>NOTE:</I></B> If the <TT>file_duration</TT> field 
+    350 is
+    351 !           present, then this field must also be present.
+    352 !         </DD>
+    353 !       </DL>
+    354 !     </LI>
+    355 !     <LI>
+    356 !       <B>Field Section:</B> Field lines contain 8 fields.  Field lines can be intermixed with file lines.  Fields line can
+    356  contain
+    357 !       fields that are not written to any files.  The file name for these fields is <TT>null</TT>.
+    358 !
+    359 !       Field lines have the following format:<BR />
+    360 !       <PRE>
+
+Page 8           Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    361 ! "module_name", "field_name", "output_name", "file_name", "time_sampling", "reduction_method", "regional_section", packing
+    362 !       </PRE>
+    363 !       with the following descriptions.
+    364 !       <DL>
+    365 !         <DT><TT>CHARACTER(len=128) :: module_name</TT></DT>
+    366 !         <DD>Module that contains the <TT>field_name</TT> variable.  (e.g. <TT>atmos_mod</TT>, <TT>land_mod</TT>)</DD>
+    367 !         <DT><TT>CHARACTER(len=128) :: field_name</TT></DT>
+    368 !         <DD>Module variable name that has data to be written to file.</DD>
+    369 !         <DT><TT>CHARACTER(len=128) :: output_name</TT></DT>
+    370 !         <DD>Name of the field as written in <TT>file_name</TT>.</DD>
+    371 !         <DT><TT>CHARACTER(len=128) :: file_name</TT></DT>
+    372 !         <DD>
+    373 !           Name of the file where the field is to be written. <B><I>NOTE:</I></B> The file <TT>file_name</TT> must be
+    374 !           defined first.
+    375 !         </DD>
+    376 !         <DT><TT>CHARACTER(len=50) :: time_sampling</TT></DT>
+    377 !         <DD>Currently not used.  Please use the string "all".</DD>
+    378 !         <DT><TT>CHARACTER(len=50) :: reduction_method</TT></DT>
+    379 !         <DD>
+    380 !           The data reduction method to perform prior to writing data to disk.  Valid options are (redundant names are
+    381 !           separated with commas):
+    382 !           <DL>
+    383 !             <DT><TT>.TRUE.</TT>, average, avg, mean</DT>
+    384 !             <DD>Average from the last time written to the current time.</DD>
+    385 !             <DT><TT>.FALSE.</TT>, none</DT>
+    386 !             <DD>No reduction performed.  Write current time step value only.</DD>
+    387 !             <DT>rms</DT> <DD>Calculate the root mean square from the last time written to the current time.</DD>
+    388 !             <DT>pow##</DT> <DD>Calculate the mean of the power ## from the last time written to the current time.</DD>
+    389 !             <DT>min</DT> <DD>Minimum value from last write to current time.</DD>
+    390 !             <DT>max</DT> <DD>Maximum value from last write to current time.</DD>
+    391 !             <DT>diurnal##</DT> <DD>## diurnal averages</DD>
+    392 !           </DL>
+    393 !         </DD>
+    394 !         <DT><TT>CHARACTER(len=50) :: regional_section</TT></DT>
+    395 !         <DD>
+    396 !           Bounds of the regional section to capture.  A value of <TT>none</TT> indicates a global region.  The regional
+    397 !           section has the following format:<BR />
+    398 !           <TT>lat_min, lat_max, lon_min, lon_max, vert_min, vert_max</TT><BR />
+    399 !           Use <TT>vert_min = -1</TT> and <TT>vert_max = -1</TT> to get the entire vertical axis.  <B><I>NOTE:</I></B>
+    400 !           Currently, the defined region <I>MUST</I> be confined to a single tile.
+    401 !         </DD>
+    402 !         <DT><TT>INTEGER :: packing</TT></DT>
+    403 !         <DD>
+    404 !           Fortran number <TT>KIND</TT> of the data written.  Valid values:
+    405 !           <NL>
+    406 !             <LI><TT>= 1</TT> <EN /> double precision</LI>
+    407 !             <LI><TT>= 2</TT> <EN /> float</LI>
+    408 !             <LI><TT>= 4</TT> <EN /> packed 16-bit integers</LI>
+    409 !             <LI><TT>= 8</TT> <EN /> packed 1-byte (not tested).</LI>
+    410 !           </NL>
+    411 !         </DD>
+    412 !       </DL>
+    413 !     </LI>
+    414 !   </OL>
+    415 !
+    416 !   <H4><B>Sample <TT>diag_table</TT></B></H4>
+    417 !   <NL>
+
+Page 9           Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    418 !     <LI>
+    419 !       <PRE>
+    420 ! "diag manager test"
+    421 ! 1999 1 1 0 0 0
+    422 !
+    423 ! #output files
+    424 ! 10_days,               10, "days", 1, "hours", "Time"
+    425 ! "file1_hr%hr3",         5, "days", 1, "hours", "Time", 15, "days"
+    426 ! "file2_yr_dy%yr1%dy3",  5, "days", 1, "hours", "Time", 10, "days", "1 1 7 0 0 0"
+    427 ! "file3_yr_dy%yr1%dy3",  5, "days", 1, "hours", "Time", 20, "days", "1 1 7 0 0 0", 5, "years"
+    428 !
+    429 ! #output variables
+    430 ! "ice_mod", "ice", "ice", "10_days", "all", .false., "none", 2
+    431 !
+    432 ! # temp_local file and fields.
+    433 ! temp_local, 1, "days", 1, "hours", "Time"
+    434 ! "ocean_mod", "temp", "temp", "temp_local", "all", .FALSE., "5 259.5 -59.5 59.5 1 1", 2
+    435 !       </PRE>
+    436 !     </LI>
+    437 !   </NL>
+    438 !
+    439 !   <H4>Useful Additional Utility</H4>
+    440 !   A simple utility has been created to help discover
+    441 ! </DESCRIPTION>
+    442   USE mpp_io_mod, ONLY: mpp_open, MPP_RDONLY
+    443   USE mpp_mod, ONLY: read_ascii_file, get_ascii_file_num_lines
+    444   USE fms_mod, ONLY: fms_error_handler, error_mesg, file_exist, stdlog, mpp_pe, mpp_root_pe, FATAL, WARNING, lowercase, clos
+    444 e_file
+    445   USE time_manager_mod, ONLY: get_calendar_type, NO_CALENDAR, set_date, set_time, month_name, time_type
+    446   USE constants_mod, ONLY: SECONDS_PER_HOUR, SECONDS_PER_MINUTE
+    447 
+    448   USE diag_data_mod, ONLY: global_descriptor, base_time, base_year, base_month, base_day, base_hour, base_minute, base_secon
+    448 d,&
+    449        & DIAG_OTHER, DIAG_OCEAN, DIAG_ALL, coord_type, append_pelist_name, pelist_name
+    450   USE diag_util_mod, ONLY: init_file, check_duplicate_output_fields, init_input_field, init_output_field
+    451 
+    452   IMPLICIT NONE
+    453 
+    454   PRIVATE
+    455   PUBLIC :: parse_diag_table
+    456 
+    457   TYPE field_description_type
+    458      CHARACTER(len=128) :: module_name, field_name, output_name, file_name
+    459      CHARACTER(len=50) :: time_sampling
+    460      CHARACTER(len=50) :: time_method
+    461      CHARACTER(len=50) :: spatial_ops
+    462      TYPE(coord_type) :: regional_coords
+    463      INTEGER :: pack
+    464   END TYPE field_description_type
+    465 
+    466   TYPE file_description_type
+    467      INTEGER :: output_freq
+    468      INTEGER :: file_format
+    469      INTEGER :: new_file_freq
+    470      INTEGER :: file_duration
+    471      INTEGER :: iTime_units
+    472      INTEGER :: iOutput_freq_units
+
+Page 10          Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    473      INTEGER :: iNew_file_freq_units
+    474      INTEGER :: iFile_duration_units
+    475      CHARACTER(len=128) :: file_name
+    476      CHARACTER(len=10) :: output_freq_units
+    477      CHARACTER(len=10) :: time_units
+    478      CHARACTER(len=128) :: long_name
+    479      CHARACTER(len=10) :: new_file_freq_units
+    480      CHARACTER(len=25) :: start_time_s
+    481      CHARACTER(len=10) :: file_duration_units
+    482      CHARACTER(len=10) :: filename_time_bounds
+    483      TYPE(time_type) :: start_time
+    484   END TYPE file_description_type
+    485 
+    486   CHARACTER(len=*), PARAMETER :: UNALLOWED_QTE = "'"//'"'
+    487   CHARACTER(len=*), PARAMETER :: UNALLOWED_ALL = UNALLOWED_QTE//","
+    488 
+    489 CONTAINS
+    490 
+    491 !> @brief Parse the <TT>diag_table</TT> in preparation for diagnostic output.
+    492 !! @details <TT>parse_diag_table</TT> is the public interface to parse the diag_table, and setup the arrays needed to store 
+    492 the
+    493 !!     requested diagnostics from the <TT>diag_table</TT>.  <TT>parse_diag_table</TT> will return a non-zero <TT>istat</TT> 
+    493 if
+    494 !!     a problem parsing the <TT>diag_table</TT>.
+    495 !!
+    496 !!     NOT YET IMPLEMENTED: <TT>parse_diag_table</TT> will parse through the <TT>diag_table</TT> twice.  The first pass, wil
+    496 l be
+    497 !!     to get a good "guess" of array sizes.  These arrays, that will hold the requested diagnostic fields and files, will t
+    497 hen be
+    498 !!     allocated to the size of the "guess" plus a slight increase.
+    499   SUBROUTINE parse_diag_table(diag_subset, istat, err_msg)
+    500     INTEGER, INTENT(in), OPTIONAL :: diag_subset !< Diagnostic sampling subset.
+    501     INTEGER, INTENT(out), OPTIONAL, TARGET :: istat !< Status of parsing the <TT>diag_table</TT>.
+    502 !! A non-zero status indicates a problem parsing the table.
+    503     CHARACTER(len=*), INTENT(out), OPTIONAL :: err_msg !< Error message corresponding to the
+    504 !! <TT>istat</TT> return value.
+    505 
+    506     INTEGER, PARAMETER :: DT_LINE_LENGTH = 256
+    507 
+    508     INTEGER :: stdlog_unit !< Fortran file unit number for the stdlog file.
+    509     INTEGER :: record_len !< String length of the diag_table line read in.
+    510     INTEGER :: num_lines !< Number of lines in diag_table
+    511     INTEGER :: line_num !< Integer representation of the line number.
+    512     INTEGER :: commentStart !< Index location of first '#' on line
+    513     INTEGER :: diag_subset_output !< local value of diag_subset
+    514     INTEGER :: nfields, nfiles !< Number of fields and files.  Not used yet.
+    515     INTEGER :: npass !< number of passes done while parsing the diag_table (1 for files, 2 for fields)
+    516     INTEGER, TARGET :: mystat !< variable to hold return status of function/subroutine calls.
+    517     INTEGER, POINTER :: pstat !< pointer that points to istat if preset, otherwise, points to mystat.
+    518 
+    519     CHARACTER(len=5) :: line_number !< String representation of the line number.
+    520     CHARACTER(len=9) :: amonth !< Month name
+    521     CHARACTER(len=256) :: record_line !< Current line from the diag_table.
+    522     CHARACTER(len=256) :: local_err_msg !< Sting to hold local error messages.
+    523     CHARACTER(len=DT_LINE_LENGTH), DIMENSION(:), ALLOCATABLE :: diag_table
+    524 
+    525     TYPE(file_description_type) :: temp_file
+
+Page 11          Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    526     TYPE(field_description_type) :: temp_field
+    527 
+    528 ! set up the pstat pointer
+    529     IF ( PRESENT(istat) ) THEN
+    530        pstat => istat
+    531     ELSE
+    532        pstat => mystat
+    533     END IF
+    534 ! Default return value (success)
+    535     pstat = 0
+    536 
+    537     IF ( PRESENT(diag_subset) ) THEN
+    538        diag_subset_output = diag_subset
+    539     ELSE
+    540        diag_subset_output = DIAG_ALL
+    541     END IF
+    542 
+    543 ! get the stdlog unit number
+    544     stdlog_unit = stdlog()
+    545     num_lines = get_ascii_file_num_lines('diag_table', DT_LINE_LENGTH)
+    546     allocate(diag_table(num_lines))
+    547 
+    548     call read_ascii_file('diag_table', DT_LINE_LENGTH, diag_table)
+    549 
+    550 ! Read in the global file labeling string
+    551     READ (UNIT=diag_table(1), FMT=*, IOSTAT=mystat) global_descriptor
+    552     IF ( mystat /= 0 ) THEN
+    553        pstat = mystat
+    554        IF ( fms_error_handler('diag_table_mod::parse_diag_table', 'Error reading the global descriptor from the diagnostic t
+    554 able.',&
+    555             & err_msg) ) RETURN
+    556     END IF
+    557 
+    558 ! Read in the base date
+    559     READ (UNIT=diag_table(2), FMT=*, IOSTAT=mystat) base_year, base_month, base_day, base_hour, base_minute, base_second
+    560     IF ( mystat /= 0 ) THEN
+    561        pstat = mystat
+    562        IF ( fms_error_handler('diag_manager_init', 'Error reading the base date from the diagnostic table.', err_msg) ) RETU
+    562 RN
+    563     END IF
+    564 
+    565 ! Set up the time type for base time
+    566     IF ( get_calendar_type() /= NO_CALENDAR ) THEN
+    567        IF ( base_year==0 .OR. base_month==0 .OR. base_day==0 ) THEN
+    568           pstat = 101
+    569           IF ( fms_error_handler('diag_table_mod::parse_diag_table', 'The base_year/month/day can not equal zero', err_msg) 
+    569 ) RETURN
+    570        END IF
+    571        base_time = set_date(base_year, base_month, base_day, base_hour, base_minute, base_second)
+    572        amonth = month_name(base_month)
+    573     ELSE
+    574 ! No calendar - ignore year and month
+    575        base_time = set_time(NINT(base_hour*SECONDS_PER_HOUR)+NINT(base_minute*SECONDS_PER_MINUTE)+base_second, base_day)
+    576        base_year = 0
+    577        base_month = 0
+    578        amonth = 'day'
+    579     END IF
+
+Page 12          Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    580 
+    581     IF ( mpp_pe() == mpp_root_pe() ) THEN
+    582        WRITE (stdlog_unit,'("base date used = ",I4,1X,A,2I3,2(":",I2.2)," gmt")') base_year, TRIM(amonth), base_day, &
+    583             & base_hour, base_minute, base_second
+    584     END IF
+    585 
+    586     nfiles=0
+    587     nfields=0
+    588     pass: DO npass = 1, 2
+    589        parser: DO line_num=3, num_lines
+    590 ! Read in the entire line from the file.
+    591 ! If there is a read error, give a warning, and
+    592 ! cycle the parser loop.
+    593           READ (diag_table(line_num), FMT='(A)', IOSTAT=mystat) record_line
+    594 ! Increase line counter, and put in string for use in warning/error messages.
+    595           WRITE (line_number, '(I5)') line_num
+    596 
+    597           IF ( mystat > 0 ) THEN
+    598              IF ( mpp_pe() == mpp_root_pe() ) &
+    599                   & CALL error_mesg("diag_table_mod::parse_diag_table",&
+    600                   & "Problem reading the diag_table (line:" //line_number//").", FATAL)
+    601              CYCLE parser
+    602           ELSE IF ( mystat < 0 ) THEN
+    603              EXIT parser
+    604           END IF
+    605 
+    606 ! How long is the read in string?
+    607           record_len = LEN_TRIM(record_line)
+    608 
+    609 ! ignore blank lines and  lines with comments only (comment marker '#')
+    610           commentStart = INDEX(record_line,'#')
+    611           IF ( commentStart .NE. 0 ) record_line = record_line(1:commentStart-1)
+    612           IF ( LEN_TRIM(record_line) == 0 .OR. record_len == 0 ) CYCLE parser
+    613 
+    614           init: IF ( npass == 1 ) THEN ! Checking for files only
+    615              IF ( is_a_file(TRIM(record_line)) ) THEN
+    616                 temp_file = parse_file_line(LINE=record_line, ISTAT=mystat, ERR_MSG=local_err_msg)
+    617 
+    618                 IF ( mystat > 0 ) THEN
+    619                    CALL error_mesg("diag_table_mod::parse_diag_table",&
+    620                         & TRIM(local_err_msg)//" (line:" //TRIM(line_number)//").", FATAL)
+    621                 ELSE IF ( mystat < 0 ) THEN
+    622                    IF ( mpp_pe() == mpp_root_pe() )&
+    623                         & CALL error_mesg("diag_table_mod::parse_diag_table",&
+    624                         & TRIM(local_err_msg)//" (line: "//TRIM(line_number)//").", WARNING)
+    625                    CYCLE parser
+    626                 ELSE IF ( (diag_subset_output == DIAG_OTHER .AND. INDEX(lowercase(temp_file%file_name), "ocean") .NE. 0).OR.
+    626 &
+    627                      &    (diag_subset_output == DIAG_OCEAN .AND. INDEX(lowercase(temp_file%file_name), "ocean") .EQ. 0) ) T
+    627 HEN
+    628                    CYCLE parser
+    629                 ELSE IF ( temp_file%new_file_freq > 0 ) THEN ! Call the init_file subroutine.  The '1' is for the tile_count
+    630                    CALL init_file(temp_file%file_name, temp_file%output_freq, temp_file%iOutput_freq_units, temp_file%file_f
+    630 ormat,&
+    631                         & temp_file%iTime_units, temp_file%long_name, 1, temp_file%new_file_freq, temp_file%iNew_file_freq_u
+    631 nits,&
+    632                         & temp_file%start_time, temp_file%file_duration, temp_file%iFile_duration_units, temp_file%filename_
+
+Page 13          Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    632 time_bounds)
+    633                 ELSE
+    634                    CALL init_file(temp_file%file_name, temp_file%output_freq, temp_file%iOutput_freq_units, temp_file%file_f
+    634 ormat,&
+    635                         & temp_file%iTime_units, temp_file%long_name, 1)
+    636                 END IF
+    637 
+    638 ! Increment number of files
+    639                 nfiles = nfiles + 1
+    640              END IF
+    641           ELSE ! Looking for fields
+    642              IF ( .NOT.is_a_file(TRIM(record_line)) ) THEN
+    643                 temp_field = parse_field_line(LINE=record_line, ISTAT=mystat, ERR_MSG=local_err_msg)
+    644 
+    645 ! Check for errors, then initialize the input and output field
+    646                 IF (  mystat > 0 ) THEN
+    647                    CALL error_mesg("diag_table_mod::parse_diag_table",&
+    648                         & TRIM(local_err_msg)//" (line: "//TRIM(line_number)//").",FATAL)
+    649                 ELSE IF ( mystat < 0 ) THEN
+    650                    IF ( mpp_pe() == mpp_root_pe() )&
+    651                         & CALL error_mesg("diag_table_mod::Parse_diag_table",&
+    652                         & TRIM(local_err_msg)//" (line: "//TRIM(line_number)//").",WARNING)
+    653                    CYCLE parser
+    654                 ELSE IF ( (diag_subset_output == DIAG_OTHER .AND. INDEX(lowercase(temp_field%file_name), "ocean") .NE. 0).OR
+    654 .&
+    655                      &    (diag_subset_output == DIAG_OCEAN .AND. INDEX(lowercase(temp_field%file_name), "ocean") .EQ. 0) ) 
+    655 THEN
+    656                    CYCLE parser
+    657                 ELSE IF ( lowercase(TRIM(temp_field%spatial_ops)) == 'none' ) THEN
+    658                    CALL init_input_field(temp_field%module_name, temp_field%field_name, 1)
+    659                    CALL init_output_field(temp_field%module_name, temp_field%field_name, temp_field%output_name, temp_field%
+    659 file_name,&
+    660                         & temp_field%time_method, temp_field%pack, 1)
+    661                 ELSE
+    662                    CALL init_input_field(temp_field%module_name, temp_field%field_name, 1)
+    663                    CALL init_output_field(temp_field%module_name, temp_field%field_name, temp_field%output_name, temp_field%
+    663 file_name,&
+    664                         & temp_field%time_method, temp_field%pack, 1, temp_field%regional_coords)
+    665                 END IF
+    666 
+    667 ! Increment number of fields
+    668                 nfields = nfields + 1
+    669              END IF
+    670           END IF init
+    671        END DO parser
+    672     END DO pass
+    673 
+    674 ! Close the diag_table file.
+    675     DEALLOCATE(diag_table)
+    676 
+    677 ! check duplicate output_fields in the diag_table
+    678     CALL check_duplicate_output_fields(ERR_MSG=local_err_msg)
+    679     IF ( local_err_msg /= '' ) THEN
+    680        pstat = 1
+    681        IF ( fms_error_handler('diag_table_mod::parse_diag_table', TRIM(local_err_msg), err_msg) ) RETURN
+    682     END IF
+    683 
+
+Page 14          Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    684   END SUBROUTINE parse_diag_table
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ diag_table_mod_mp_parse_diag_table_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ AMONTH                     Local  520      CHAR            9           scalar                    572,578,582                       
+ BASE_DAY                   Local  559      I(4)            4           scalar   PRIV             448,559,567,571,575,582           
+ BASE_HOUR                  Local  559      I(4)            4           scalar   PRIV             448,559,571,575,583               
+ BASE_MINUTE                Local  559      I(4)            4           scalar   PRIV             448,559,571,575,583               
+ BASE_MONTH                 Local  559      I(4)            4           scalar   PRIV             448,559,567,571,572,577           
+ BASE_SECOND                Local  559      I(4)            4           scalar   PRIV             448,559,571,575,583               
+ BASE_TIME                  Local  571      TIME_TYPE       16          scalar   PRIV             448,571,575,861                   
+ BASE_YEAR                  Local  559      I(4)            4           scalar   PRIV             448,559,567,571,576,582           
+ CHECK_DUPLICATE_OUTPUT_FIE                                                                                                         
+ LDS                        Subr   678                                           PRIV             450,678                           
+ COMMENTSTART               Local  512      I(4)            4           scalar                    610,611                           
+ DIAG_ALL                   Param  540      I(4)            4           scalar   PRIV             449,540                           
+ DIAG_OCEAN                 Param  627      I(4)            4           scalar   PRIV             449,627,655                       
+ DIAG_OTHER                 Param  626      I(4)            4           scalar   PRIV             449,626,654                       
+ DIAG_SUBSET                Dummy  499      I(4)            4           scalar   ARG,IN           537,538                           
+ DIAG_SUBSET_OUTPUT         Local  513      I(4)            4           scalar                    538,540,626,627,654,655           
+ DIAG_TABLE                 Local  523      CHAR            256   1     1        ALC              546,548,551,559,593,675           
+ DT_LINE_LENGTH             Param  506      I(4)            4           scalar                    523,545,548                       
+ ERROR_MESG                 Subr   599                                           PRIV             444,599,619,623,647,651           
+ ERR_MSG                    Dummy  499      CHAR                        scalar   ARG,OUT          555,562,569,681                   
+ FATAL                      Param  600      I(4)            4           scalar   PRIV             444,600,620,648                   
+ FIELD_DESCRIPTION_TYPE     Type   526                      720         scalar                    464,526,887                       
+ FILE_DESCRIPTION_TYPE      Type   525                      380         scalar                    484,525,724                       
+ FMS_ERROR_HANDLER          Func   554      L(4)            4           scalar   PRIV             444,554,562,569,681,704,758,765,77
+                                                                                                  0,775,780,785,790,795,806,818,823,
+                                                                                                  828,833,848,854,875,909,916,921,92
+                                                                                                  6,931,936,941,946,956,963         
+ GET_ASCII_FILE_NUM_LINES   Func   545      I(4)            4           scalar   PRIV             443,545                           
+ GET_CALENDAR_TYPE          Func   566      I(4)            4           scalar   PRIV             445,566                           
+ GLOBAL_DESCRIPTOR          Local  551      CHAR            256         scalar   PRIV             448,551                           
+ INDEX                      Func   610                                  scalar                    610,626,627,654,655               
+ INIT                       Label  614                                  scalar                    670                               
+ INIT_FILE                  Subr   630                                           PRIV             450,630,634                       
+ INIT_INPUT_FIELD           Subr   658                                           PRIV             450,658,662                       
+ INIT_OUTPUT_FIELD          Subr   659                                           PRIV             450,659,663                       
+ ISTAT                      Dummy  499      I(4)            4           scalar   ARG,TGT,OUT      529,530                           
+ IS_A_FILE@0                Local  615      L(4)            4           scalar                                                      
+ LEN_TRIM                   Func   607                                  scalar                    607,612                           
+ LINE_NUM                   Local  511      I(4)            4           scalar                    589,593,595                       
+ LINE_NUMBER                Local  519      CHAR            5           scalar                    595,600,620,624,648,652           
+ LOCAL_ERR_MSG              Local  522      CHAR            256         scalar                    616,620,624,643,648,652,678,679,68
+                                                                                                  1                                 
+ LOWERCASE                  Func   626      CHAR                        scalar   TGT,PRIV         444,626,627,654,655,657,960       
+
+Page 15          Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54 Symbol Table                    diag_table.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ MONTH_NAME                 Func   572      CHAR            9           scalar   PRIV             445,572                           
+ MPP_PE                     Func   581      I(4)            4           scalar   PRIV             444,581,598,622,650               
+ MPP_ROOT_PE                Func   581      I(4)            4           scalar   PRIV             444,581,598,622,650               
+ MYSTAT                     Local  516      I(4)            4           scalar   TGT              532,551,552,553,559,560,561,593,59
+                                                                                                  7,602,616,618,621,643,646,649     
+ NFIELDS                    Local  514      I(4)            4           scalar                    587,668                           
+ NFILES                     Local  514      I(4)            4           scalar                    586,639                           
+ NINT                       Func   575                                  scalar                    575                               
+ NO_CALENDAR                Param  566      I(4)            4           scalar   PRIV             445,566                           
+ NPASS                      Local  515      I(4)            4           scalar                    588,614                           
+ NUM_LINES                  Local  510      I(4)            4           scalar                    545,546,589                       
+ PARSER                     Label  589                                  scalar                    601,603,612,625,628,653,656,671   
+ PARSE_DIAG_TABLE           Subr   499                                                                                              
+ PARSE_FIELD_LINE@0         Local  643      FIELD_DESCRIPTION_TYPE                                                                  
+                                                            720         scalar                                                      
+ PARSE_FILE_LINE@0          Local  616      FILE_DESCRIPTION_TYPE                                                                   
+                                                            380         scalar                                                      
+ PASS                       Label  588                                  scalar                    672                               
+ PRESENT                    Func   529                                  scalar                    529,537                           
+ PSTAT                      Local  517      I(4)            4           scalar   PTR              530,532,535,553,561,568,680       
+ READ_ASCII_FILE            Subr   548                                           PRIV             443,548                           
+ RECORD_LEN                 Local  509      I(4)            4           scalar                    607,612                           
+ RECORD_LINE                Local  521      CHAR            256         scalar                    593,607,610,611,612,615,616,642,64
+                                                                                                  3                                 
+ SECONDS_PER_HOUR           Param  575      R(8)            8           scalar   PRIV             446,575                           
+ SECONDS_PER_MINUTE         Param  575      R(8)            8           scalar   PRIV             446,575                           
+ SET_DATE                   Local  571                                  scalar   PRIV             445,571,851                       
+ SET_DATE_I                 Func   571      RECORD          16          scalar   PRIV             571,851                           
+ SET_TIME                   Local  575                                  scalar   PRIV             445,575                           
+ SET_TIME_I                 Func   575      RECORD          16          scalar   PRIV             575                               
+ STDLOG                     Func   544      I(4)            4           scalar   PRIV             444,544                           
+ STDLOG_UNIT                Local  508      I(4)            4           scalar                    544,582                           
+ TEMP_FIELD                 Local  526      FIELD_DESCRIPTION_TYPE                                                                  
+                                                            720         scalar                    643,654,655,657,658,659,660,662,66
+                                                                                                  3,664                             
+ TEMP_FILE                  Local  525      FILE_DESCRIPTION_TYPE                                                                   
+                                                            380         scalar                    616,626,627,629,630,631,632,634,63
+                                                                                                  5                                 
+ TRIM                       Func   582                                  scalar                    582,615,620,624,642,648,652,657,68
+                                                                                                  1                                 
+ WARNING                    Param  624      I(4)            4           scalar   PRIV             444,624,652                       
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ FIELD_DESCRIPTION_TYPE.FIELD_NAME                                                                                         ...
+                            CHAR            128   128            scalar                    658,659,662,663,904,919            
+ FIELD_DESCRIPTION_TYPE.FILE_NAME                                                                                          ...
+                            CHAR            128   384            scalar                    654,655,659,663,905,929,952        
+ FIELD_DESCRIPTION_TYPE.MODULE_NAME                                                                                        ...
+                            CHAR            128   0              scalar                    658,659,662,663,904,914            
+ FIELD_DESCRIPTION_TYPE.OUTPUT_NAME                                                                                        ...
+                            CHAR            128   256            scalar                    659,663,904,924                    
+
+Page 16          Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54 Symbol Table                    diag_table.F90
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ FIELD_DESCRIPTION_TYPE.PACK                                                                                               ...
+                            I(4)            4     712            scalar                    660,664,906,954                    
+ FIELD_DESCRIPTION_TYPE.REGIONAL_COORDS                                                                                    ...
+                            COORD_TYPE      48    664            scalar                    664,961                            
+ FIELD_DESCRIPTION_TYPE.SPATIAL_OPS                                                                                        ...
+                            CHAR            50    612            scalar                    657,905,944,960,961                
+ FIELD_DESCRIPTION_TYPE.TIME_METHOD                                                                                        ...
+                            CHAR            50    562            scalar                    660,664,905,939                    
+ FILE_DESCRIPTION_TYPE.FILENAME_TIME_BOUNDS                                                                                ...
+                            CHAR            10    353            scalar                    632,749,755,868,869,872,873,874    
+ FILE_DESCRIPTION_TYPE.FILE_DURATION                                                                                       ...
+                            I(4)            4     12             scalar                    632,747,755,831,856,857,862        
+ FILE_DESCRIPTION_TYPE.FILE_FORMAT                                                                                         ...
+                            I(4)            4     4              scalar                    630,634,753,804                    
+ FILE_DESCRIPTION_TYPE.FILE_NAME                                                                                           ...
+                            CHAR            128   32             scalar                    626,627,630,634,752,763,801        
+ FILE_DESCRIPTION_TYPE.IFILE_DURATION_UNITS                                                                                ...
+                            I(4)            4     28             scalar                    632,814,831,858,863                
+ FILE_DESCRIPTION_TYPE.INEW_FILE_FREQ_UNITS                                                                                ...
+                            I(4)            4     24             scalar                    631,813,826,858,863                
+ FILE_DESCRIPTION_TYPE.IOUTPUT_FREQ_UNITS                                                                                  ...
+                            I(4)            4     20             scalar                    630,634,812,821                    
+ FILE_DESCRIPTION_TYPE.ITIME_UNITS                                                                                         ...
+                            I(4)            4     16             scalar                    631,635,811,816                    
+ FILE_DESCRIPTION_TYPE.LONG_NAME                                                                                           ...
+                            CHAR            128   180            scalar                    631,635,753,778                    
+ FILE_DESCRIPTION_TYPE.NEW_FILE_FREQ                                                                                       ...
+                            I(4)            4     8              scalar                    629,631,744,754,826,843,857,862    
+ FILE_DESCRIPTION_TYPE.OUTPUT_FREQ                                                                                         ...
+                            I(4)            4     0              scalar                    630,634,752                        
+ FILE_DESCRIPTION_TYPE.START_TIME                                                                                          ...
+                            TIME_TYPE       16    364            scalar                    632,851,861                        
+
+Page 17          Source Listing                  PARSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    685 
+    686 !> @brief Open the <TT>diag_table</TT> file, and return the Fortran file unit number.
+    687   SUBROUTINE open_diag_table(iunit, iostat, err_msg)
+    688     INTEGER, INTENT(out) :: iunit !< Fortran file unit number of the <TT>diag_table</TT>.
+    689     INTEGER, INTENT(out), OPTIONAL, TARGET :: iostat !< Status of opening file.  If iostat == 0, file exists.
+    690 !! If iostat > 0, the diag_table file does not exist.
+    691     CHARACTER(len=*), INTENT(out), OPTIONAL :: err_msg !< String to hold the return error message.
+    692 
+    693     INTEGER, TARGET :: mystat
+    694     INTEGER, POINTER :: pstat
+    695 
+    696     IF ( PRESENT(iostat) ) THEN
+    697        pstat => iostat
+    698     ELSE
+    699        pstat => mystat
+    700     END IF
+    701 
+    702     IF ( .NOT.file_exist('diag_table') ) THEN
+    703        pstat = 1
+    704        IF ( fms_error_handler('diag_table_mod::open_diag_table',&
+    705             & 'diag_table file does not exist.', err_msg) ) RETURN
+    706     ELSE
+    707        pstat = 0
+    708     END IF
+    709 
+    710     CALL mpp_open(iunit, 'diag_table', action=MPP_RDONLY)
+    711   END SUBROUTINE open_diag_table
+
+
+ENTRY POINTS
+
+  Name                                          
+                                                
+ diag_table_mod_mp_open_diag_table_             
+
+Page 18          Source Listing                  OPEN_DIAG_TABLE
+2021-06-01 08:54 Symbol Table                    diag_table.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ERR_MSG                    Dummy  687      CHAR                        scalar   ARG,OUT          705                               
+ FILE_EXIST                 Func   702      L(4)            4           scalar   PRIV             444,702                           
+ IOSTAT                     Dummy  687      I(4)            4           scalar   ARG,TGT,OUT      696,697                           
+ IUNIT                      Dummy  687      I(4)            4           scalar   ARG,OUT          710                               
+ MPP_OPEN                   Subr   710                                           PRIV             442,710                           
+ MPP_RDONLY                 Param  710      I(4)            4           scalar   PRIV             442,710                           
+ MYSTAT                     Local  693      I(4)            4           scalar   TGT              699                               
+ OPEN_DIAG_TABLE            Subr   687                                                                                              
+ PRESENT                    Func   696                                  scalar                    696                               
+ PSTAT                      Local  694      I(4)            4           scalar   PTR              697,699,703,707                   
+
+Page 19          Source Listing                  OPEN_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    712 
+    713 !> @brief Closes the diag_table file.
+    714   SUBROUTINE close_diag_table(iunit)
+    715     INTEGER, INTENT(in) :: iunit !< Fortran file unit number of the <TT>diag_table</TT>.
+    716 
+    717     CALL close_file(iunit)
+    718   END SUBROUTINE close_diag_table
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ diag_table_mod_mp_close_diag_table_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CLOSE_DIAG_TABLE           Subr   714                                                                                              
+ CLOSE_FILE                 Subr   717                                           PRIV             444,717                           
+ IUNIT                      Dummy  714      I(4)            4           scalar   ARG,IN           717                               
+
+Page 20          Source Listing                  CLOSE_DIAG_TABLE
+2021-06-01 08:54                                 diag_table.F90
+
+    719 
+    720 !> @brief <TT>parse_file_line</TT> parses a file description line from the <TT>diag_table</TT> file, and returns a
+    721 !!     <TT>TYPE(file_description_type)</TT>.  The calling function, would then need to call the <TT>init_file</TT> to initia
+    721 lize
+    722 !!     the diagnostic output file.
+    723 !! @return file_description_type parse_file_line
+    724   TYPE(file_description_type) FUNCTION parse_file_line(line, istat, err_msg)
+    725     CHARACTER(len=*), INTENT(in) :: line !< Line to parse from the <TT>diag_table</TT> file.
+    726     INTEGER, INTENT(out), OPTIONAL, TARGET :: istat !< Return state of the function.  A value of 0 indicates success.
+    727 !! A positive value indicates a <TT>FATAL</TT> error occurred,
+    728 !! and a negative value indicates a <TT>WARNING</TT> should be issued.
+    729     CHARACTER(len=*), INTENT(out), OPTIONAL :: err_msg !< Error string to include in the <TT>FATAL</TT> or <TT>WARNING</TT> 
+    729 message.
+    730 
+    731     INTEGER, TARGET :: mystat
+    732     INTEGER, POINTER :: pstat
+    733     INTEGER :: year, month, day, hour, minute, second
+    734     CHARACTER(len=256) :: local_err_msg !< Hold the return error message from routine calls.
+    735 
+    736     IF ( PRESENT(istat) ) THEN
+    737        pstat => istat
+    738     ELSE
+    739        pstat => mystat
+    740     END IF
+    741     pstat = 0 ! default success return value
+    742 
+    743 ! Initialize the optional file description fields.
+    744     parse_file_line%new_file_freq = 0
+    745     parse_file_line%new_file_freq_units = ''
+    746     parse_file_line%start_time_s = ''
+    747     parse_file_line%file_duration = 0
+    748     parse_file_line%file_duration_units = ''
+    749     parse_file_line%filename_time_bounds = ''
+    750 
+    751 ! Read in the file description line..
+    752     READ (line, FMT=*, IOSTAT=mystat) parse_file_line%file_name, parse_file_line%output_freq, parse_file_line%output_freq_un
+    752 its,&
+    753          & parse_file_line%file_format, parse_file_line%time_units, parse_file_line%long_name,&
+    754          & parse_file_line%new_file_freq, parse_file_line%new_file_freq_units, parse_file_line%start_time_s,&
+    755          & parse_file_line%file_duration, parse_file_line%file_duration_units, parse_file_line%filename_time_bounds
+    756     IF ( mystat > 0 ) THEN
+    757        pstat = mystat
+    758        IF ( fms_error_handler('diag_table_mod::parse_file_line', 'Incorrect file description format in diag_table.', err_msg
+    758 ) )&
+    759             & RETURN
+    760     END IF
+    761 
+    762 ! Check for unallowed characters in strings
+    763     IF ( SCAN(parse_file_line%file_name, UNALLOWED_ALL) > 0 ) THEN
+    764        pstat = 1
+    765        IF ( fms_error_handler('diag_table_mod::parse_file_line',&
+    766             & 'Unallowed character in file_name in the diag_table.', err_msg) ) RETURN
+    767     END IF
+    768     IF ( SCAN(parse_file_line%output_freq_units, UNALLOWED_ALL) > 0 ) THEN
+    769        pstat = 1
+    770        IF ( fms_error_handler('diag_table_mod::parse_file_line',&
+    771             & 'Unallowed character in output_freq_units in the diag_table.', err_msg) ) RETURN
+
+Page 21          Source Listing                  PARSE_FILE_LINE
+2021-06-01 08:54                                 diag_table.F90
+
+    772     END IF
+    773     IF ( SCAN(parse_file_line%time_units, UNALLOWED_ALL) > 0 ) THEN
+    774        pstat = 1
+    775        IF ( fms_error_handler('diag_table_mod::parse_file_line',&
+    776             & 'Unallowed character in time_units in the diag_table.', err_msg) ) RETURN
+    777     END IF
+    778     IF ( SCAN(parse_file_line%long_name, UNALLOWED_ALL) > 0 ) THEN
+    779        pstat = 1
+    780        IF ( fms_error_handler('diag_table_mod::parse_file_line',&
+    781             & 'Unallowed character in long_name in the diag_table.', err_msg) ) RETURN
+    782     END IF
+    783     IF ( SCAN(parse_file_line%new_file_freq_units, UNALLOWED_ALL) > 0 ) THEN
+    784        pstat = 1
+    785        IF ( fms_error_handler('diag_table_mod::parse_file_line',&
+    786             & 'Unallowed character in new_file_freq_units in the diag_table.', err_msg) ) RETURN
+    787     END IF
+    788     IF ( SCAN(parse_file_line%start_time_s, UNALLOWED_ALL) > 0 ) THEN
+    789        pstat = 1
+    790        IF ( fms_error_handler('diag_table_mod::parse_file_line',&
+    791             & 'Unallowed character in start_time_s in the diag_table.', err_msg) ) RETURN
+    792     END IF
+    793     IF ( SCAN(parse_file_line%file_duration_units, UNALLOWED_ALL) > 0 ) THEN
+    794        pstat = 1
+    795        IF ( fms_error_handler('diag_table_mod::parse_file_line',&
+    796             & 'Unallowed character in file_duration_units in the diag_table.', err_msg) ) RETURN
+    797     END IF
+    798 
+    799 
+    800 ! Fix the file name
+    801     parse_file_line%file_name = fix_file_name(TRIM(parse_file_line%file_name))
+    802 
+    803 ! Verify values / formats are correct
+    804     IF ( parse_file_line%file_format > 2 .OR. parse_file_line%file_format < 1 ) THEN
+    805        pstat = 1
+    806        IF ( fms_error_handler('diag_table_mod::parse_file_line', 'Invalid file format for file description in the diag_table
+    806 .',&
+    807             & err_msg) ) RETURN
+    808     END IF
+    809 
+    810 ! check for known units
+    811     parse_file_line%iTime_units = find_unit_ivalue(parse_file_line%time_units)
+    812     parse_file_line%iOutput_freq_units = find_unit_ivalue(parse_file_line%output_freq_units)
+    813     parse_file_line%iNew_file_freq_units = find_unit_ivalue(parse_file_line%new_file_freq_units)
+    814     parse_file_line%iFile_duration_units = find_unit_ivalue(parse_file_line%file_duration_units)
+    815 ! Verify the units are valid
+    816     IF ( parse_file_line%iTime_units < 0 ) THEN
+    817        pstat = 1
+    818        IF ( fms_error_handler('diag_table_mod::parse_file_line', 'Invalid time axis units in diag_table.', err_msg) )&
+    819             & RETURN
+    820     END IF
+    821     IF ( parse_file_line%iOutput_freq_units < 0 ) THEN
+    822        pstat = 1
+    823        IF ( fms_error_handler('diag_table_mod::parse_file_line', 'Invalid output frequency units in diag_table.', err_msg) )
+    823 &
+    824             & RETURN
+    825     END IF
+    826     IF ( parse_file_line%iNew_file_freq_units < 0 .AND. parse_file_line%new_file_freq > 0 ) THEN
+
+Page 22          Source Listing                  PARSE_FILE_LINE
+2021-06-01 08:54                                 diag_table.F90
+
+    827        pstat = 1
+    828        IF ( fms_error_handler('diag_table_mod::parse_file_line', 'Invalid new file frequency units in diag_table.', err_msg)
+    828  )&
+    829             & RETURN
+    830     END IF
+    831     IF ( parse_file_line%iFile_duration_units < 0 .AND. parse_file_line%file_duration > 0 ) THEN
+    832        pstat = 1
+    833        IF ( fms_error_handler('diag_table_mod::parse_file_line', 'Invalid file duration units in diag_table.', err_msg) )&
+    834             & RETURN
+    835     END IF
+    836 
+    837 !::sdu::
+    838 !::sdu:: Here is where we would want to parse the regional/global string
+    839 !::sdu::
+    840 
+    841 ! Check for file frequency, start time and duration presence.
+    842 ! This will determine how the init subroutine is called.
+    843     new_file_freq_present: IF ( parse_file_line%new_file_freq > 0 ) THEN ! New file frequency present.
+    844        IF ( LEN_TRIM(parse_file_line%start_time_s) > 0 ) THEN ! start time present
+    845           READ (parse_file_line%start_time_s, FMT=*, IOSTAT=mystat) year, month, day, hour, minute, second
+    846           IF ( mystat /= 0 ) THEN
+    847              pstat = 1
+    848              IF ( fms_error_handler('diag_table_mod::parse_file_line',&
+    849                   & 'Invalid start time in the file description in diag_table.', err_msg) ) RETURN
+    850           END IF
+    851           parse_file_line%start_time = set_date(year, month, day, hour, minute, second, err_msg=local_err_msg)
+    852           IF ( local_err_msg /= '' ) THEN
+    853              pstat = 1
+    854              IF ( fms_error_handler('diag_table_mod::parse_file_line', local_err_msg, err_msg) ) RETURN
+    855           END IF
+    856           IF ( parse_file_line%file_duration <= 0 ) THEN ! file_duration not present
+    857              parse_file_line%file_duration = parse_file_line%new_file_freq
+    858              parse_file_line%iFile_duration_units = parse_file_line%iNew_file_freq_units
+    859           END IF
+    860        ELSE
+    861           parse_file_line%start_time = base_time
+    862           parse_file_line%file_duration = parse_file_line%new_file_freq
+    863           parse_file_line%iFile_duration_units = parse_file_line%iNew_file_freq_units
+    864        END IF
+    865     END IF new_file_freq_present
+    866 
+    867 !< If filename_time_bounds is empty using defaults
+    868     IF (trim(parse_file_line%filename_time_bounds) == "") THEN
+    869         parse_file_line%filename_time_bounds = "middle"
+    870     ELSE
+    871 !< Check if the filename_time_bounds is one of the accepted values
+    872         IF (trim(parse_file_line%filename_time_bounds) /= "begin" .or. &
+    873           & trim(parse_file_line%filename_time_bounds) /= "middle" .or. &
+    874           & trim(parse_file_line%filename_time_bounds) /= "end") THEN
+    875               IF ( fms_error_handler('diag_table_mod::parse_file_line',&
+    876                   & 'filename_time_bounds must be "begin", "middle", "end".', err_msg) ) RETURN
+    877         ENDIF
+    878      ENDIF
+    879 
+    880   END FUNCTION parse_file_line
+
+Page 23          Source Listing                  PARSE_FILE_LINE
+2021-06-01 08:54 Entry Points                    diag_table.F90
+
+
+
+ENTRY POINTS
+
+  Name                                          
+                                                
+ diag_table_mod_mp_parse_file_line_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DAY                        Local  733      I(4)            4           scalar                    845,851                           
+ ERR_MSG                    Dummy  724      CHAR                        scalar   ARG,OUT          758,766,771,776,781,786,791,796,80
+                                                                                                  7,818,823,828,833,849,854,876     
+ FIND_UNIT_IVALUE@0         Local  811      I(4)            4           scalar                                                      
+ FIX_FILE_NAME@0            Local  801      CHAR            128         scalar                                                      
+ HOUR                       Local  733      I(4)            4           scalar                    845,851                           
+ ISTAT                      Dummy  724      I(4)            4           scalar   ARG,TGT,OUT      736,737                           
+ LEN_TRIM                   Func   844                                  scalar                    844                               
+ LINE                       Dummy  724      CHAR                        scalar   ARG,IN           752                               
+ LOCAL_ERR_MSG              Local  734      CHAR            256         scalar                    851,852,854                       
+ MINUTE                     Local  733      I(4)            4           scalar                    845,851                           
+ MONTH                      Local  733      I(4)            4           scalar                    845,851                           
+ MYSTAT                     Local  731      I(4)            4           scalar   TGT              739,752,756,757,845,846           
+ NEW_FILE_FREQ_PRESENT      Label  843                                  scalar                    865                               
+ PARSE_FILE_LINE            Func   724      RECORD          380         scalar                    616,744,745,746,747,748,749,752,75
+                                                                                                  3,754,755,763,768,773,778,783,788,
+                                                                                                  793,801,804,811,812,813,814,816,82
+                                                                                                  1,826,831,843,844,845,851,856,857,
+                                                                                                  858,861,862,863,868,869,872,873,87
+                                                                                                  4                                 
+ PRESENT                    Func   736                                  scalar                    736                               
+ PSTAT                      Local  732      I(4)            4           scalar   PTR              737,739,741,757,764,769,774,779,78
+                                                                                                  4,789,794,805,817,822,827,832,847,
+                                                                                                  853                               
+ SCAN                       Func   763                                  scalar                    763,768,773,778,783,788,793       
+ SECOND                     Local  733      I(4)            4           scalar                    845,851                           
+ TRIM                       Func   801                                  scalar                    801,868,872,873,874               
+ UNALLOWED_ALL              Param  763      CHAR            3           scalar                    763,768,773,778,783,788,793,914,91
+                                                                                                  9,924,929,934,939                 
+ YEAR                       Local  733      I(4)            4           scalar                    845,851                           
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ FILE_DESCRIPTION_TYPE.FILE_DURATION_UNITS                                                                                 ...
+                            CHAR            10    343            scalar                    748,755,793,814                    
+ FILE_DESCRIPTION_TYPE.NEW_FILE_FREQ_UNITS                                                                                 ...
+                            CHAR            10    308            scalar                    745,754,783,813                    
+ FILE_DESCRIPTION_TYPE.OUTPUT_FREQ_UNITS                                                                                   ...
+                            CHAR            10    160            scalar                    752,768,812                        
+ FILE_DESCRIPTION_TYPE.START_TIME_S                                                                                        ...
+                            CHAR            25    318            scalar                    746,754,788,844,845                
+
+Page 24          Source Listing                  PARSE_FILE_LINE
+2021-06-01 08:54 Symbol Table                    diag_table.F90
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ FILE_DESCRIPTION_TYPE.TIME_UNITS                                                                                          ...
+                            CHAR            10    170            scalar                    753,773,811                        
+
+Page 25          Source Listing                  PARSE_FILE_LINE
+2021-06-01 08:54                                 diag_table.F90
+
+    881 
+    882 !> @brief Parse a field description line from the <TT>diag_table</TT> file.
+    883 !! @return field_description_type parse_field_line
+    884 !! @details <TT>parse_field_line</TT> parses a field description line from the <TT>diag_table</TT> file, and returns a
+    885 !!     <TT>TYPE(field_description_type)</TT>.  The calling function, would then need to call the <TT>init_input_field</TT> a
+    885 nd
+    886 !!     <TT>init_output_field</TT> to initialize the diagnostic output field.
+    887   TYPE(field_description_type) FUNCTION parse_field_line(line, istat, err_msg)
+    888     CHARACTER(len=*), INTENT(in) :: line !< Line to parse from the <TT>diag_table</TT> file.
+    889     INTEGER, INTENT(out), OPTIONAL, TARGET :: istat !< Return state of the function.  A value of 0 indicates success.
+    890 !! A positive value indicates a <TT>FATAL</TT> error occurred,
+    891 !! and a negative value indicates a <TT>WARNING</TT> should be issued.
+    892     CHARACTER(len=*), OPTIONAL, INTENT(out) :: err_msg !< Error string to include in the <TT>FATAL</TT> or <TT>WARNING</TT> 
+    892 message.
+    893 
+    894     INTEGER, TARGET :: mystat
+    895     INTEGER, POINTER :: pstat
+    896 
+    897     IF ( PRESENT(istat) ) THEN
+    898        pstat => istat
+    899     ELSE
+    900        pstat => mystat
+    901     END IF
+    902     pstat = 0 ! default success return value
+    903 
+    904     READ (line, FMT=*, IOSTAT=mystat) parse_field_line%module_name, parse_field_line%field_name, parse_field_line%output_nam
+    904 e,&
+    905          & parse_field_line%file_name, parse_field_line%time_sampling, parse_field_line%time_method, parse_field_line%spatia
+    905 l_ops,&
+    906          & parse_field_line%pack
+    907     IF ( mystat /= 0 ) THEN
+    908        pstat = 1
+    909        IF ( fms_error_handler('diag_table_mod::parse_field_line',&
+    910             & 'Field description format is incorrect in diag_table.', err_msg) ) RETURN
+    911     END IF
+    912 
+    913 ! Check for unallowed characters in the string
+    914     IF ( SCAN(parse_field_line%module_name, UNALLOWED_ALL) > 0 ) THEN
+    915        pstat = 1
+    916        IF ( fms_error_handler('diag_table_mod::parse_field_line',&
+    917             & 'Unallowed character in module_name in the diag_table.', err_msg) ) RETURN
+    918     END IF
+    919     IF ( SCAN(parse_field_line%field_name, UNALLOWED_ALL) > 0 ) THEN
+    920        pstat = 1
+    921        IF ( fms_error_handler('diag_table_mod::parse_field_line',&
+    922             & 'Unallowed character in field_name in the diag_table.', err_msg) ) RETURN
+    923     END IF
+    924     IF ( SCAN(parse_field_line%output_name, UNALLOWED_ALL) > 0 ) THEN
+    925        pstat = 1
+    926        IF ( fms_error_handler('diag_table_mod::parse_field_line',&
+    927             & 'Unallowed character in output_name in the diag_table.', err_msg) ) RETURN
+    928     END IF
+    929     IF ( SCAN(parse_field_line%file_name, UNALLOWED_ALL) > 0 ) THEN
+    930        pstat = 1
+    931        IF ( fms_error_handler('diag_table_mod::parse_field_line',&
+    932             & 'Unallowed character in file_name in the diag_table.', err_msg) ) RETURN
+    933     END IF
+
+Page 26          Source Listing                  PARSE_FIELD_LINE
+2021-06-01 08:54                                 diag_table.F90
+
+    934     IF ( SCAN(parse_field_line%time_sampling, UNALLOWED_ALL) > 0 ) THEN
+    935        pstat = 1
+    936        IF ( fms_error_handler('diag_table_mod::parse_field_line',&
+    937             & 'Unallowed character in time_sampling in the diag_table.', err_msg) ) RETURN
+    938     END IF
+    939     IF ( SCAN(parse_field_line%time_method, UNALLOWED_ALL) > 0 ) THEN
+    940        pstat = 1
+    941        IF ( fms_error_handler('diag_table_mod::parse_field_line',&
+    942             & 'Unallowed character in time_method in the diag_table.', err_msg) ) RETURN
+    943     END IF
+    944     IF ( SCAN(parse_field_line%spatial_ops, UNALLOWED_QTE) > 0 ) THEN
+    945        pstat = 1
+    946        IF ( fms_error_handler('diag_table_mod::parse_field_line',&
+    947             & 'Unallowed character in spatial_ops in the diag_table.', err_msg) ) RETURN
+    948     END IF
+    949 
+    950 ! Fix the file name
+    951 ! Removes any added '.nc' and appends additional information.
+    952     parse_field_line%file_name = fix_file_name(TRIM(parse_field_line%file_name))
+    953 
+    954     IF ( parse_field_line%pack > 8 .OR. parse_field_line%pack < 1 ) THEN
+    955        pstat = 1
+    956        IF ( fms_error_handler('diag_table_mod::parse_field_line',&
+    957             & 'Packing is out of range for the field description in diag_table.', err_msg) ) RETURN
+    958     END IF
+    959 
+    960     IF ( lowercase(TRIM(parse_field_line%spatial_ops)) /= 'none' ) THEN
+    961        READ (parse_field_line%spatial_ops, FMT=*, IOSTAT=mystat) parse_field_line%regional_coords
+    962        IF ( mystat /= 0 ) THEN
+    963           IF ( fms_error_handler('diag_table_mod::parse_field_line',&
+    964                & 'Error in regional output description for field description in diag_table.', err_msg) ) RETURN
+    965        END IF
+    966     END IF
+    967   END FUNCTION parse_field_line
+
+Page 27          Source Listing                  PARSE_FIELD_LINE
+2021-06-01 08:54 Entry Points                    diag_table.F90
+
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ diag_table_mod_mp_parse_field_line_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ERR_MSG                    Dummy  887      CHAR                        scalar   ARG,OUT          910,917,922,927,932,937,942,947,95
+                                                                                                  7,964                             
+ ISTAT                      Dummy  887      I(4)            4           scalar   ARG,TGT,OUT      897,898                           
+ LINE                       Dummy  887      CHAR                        scalar   ARG,IN           904                               
+ MYSTAT                     Local  894      I(4)            4           scalar   TGT              900,904,907,961,962               
+ PARSE_FIELD_LINE           Func   887      RECORD          720         scalar                    643,904,905,906,914,919,924,929,93
+                                                                                                  4,939,944,952,954,960,961         
+ PRESENT                    Func   897                                  scalar                    897                               
+ PSTAT                      Local  895      I(4)            4           scalar   PTR              898,900,902,908,915,920,925,930,93
+                                                                                                  5,940,945,955                     
+ SCAN                       Func   914                                  scalar                    914,919,924,929,934,939,944       
+ TRIM                       Func   952                                  scalar                    952,960                           
+ UNALLOWED_QTE              Param  944      CHAR            2           scalar                    487,944                           
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ FIELD_DESCRIPTION_TYPE.TIME_SAMPLING                                                                                      ...
+                            CHAR            50    512            scalar                    905,934                            
+
+Page 28          Source Listing                  PARSE_FIELD_LINE
+2021-06-01 08:54                                 diag_table.F90
+
+    968 
+    969 !> @brief Determines if a line from the diag_table file is a file
+    970 !! @return Logical is_a_file
+    971 !! @details <TT>is_a_file</TT> checks a diag_table line to determine if the line describes a file.  If the line describes a 
+    971 file, the
+    972 !!     <TT>is_a_file</TT> will return <TT>.TRUE.</TT>.  Otherwise, it will return <TT>.FALSE.</TT>
+    973   PURE LOGICAL FUNCTION is_a_file(line)
+    974     CHARACTER(len=*), INTENT(in) :: line !< String containing the <TT>diag_table</TT> line.
+    975 
+    976     CHARACTER(len=5) :: first
+    977     INTEGER :: second
+    978     INTEGER :: mystat !< IO status from read
+    979 
+    980 # 991
+    981 
+    982     READ (UNIT=line, FMT=*, IOSTAT=mystat) first, second
+    983 
+    984 
+    985 ! The line is a file if my status is zero after the read.
+    986     is_a_file = mystat == 0
+    987   END FUNCTION is_a_file
+
+
+ENTRY POINTS
+
+  Name                                    
+                                          
+ diag_table_mod_mp_is_a_file_             
+
+Page 29          Source Listing                  IS_A_FILE
+2021-06-01 08:54 Symbol Table                    diag_table.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FIRST                      Local  976      CHAR            5           scalar                    982                               
+ IS_A_FILE                  Func   973      L(4)            4           scalar                    615,642,986                       
+ LINE                       Dummy  973      CHAR                        scalar   ARG,IN           982                               
+ MYSTAT                     Local  978      I(4)            4           scalar                    982,986                           
+ SECOND                     Local  977      I(4)            4           scalar                    982                               
+
+Page 30          Source Listing                  IS_A_FILE
+2021-06-01 08:54                                 diag_table.F90
+
+    988 
+    989 !> @brief Fixes the file name for use with diagnostic file and field initializations.
+    990 !! @return Character(len=128) fix_file_name
+    991   PURE CHARACTER(len=128) FUNCTION fix_file_name(file_name_string)
+    992     CHARACTER(len=*), INTENT(IN) :: file_name_string !< String containing the file name from the <TT>diag_table</TT>.
+    993 
+    994     INTEGER :: file_name_len
+    995 
+    996     fix_file_name = file_name_string ! Default return value
+    997 
+    998     file_name_len = LEN_TRIM(file_name_string)
+    999 
+   1000 ! Remove trailing '.nc' from the file_name, and append suffixes
+   1001     IF ( file_name_len > 2 ) THEN
+   1002        IF ( file_name_string(file_name_len-2:file_name_len) == '.nc' ) THEN
+   1003           fix_file_name = file_name_string(1:file_name_len-3)
+   1004           file_name_len = file_name_len - 3
+   1005        END IF
+   1006     END IF
+   1007 
+   1008 ! Add the optional suffix based on the pe list name if the
+   1009 ! append_pelist_name == .TRUE.
+   1010     IF ( append_pelist_name ) THEN
+   1011        fix_file_name(file_name_len+1:) = TRIM(pelist_name)
+   1012     END IF
+   1013   END FUNCTION fix_file_name
+
+
+ENTRY POINTS
+
+  Name                                        
+                                              
+ diag_table_mod_mp_fix_file_name_             
+
+Page 31          Source Listing                  FIX_FILE_NAME
+2021-06-01 08:54 Symbol Table                    diag_table.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ APPEND_PELIST_NAME         Local  1010     L(4)            4           scalar   PRIV             449,1010                          
+ FILE_NAME_LEN              Local  994      I(4)            4           scalar                    998,1001,1002,1003,1004,1011      
+ FILE_NAME_STRING           Dummy  991      CHAR                        scalar   ARG,IN           996,998,1002,1003                 
+ FIX_FILE_NAME              Func   991      CHAR            128         scalar                    801,952,996,1003,1011             
+ LEN_TRIM                   Func   998                                  scalar                    998                               
+ PELIST_NAME                Local  1011     CHAR            32          scalar   PRIV             449,1011                          
+ TRIM                       Func   1011                                 scalar                    1011                              
+
+Page 32          Source Listing                  FIX_FILE_NAME
+2021-06-01 08:54                                 diag_table.F90
+
+   1014 
+   1015 !> @brief Return the integer value for the given time unit.
+   1016 !! @return Integer find_unit_ivalue
+   1017 !! @details Returns the corresponding integer value for the given time unit.
+   1018 !!     <UL>
+   1019 !!       <LI> seconds = 1 </LI>
+   1020 !!       <LI> minutes = 2 </LI>
+   1021 !!       <LI> hours = 3 </LI>
+   1022 !!       <LI> days = 4 </LI>
+   1023 !!       <LI> months = 5 </LI>
+   1024 !!       <LI> years = 6 </LI>
+   1025 !!       <LI> unknown = -1 </LI>
+   1026 !!     </UL>
+   1027   PURE INTEGER FUNCTION find_unit_ivalue(unit_string)
+   1028        CHARACTER(len=*), INTENT(IN) :: unit_string !< Input string, containing the unit.
+   1029 
+   1030     SELECT CASE (TRIM(unit_string))
+   1031     CASE ('seconds')
+   1032        find_unit_ivalue = 1
+   1033     CASE ('minutes')
+   1034        find_unit_ivalue = 2
+   1035     CASE ('hours')
+   1036        find_unit_ivalue = 3
+   1037     CASE ('days')
+   1038        find_unit_ivalue = 4
+   1039     CASE ('months')
+   1040        find_unit_ivalue = 5
+   1041     CASE ('years')
+   1042        find_unit_ivalue = 6
+   1043     CASE DEFAULT
+   1044        find_unit_ivalue = -1 ! Return statement if an incorrect / unknown unit used.
+   1045     END SELECT
+   1046   END FUNCTION find_unit_ivalue
+
+Page 33          Source Listing                  FIND_UNIT_IVALUE
+2021-06-01 08:54 Entry Points                    diag_table.F90
+
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ diag_table_mod_mp_find_unit_ivalue_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FIND_UNIT_IVALUE           Func   1027     I(4)            4           scalar                    811,812,813,814,1032,1034,1036,103
+                                                                                                  8,1040,1042,1044                  
+ TRIM                       Func   1030                                 scalar                    1030                              
+ UNIT_STRING                Dummy  1027     CHAR                        scalar   ARG,IN           1030                              
+
+Page 34          Source Listing                  FIND_UNIT_IVALUE
+2021-06-01 08:54                                 diag_table.F90
+
+   1047 
+   1048 !> @brief Allocate the file, in and out field arrays after reading the <TT>diag_table</TT> file. (CURRENTLY EMPTY)
+   1049   SUBROUTINE initialize_output_arrays()
+   1050 ! Place Holder
+   1051   END SUBROUTINE initialize_output_arrays
+
+
+ENTRY POINTS
+
+  Name                                                   
+                                                         
+ diag_table_mod_mp_initialize_output_arrays_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ INITIALIZE_OUTPUT_ARRAYS   Subr   1049                                                                                             
+
+Page 35          Source Listing                  INITIALIZE_OUTPUT_ARRAYS
+2021-06-01 08:54                                 diag_table.F90
+
+   1052 
+   1053 END MODULE diag_table_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CONSTANTS_MOD              Module 446                                                            446                               
+ COORD_TYPE                 Type   449                                  scalar   PRIV             449,462                           
+ DIAG_DATA_MOD              Module 448                                                            448                               
+ DIAG_TABLE_MOD             Module 229                                                                                              
+ DIAG_UTIL_MOD              Module 450                                                            450                               
+ FMS_MOD                    Module 444                                                            444                               
+ MPP_IO_MOD                 Module 442                                                            442                               
+ MPP_MOD                    Module 443                                                            443                               
+ PARSE_DIAG_TABLE           Subr   455                                                            455                               
+ TIME_MANAGER_MOD           Module 445                                                            445                               
+ TIME_TYPE                  Type   445                                  scalar                    445,483                           
+
+Page 36          Source Listing                  INITIALIZE_OUTPUT_ARRAYS
+2021-06-01 08:54 Subprograms/Common Blocks       diag_table.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CLOSE_DIAG_TABLE           Subr   714                                                                                              
+ DIAG_TABLE_MOD             Module 229                                                                                              
+ FIND_UNIT_IVALUE           Func   1027     I(4)            4           scalar                    811,812,813,814,1032,1034,1036,103
+                                                                                                  8,1040,1042,1044                  
+ FIX_FILE_NAME              Func   991      CHAR            128         scalar                    801,952,996,1003,1011             
+ INITIALIZE_OUTPUT_ARRAYS   Subr   1049                                                                                             
+ IS_A_FILE                  Func   973      L(4)            4           scalar                    615,642,986                       
+ OPEN_DIAG_TABLE            Subr   687                                                                                              
+ PARSE_DIAG_TABLE           Subr   499                                                                                              
+ PARSE_FIELD_LINE           Func   887      RECORD          720         scalar                    643,904,905,906,914,919,924,929,93
+                                                                                                  4,939,944,952,954,960,961         
+ PARSE_FILE_LINE            Func   724      RECORD          380         scalar                    616,744,745,746,747,748,749,752,75
+                                                                                                  3,754,755,763,768,773,778,783,788,
+                                                                                                  793,801,804,811,812,813,814,816,82
+                                                                                                  1,826,831,843,844,845,851,856,857,
+                                                                                                  858,861,862,863,868,869,872,873,87
+                                                                                                  4                                 
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+
+Page 37          Source Listing                  INITIALIZE_OUTPUT_ARRAYS
+2021-06-01 08:54                                 diag_table.F90
+
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+
+Page 38          Source Listing                  INITIALIZE_OUTPUT_ARRAYS
+2021-06-01 08:54                                 diag_table.F90
+
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : diag_table.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

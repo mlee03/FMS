@@ -1,0 +1,1443 @@
+Page 1           Source Listing                  DRIFTERS_COMM_NEW
+2021-06-01 08:54                                 /tmp/ifortOuxA9I.i90
+
+      1 # 1 "drifters_comm.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 # 1 "./fms_switches.h" 1 
+     21 !***********************************************************************
+     22 !*                   GNU Lesser General Public License
+     23 !*
+     24 !* This file is part of the GFDL Flexible Modeling System (FMS).
+     25 !*
+     26 !* FMS is free software: you can redistribute it and/or modify it under
+     27 !* the terms of the GNU Lesser General Public License as published by
+     28 !* the Free Software Foundation, either version 3 of the License, or (at
+     29 !* your option) any later version.
+     30 !*
+     31 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     32 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     33 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     34 !* for more details.
+     35 !*
+     36 !* You should have received a copy of the GNU Lesser General Public
+     37 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     38 !***********************************************************************
+     39 # 22
+     40 
+     41 
+     42 !DEC$ MESSAGE:'Compiling in MPI mode (with or without MPP) '
+     43 
+     44 # 20 "drifters_comm.F90" 2 
+     45 
+     46 !> @file
+     47 !! @email gfdl.climate.model.info@noaa.gov
+     48 module drifters_comm_mod
+     49 
+     50 # 30
+     51 
+     52 
+     53   use mpp_mod,         only        : NULL_PE, FATAL, NOTE, mpp_error, mpp_pe, mpp_npes
+     54   use mpp_mod,         only        : mpp_root_pe
+     55   use mpp_mod,         only        : mpp_send, mpp_recv, mpp_sync_self
+     56   use mpp_mod,         only        : COMM_TAG_1, COMM_TAG_2, COMM_TAG_3, COMM_TAG_4
+     57   use mpp_domains_mod, only        : domain2D
+
+Page 2           Source Listing                  DRIFTERS_COMM_NEW
+2021-06-01 08:54                                 drifters_comm.F90
+
+     58   use mpp_domains_mod, only        : mpp_get_neighbor_pe, mpp_define_domains, mpp_get_layout
+     59   use mpp_domains_mod, only        : mpp_get_compute_domain, mpp_get_data_domain
+     60   use mpp_domains_mod, only        : NORTH, SOUTH, EAST, WEST, CYCLIC_GLOBAL_DOMAIN
+     61   use mpp_domains_mod, only        : NORTH_EAST, SOUTH_EAST, SOUTH_WEST, NORTH_WEST
+     62 
+     63 
+     64 
+     65 
+     66 
+     67 
+     68   use drifters_core_mod, only: drifters_core_type, drifters_core_remove_and_add,  drifters_core_set_positions
+     69 
+     70   implicit none
+     71   private
+     72 
+     73   public :: drifters_comm_type, drifters_comm_new, drifters_comm_del, drifters_comm_set_pe_neighbors
+     74   public :: drifters_comm_set_domain, drifters_comm_update, drifters_comm_gather
+     75 
+     76   type drifters_comm_type
+     77 ! compute domain
+     78      real           :: xcmin !< compute domain
+     79      real           :: xcmax !< compute domain
+     80      real           :: ycmin !< compute domain
+     81      real           :: ycmax !< compute domain
+     82 ! data domain
+     83      real           :: xdmin !< data domain
+     84      real           :: xdmax !< data domain
+     85      real           :: ydmin !< data domain
+     86      real           :: ydmax !< data domain
+     87 ! global valid min/max
+     88      real           :: xgmin !< global valid min/max
+     89      real           :: xgmax !< global valid min/max
+     90      real           :: ygmin !< global valid min/max
+     91      real           :: ygmax !< global valid min/max
+     92 ! x/y period (can be be nearly infinite)
+     93      logical        :: xperiodic !< x/y period (can be be nearly infinite)
+     94      logical        :: yperiodic !< x/y period (can be be nearly infinite)
+     95 ! neighbor domains
+     96      integer        :: pe_N !< neighbor domains
+     97      integer        :: pe_S !< neighbor domains
+     98      integer        :: pe_E !< neighbor domains
+     99      integer        :: pe_W !< neighbor domains
+    100      integer        :: pe_NE !< neighbor domains
+    101      integer        :: pe_SE !< neighbor domains
+    102      integer        :: pe_SW !< neighbor domains
+    103      integer        :: pe_NW !< neighbor domains
+    104 ! starting/ending pe, set this to a value /= 0 if running concurrently
+    105      integer        :: pe_beg !< starting/ending pe, set this to a value /= 0 if running concurrently
+    106      integer        :: pe_end !< starting/ending pe, set this to a value /= 0 if running concurrently
+    107   end type drifters_comm_type
+    108 
+    109 contains
+    110 
+    111 !===============================================================================
+    112   subroutine drifters_comm_new(self)
+    113     type(drifters_comm_type)   :: self
+    114 
+
+Page 3           Source Listing                  DRIFTERS_COMM_NEW
+2021-06-01 08:54                                 drifters_comm.F90
+
+    115     self%xcmin = -huge(1.); self%xcmax = +huge(1.)
+    116     self%ycmin = -huge(1.); self%ycmax = +huge(1.)
+    117 
+    118     self%xdmin = -huge(1.); self%xdmax = +huge(1.)
+    119     self%ydmin = -huge(1.); self%ydmax = +huge(1.)
+    120 
+    121     self%xgmin = -huge(1.); self%xgmax = +huge(1.)
+    122     self%ygmin = -huge(1.); self%ygmax = +huge(1.)
+    123 
+    124     self%xperiodic = .FALSE.; self%yperiodic = .FALSE.
+    125 
+    126     self%pe_N  = NULL_PE
+    127     self%pe_S  = NULL_PE
+    128     self%pe_E  = NULL_PE
+    129     self%pe_W  = NULL_PE
+    130     self%pe_NE = NULL_PE
+    131     self%pe_SE = NULL_PE
+    132     self%pe_SW = NULL_PE
+    133     self%pe_NW = NULL_PE
+    134 
+    135     self%pe_beg =  0
+    136     self%pe_end = -1
+    137 
+    138 
+    139   end subroutine drifters_comm_new
+
+
+ENTRY POINTS
+
+  Name                                               
+                                                     
+ drifters_comm_mod_mp_drifters_comm_new_             
+
+Page 4           Source Listing                  DRIFTERS_COMM_NEW
+2021-06-01 08:54 Symbol Table                    drifters_comm.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_COMM_NEW          Subr   112                                                                                              
+ DRIFTERS_COMM_TYPE         Type   113                      144         scalar                    73,107,113,143,154,168,182,253,342
+                                                                                                  ,605                              
+ HUGE                       Func   115                                  scalar                    115,116,118,119,121,122           
+ NULL_PE                    Param  126      I(4)            4           scalar   PRIV             53,126,127,128,129,130,131,132,133
+                                                                                                  ,199,204,209,214,219,224,229,234,4
+                                                                                                  26,436                            
+ SELF                       Dummy  112      DRIFTERS_COMM_TYPE                                                                      
+                                                            144         scalar   ARG,INOUT        115,116,118,119,121,122,124,126,12
+                                                                                                  7,128,129,130,131,132,133,135,136 
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DRIFTERS_COMM_TYPE.PE_BEG  I(4)            4     136            scalar                    135,384,385,386,387,388,494,498,50 
+                                                                                           9,516,526,535,641,665,676,684,710  
+ DRIFTERS_COMM_TYPE.PE_E    I(4)            4     112            scalar                    128,209,210,211,429,453            
+ DRIFTERS_COMM_TYPE.PE_END  I(4)            4     140            scalar                    136,384,385,386,387,388,494,498,50 
+                                                                                           9,516,526,535,641,665,676,684,710  
+ DRIFTERS_COMM_TYPE.PE_N    I(4)            4     104            scalar                    126,199,200,201,427,455            
+ DRIFTERS_COMM_TYPE.PE_NE   I(4)            4     120            scalar                    130,204,205,206,428                
+ DRIFTERS_COMM_TYPE.PE_NW   I(4)            4     132            scalar                    133,234,235,236,434                
+ DRIFTERS_COMM_TYPE.PE_S    I(4)            4     108            scalar                    127,219,220,221,431,454            
+ DRIFTERS_COMM_TYPE.PE_SE   I(4)            4     124            scalar                    131,214,215,216,430                
+ DRIFTERS_COMM_TYPE.PE_SW   I(4)            4     128            scalar                    132,224,225,226,432                
+ DRIFTERS_COMM_TYPE.PE_W    I(4)            4     116            scalar                    129,229,230,231,433,452            
+ DRIFTERS_COMM_TYPE.XCMAX   R(8)            8     8              scalar                    115,172,278,307,404,420,650        
+ DRIFTERS_COMM_TYPE.XCMIN   R(8)            8     0              scalar                    115,171,277,300,404,418,650        
+ DRIFTERS_COMM_TYPE.XDMAX   R(8)            8     40             scalar                    118,158,328,453                    
+ DRIFTERS_COMM_TYPE.XDMIN   R(8)            8     32             scalar                    118,157,326,452                    
+ DRIFTERS_COMM_TYPE.XGMAX   R(8)            8     72             scalar                    121                                
+ DRIFTERS_COMM_TYPE.XGMIN   R(8)            8     64             scalar                    121                                
+ DRIFTERS_COMM_TYPE.XPERIODIC                                                                                              ...
+                            L(4)            4     96             scalar                    124                                
+ DRIFTERS_COMM_TYPE.YCMAX   R(8)            8     24             scalar                    116,174,280,321,405,424,651        
+ DRIFTERS_COMM_TYPE.YCMIN   R(8)            8     16             scalar                    116,173,279,314,405,422,651        
+ DRIFTERS_COMM_TYPE.YDMAX   R(8)            8     56             scalar                    119,160,329,455                    
+ DRIFTERS_COMM_TYPE.YDMIN   R(8)            8     48             scalar                    119,159,327,454                    
+ DRIFTERS_COMM_TYPE.YGMAX   R(8)            8     88             scalar                    122                                
+ DRIFTERS_COMM_TYPE.YGMIN   R(8)            8     80             scalar                    122                                
+ DRIFTERS_COMM_TYPE.YPERIODIC                                                                                              ...
+                            L(4)            4     100            scalar                    124                                
+
+Page 5           Source Listing                  DRIFTERS_COMM_NEW
+2021-06-01 08:54                                 drifters_comm.F90
+
+    140 
+    141 !===============================================================================
+    142   subroutine drifters_comm_del(self)
+    143     type(drifters_comm_type)   :: self
+    144 
+    145 ! nothing to deallocate
+    146     call drifters_comm_new(self)
+    147 
+    148   end subroutine drifters_comm_del
+
+
+ENTRY POINTS
+
+  Name                                               
+                                                     
+ drifters_comm_mod_mp_drifters_comm_del_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_COMM_DEL          Subr   142                                                                                              
+ DRIFTERS_COMM_NEW          Subr   146                                                            73,146                            
+ SELF                       Dummy  142      DRIFTERS_COMM_TYPE                                                                      
+                                                            144         scalar   ARG,INOUT        146                               
+
+Page 6           Source Listing                  DRIFTERS_COMM_DEL
+2021-06-01 08:54                                 drifters_comm.F90
+
+    149 
+    150 !===============================================================================
+    151 !> @brief Set data domain bounds.
+    152   subroutine drifters_comm_set_data_bounds(self, xmin, ymin, xmax, ymax)
+    153 ! Set data domain bounds.
+    154     type(drifters_comm_type)   :: self
+    155     real, intent(in)           :: xmin, ymin, xmax, ymax
+    156 
+    157     self%xdmin = max(xmin, self%xdmin)
+    158     self%xdmax = min(xmax, self%xdmax)
+    159     self%ydmin = max(ymin, self%ydmin)
+    160     self%ydmax = min(ymax, self%ydmax)
+    161 
+    162   end subroutine drifters_comm_set_data_bounds
+
+
+ENTRY POINTS
+
+  Name                                                           
+                                                                 
+ drifters_comm_mod_mp_drifters_comm_set_data_bounds_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_COMM_SET_DATA_BOU                                                                                                         
+ NDS                        Subr   152                                                                                              
+ MAX                        Func   157                                  scalar                    157,159                           
+ MIN                        Func   158                                  scalar                    158,160                           
+ SELF                       Dummy  152      DRIFTERS_COMM_TYPE                                                                      
+                                                            144         scalar   ARG,INOUT        157,158,159,160                   
+ XMAX                       Dummy  152      R(8)            8           scalar   ARG,IN           158                               
+ XMIN                       Dummy  152      R(8)            8           scalar   ARG,IN           157                               
+ YMAX                       Dummy  152      R(8)            8           scalar   ARG,IN           160                               
+ YMIN                       Dummy  152      R(8)            8           scalar   ARG,IN           159                               
+
+Page 7           Source Listing                  DRIFTERS_COMM_SET_DATA_BOUNDS
+2021-06-01 08:54                                 drifters_comm.F90
+
+    163 
+    164 !===============================================================================
+    165 !> @brief Set compute domain bounds.
+    166   subroutine drifters_comm_set_comp_bounds(self, xmin, ymin, xmax, ymax)
+    167 ! Set compute domain bounds.
+    168     type(drifters_comm_type)   :: self
+    169     real, intent(in)           :: xmin, ymin, xmax, ymax
+    170 
+    171     self%xcmin = max(xmin, self%xcmin)
+    172     self%xcmax = min(xmax, self%xcmax)
+    173     self%ycmin = max(ymin, self%ycmin)
+    174     self%ycmax = min(ymax, self%ycmax)
+    175 
+    176   end subroutine drifters_comm_set_comp_bounds
+
+
+ENTRY POINTS
+
+  Name                                                           
+                                                                 
+ drifters_comm_mod_mp_drifters_comm_set_comp_bounds_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_COMM_SET_COMP_BOU                                                                                                         
+ NDS                        Subr   166                                                                                              
+ MAX                        Func   171                                  scalar                    171,173                           
+ MIN                        Func   172                                  scalar                    172,174                           
+ SELF                       Dummy  166      DRIFTERS_COMM_TYPE                                                                      
+                                                            144         scalar   ARG,INOUT        171,172,173,174                   
+ XMAX                       Dummy  166      R(8)            8           scalar   ARG,IN           172                               
+ XMIN                       Dummy  166      R(8)            8           scalar   ARG,IN           171                               
+ YMAX                       Dummy  166      R(8)            8           scalar   ARG,IN           174                               
+ YMIN                       Dummy  166      R(8)            8           scalar   ARG,IN           173                               
+
+Page 8           Source Listing                  DRIFTERS_COMM_SET_COMP_BOUNDS
+2021-06-01 08:54                                 drifters_comm.F90
+
+    177 
+    178 !===============================================================================
+    179 !> @brief Set neighboring pe numbers.
+    180   subroutine drifters_comm_set_pe_neighbors(self, domain)
+    181 ! Set neighboring pe numbers.
+    182     type(drifters_comm_type)   :: self
+    183     type(domain2d), intent(inout) :: domain
+    184 
+    185 
+    186 ! parallel code
+    187 
+    188     integer        :: pe_N, pe_S, pe_E, pe_W, pe_NE, pe_SE, pe_SW, pe_NW
+    189 
+    190     call mpp_get_neighbor_pe(domain, NORTH     , pe_N )
+    191     call mpp_get_neighbor_pe(domain, NORTH_EAST, pe_NE)
+    192     call mpp_get_neighbor_pe(domain, EAST      , pe_E )
+    193     call mpp_get_neighbor_pe(domain, SOUTH_EAST, pe_SE)
+    194     call mpp_get_neighbor_pe(domain, SOUTH     , pe_S )
+    195     call mpp_get_neighbor_pe(domain, SOUTH_WEST, pe_SW)
+    196     call mpp_get_neighbor_pe(domain, WEST      , pe_W )
+    197     call mpp_get_neighbor_pe(domain, NORTH_WEST, pe_NW)
+    198 
+    199     if(pe_N  /= self%pe_N  .and. self%pe_N  == NULL_PE) then
+    200        self%pe_N  = pe_N
+    201     else if(pe_N  /= self%pe_N ) then
+    202        call mpp_error( FATAL, 'drifters_comm_set_pe_neighbors: NORTH PE changed!.')
+    203     endif
+    204     if(pe_NE /= self%pe_NE .and. self%pe_NE == NULL_PE) then
+    205        self%pe_NE = pe_NE
+    206     else if(pe_NE /= self%pe_NE) then
+    207        call mpp_error( FATAL, 'drifters_comm_set_pe_neighbors: NORTH-EAST PE changed!.')
+    208     endif
+    209     if(pe_E  /= self%pe_E  .and. self%pe_E  == NULL_PE) then
+    210        self%pe_E  = pe_E
+    211     else if(pe_E  /= self%pe_E ) then
+    212        call mpp_error( FATAL, 'drifters_comm_set_pe_neighbors: EAST PE changed!.')
+    213     endif
+    214     if(pe_SE /= self%pe_SE .and. self%pe_SE == NULL_PE) then
+    215        self%pe_SE = pe_SE
+    216     else if(pe_SE /= self%pe_SE) then
+    217        call mpp_error( FATAL, 'drifters_comm_set_pe_neighbors: SOUTH-EAST PE changed!.')
+    218     endif
+    219     if(pe_S  /= self%pe_S  .and. self%pe_S  == NULL_PE) then
+    220        self%pe_S  = pe_S
+    221     else if(pe_S  /= self%pe_S ) then
+    222        call mpp_error( FATAL, 'drifters_comm_set_pe_neighbors: SOUTH PE changed!.')
+    223     endif
+    224     if(pe_SW /= self%pe_SW .and. self%pe_SW == NULL_PE) then
+    225        self%pe_SW = pe_SW
+    226     else if(pe_SW /= self%pe_SW) then
+    227        call mpp_error( FATAL, 'drifters_comm_set_pe_neighbors: SOUTH-WEST PE changed!.')
+    228     endif
+    229     if(pe_W  /= self%pe_W  .and. self%pe_W  == NULL_PE) then
+    230        self%pe_W  = pe_W
+    231     else if(pe_W  /= self%pe_W ) then
+    232        call mpp_error( FATAL, 'drifters_comm_set_pe_neighbors: WEST PE changed!.')
+    233     endif
+
+Page 9           Source Listing                  DRIFTERS_COMM_SET_PE_NEIGHBORS
+2021-06-01 08:54                                 drifters_comm.F90
+
+    234     if(pe_NW /= self%pe_NW .and. self%pe_NW == NULL_PE) then
+    235        self%pe_NW = pe_NW
+    236     else if(pe_NW /= self%pe_NW) then
+    237        call mpp_error( FATAL, 'drifters_comm_set_pe_neighbors: NORTH-WEST PE changed!.')
+    238     endif
+    239 
+    240 
+    241 ! end of parallel code
+    242 
+    243   end subroutine drifters_comm_set_pe_neighbors
+
+
+ENTRY POINTS
+
+  Name                                                            
+                                                                  
+ drifters_comm_mod_mp_drifters_comm_set_pe_neighbors_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DOMAIN                     Dummy  180      DOMAIN2D        752         scalar   ARG,INOUT        190,191,192,193,194,195,196,197   
+ DOMAIN2D                   Type   183                                  scalar                    57,183,254                        
+ DRIFTERS_COMM_SET_PE_NEIGH                                                                                                         
+ BORS                       Subr   180                                                                                              
+ EAST                       Param  192      I(4)            4           scalar   PRIV             60,192                            
+ FATAL                      Param  202      I(4)            4           scalar   PRIV             53,202,207,212,217,222,227,232,237
+                                                                                                  ,374,441,470,480,572              
+ MPP_ERROR                  Local  202                                  scalar   PRIV             53,202,207,212,217,222,227,232,237
+                                                                                                  ,374,441,470,480,549,566,572      
+ MPP_ERROR_BASIC            Subr   202                                           PRIV             202,207,212,217,222,227,232,237,37
+                                                                                                  4,441,470,480,549,566,572         
+ MPP_GET_NEIGHBOR_PE        Local  190                                  scalar   PRIV             58,190,191,192,193,194,195,196,197
+ MPP_GET_NEIGHBOR_PE_2D     Subr   190                                           PRIV             190,191,192,193,194,195,196,197   
+ NORTH                      Param  190      I(4)            4           scalar   PRIV             60,190                            
+ NORTH_EAST                 Param  191      I(4)            4           scalar   PRIV             61,191                            
+ NORTH_WEST                 Param  197      I(4)            4           scalar   PRIV             61,197                            
+ PE_E                       Local  188      I(4)            4           scalar                    192,209,210,211                   
+ PE_N                       Local  188      I(4)            4           scalar                    190,199,200,201                   
+ PE_NE                      Local  188      I(4)            4           scalar                    191,204,205,206                   
+ PE_NW                      Local  188      I(4)            4           scalar                    197,234,235,236                   
+ PE_S                       Local  188      I(4)            4           scalar                    194,219,220,221                   
+ PE_SE                      Local  188      I(4)            4           scalar                    193,214,215,216                   
+ PE_SW                      Local  188      I(4)            4           scalar                    195,224,225,226                   
+ PE_W                       Local  188      I(4)            4           scalar                    196,229,230,231                   
+ SELF                       Dummy  180      DRIFTERS_COMM_TYPE                                                                      
+                                                            144         scalar   ARG,INOUT        199,200,201,204,205,206,209,210,21
+                                                                                                  1,214,215,216,219,220,221,224,225,
+                                                                                                  226,229,230,231,234,235,236       
+ SOUTH                      Param  194      I(4)            4           scalar   PRIV             60,194                            
+ SOUTH_EAST                 Param  193      I(4)            4           scalar   PRIV             61,193                            
+ SOUTH_WEST                 Param  195      I(4)            4           scalar   PRIV             61,195                            
+ WEST                       Param  196      I(4)            4           scalar   PRIV             60,196                            
+
+Page 10          Source Listing                  DRIFTERS_COMM_SET_PE_NEIGHBORS
+2021-06-01 08:54                                 drifters_comm.F90
+
+    244 
+    245 !===============================================================================
+    246 !> @brief Set boundaries of domain and compute neighbors. This method can be called
+    247 !!   multiple times; the data domain will just be the intersection (overlap) of
+    248 !!   all domains (e.g domain_u, domain_v, etc).
+    249   subroutine drifters_comm_set_domain(self, domain, x, y, backoff_x, backoff_y)
+    250 ! Set boundaries of domain and compute neighbors. This method can be called
+    251 ! multiple times; the data domain will just be the intersection (overlap) of
+    252 ! all domains (e.g domain_u, domain_v, etc).
+    253     type(drifters_comm_type)   :: self
+    254     type(domain2d), intent(inout) :: domain
+    255     real, intent(in)           :: x(:)           !< global axes
+    256     real, intent(in)           :: y(:)           !< global axes
+    257     integer, intent(in)        :: backoff_x !< >=0, data domain is reduced by "backoff_x,y" indices in x, resp. y
+    258     integer, intent(in)        :: backoff_y !< >=0, data domain is reduced by "backoff_x,y" indices in x, resp. y
+    259 
+    260 ! compute/data domain start/end indices
+    261     integer :: isc !< compute domain start/end indices
+    262     integer :: iec !< compute domain start/end indices
+    263     integer :: jsc !< compute domain start/end indices
+    264     integer :: jec !< compute domain start/end indices
+    265     integer :: isd !< data domain start/end indices
+    266     integer :: ied !< data domain start/end indices
+    267     integer :: jsd !< data domain start/end indices
+    268     integer :: jed !< data domain start/end indices
+    269     integer nx, ny, hx, hy, bckf_x, bckf_y, halox, haloy
+    270     real dx, dy, xdmin, xdmax, ydmin, ydmax
+    271 
+    272 # 258
+    273 
+    274     call mpp_get_compute_domain( domain, isc, iec, jsc, jec )
+    275 
+    276 
+    277     self%xcmin = max(x(isc), self%xcmin)
+    278     self%xcmax = min(x(iec), self%xcmax)
+    279     self%ycmin = max(y(jsc), self%ycmin)
+    280     self%ycmax = min(y(jec), self%ycmax)
+    281 
+    282     nx = iec - isc + 1
+    283     ny = jec - jsc + 1
+    284 
+    285 # 272
+    286 
+    287     call mpp_get_data_domain   ( domain, isd, ied, jsd, jed )
+    288 
+    289 
+    290     hx = max(ied-iec, isc-isd)
+    291     hy = max(jed-jec, jsc-jsd)
+    292     bckf_x = min(backoff_x, hx)
+    293     bckf_y = min(backoff_y, hy)
+    294 
+    295     halox = max(0, hx - bckf_x)
+    296     haloy = max(0, hy - bckf_y)
+    297 
+    298     if(isd < 1) then
+    299        dx = x(2) - x(1)
+    300        xdmin = self%xcmin - dx*halox
+
+Page 11          Source Listing                  DRIFTERS_COMM_SET_DOMAIN
+2021-06-01 08:54                                 drifters_comm.F90
+
+    301     else
+    302        xdmin = x(isd+bckf_x)
+    303     endif
+    304 
+    305     if(ied > nx) then
+    306        dx = x(nx) - x(nx-1)
+    307        xdmax = self%xcmax + dx*halox
+    308     else
+    309        xdmax = x(ied-bckf_x)
+    310     endif
+    311 
+    312     if(jsd < 1) then
+    313        dy = y(2) - y(1)
+    314        ydmin = self%ycmin - dy*haloy
+    315     else
+    316        ydmin = y(jsd+bckf_y)
+    317     endif
+    318 
+    319     if(jed > ny) then
+    320        dy = y(ny) - y(ny-1)
+    321        ydmax = self%ycmax + dy*haloy
+    322     else
+    323        ydmax = y(jed-bckf_y)
+    324     endif
+    325 
+    326     self%xdmin = max(xdmin, self%xdmin)
+    327     self%ydmin = max(ydmin, self%ydmin)
+    328     self%xdmax = min(xdmax, self%xdmax)
+    329     self%ydmax = min(ydmax, self%ydmax)
+    330 
+    331     call drifters_comm_set_pe_neighbors(self, domain)
+    332 
+    333   end subroutine drifters_comm_set_domain
+
+Page 12          Source Listing                  DRIFTERS_COMM_SET_DOMAIN
+2021-06-01 08:54 Entry Points                    drifters_comm.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                      
+                                                            
+ drifters_comm_mod_mp_drifters_comm_set_domain_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ BACKOFF_X                  Dummy  249      I(4)            4           scalar   ARG,IN           292                               
+ BACKOFF_Y                  Dummy  249      I(4)            4           scalar   ARG,IN           293                               
+ BCKF_X                     Local  269      I(4)            4           scalar                    292,295,302,309                   
+ BCKF_Y                     Local  269      I(4)            4           scalar                    293,296,316,323                   
+ DOMAIN                     Dummy  249      DOMAIN2D        752         scalar   ARG,INOUT        274,287,331                       
+ DRIFTERS_COMM_SET_DOMAIN   Subr   249                                                                                              
+ DRIFTERS_COMM_SET_PE_NEIGH                                                                                                         
+ BORS                       Subr   331                                                            73,331                            
+ DX                         Local  270      R(8)            8           scalar                    299,300,306,307                   
+ DY                         Local  270      R(8)            8           scalar                    313,314,320,321                   
+ HALOX                      Local  269      I(4)            4           scalar                    295,300,307                       
+ HALOY                      Local  269      I(4)            4           scalar                    296,314,321                       
+ HX                         Local  269      I(4)            4           scalar                    290,292,295                       
+ HY                         Local  269      I(4)            4           scalar                    291,293,296                       
+ IEC                        Local  262      I(4)            4           scalar                    274,278,282,290                   
+ IED                        Local  266      I(4)            4           scalar                    287,290,305,309                   
+ ISC                        Local  261      I(4)            4           scalar                    274,277,282,290                   
+ ISD                        Local  265      I(4)            4           scalar                    287,290,298,302                   
+ JEC                        Local  264      I(4)            4           scalar                    274,280,283,291                   
+ JED                        Local  268      I(4)            4           scalar                    287,291,319,323                   
+ JSC                        Local  263      I(4)            4           scalar                    274,279,283,291                   
+ JSD                        Local  267      I(4)            4           scalar                    287,291,312,316                   
+ MAX                        Func   277                                  scalar                    277,279,290,291,295,296,326,327   
+ MIN                        Func   278                                  scalar                    278,280,292,293,328,329           
+ MPP_GET_COMPUTE_DOMAIN     Local  274                                  scalar   PRIV             59,274                            
+ MPP_GET_COMPUTE_DOMAIN2D   Subr   274                                           PRIV             274                               
+ MPP_GET_DATA_DOMAIN        Local  287                                  scalar   PRIV             59,287                            
+ MPP_GET_DATA_DOMAIN2D      Subr   287                                           PRIV             287                               
+ NX                         Local  269      I(4)            4           scalar                    282,305,306                       
+ NY                         Local  269      I(4)            4           scalar                    283,319,320                       
+ SELF                       Dummy  249      DRIFTERS_COMM_TYPE                                                                      
+                                                            144         scalar   ARG,INOUT        277,278,279,280,300,307,314,321,32
+                                                                                                  6,327,328,329,331                 
+ X                          Dummy  249      R(8)            8     1     1        ARG,IN           277,278,299,302,306,309           
+ XDMAX                      Local  270      R(8)            8           scalar                    307,309,328                       
+ XDMIN                      Local  270      R(8)            8           scalar                    300,302,326                       
+ Y                          Dummy  249      R(8)            8     1     1        ARG,IN           279,280,313,316,320,323           
+ YDMAX                      Local  270      R(8)            8           scalar                    321,323,329                       
+ YDMIN                      Local  270      R(8)            8           scalar                    314,316,327                       
+
+Page 13          Source Listing                  DRIFTERS_COMM_SET_DOMAIN
+2021-06-01 08:54                                 drifters_comm.F90
+
+    334 
+    335 !===============================================================================
+    336   subroutine drifters_comm_update(self, drfts, new_positions, &
+    337        & comm, remove, max_add_remove)
+    338 
+    339    use mpi
+    340 
+    341 
+    342     type(drifters_comm_type)   :: self
+    343     type(drifters_core_type)   :: drfts
+    344     real, intent(inout)           :: new_positions(:,:)
+    345     integer, intent(in), optional :: comm !< MPI communicator
+    346     logical, intent(in), optional :: remove(:) !< Set to True for particles that should be removed
+    347     integer, intent(in), optional :: max_add_remove !< max no of particles to add/remove
+    348 
+    349 # 341
+    350 
+    351 ! parallel code
+    352     integer nd, np, nar_est, ip, neigh_pe, irem, pe, npes, ntuples
+    353     integer ntuples_tot, ndata, mycomm
+    354 # 347
+    355 
+    356     integer, allocatable :: iadd(:)
+    357     integer, allocatable :: table_recv(:), table_send(:)
+    358     real   , allocatable :: data_recv(:,:), data_send(:,:)
+    359     integer, allocatable :: indices_to_remove(:)
+    360     integer, allocatable :: ids_to_add(:)
+    361     real   , allocatable :: positions_to_add(:,:)
+    362     real                 :: x, y, xold, yold
+    363     character(len=128) :: ermsg, notemsg
+    364     logical            :: is_present
+    365     integer            :: id, j, k, m, n, el
+    366     logical            :: crossed_W, crossed_E, crossed_S, crossed_N
+    367     logical            :: was_in_compute_domain, left_domain
+    368 
+    369     mycomm = MPI_COMM_WORLD
+    370     if( present(comm) ) mycomm = comm
+    371 
+    372     nd = drfts%nd
+    373     np = size(new_positions,2)
+    374     if(np > 0 .and. nd < 2) call mpp_error( FATAL, &
+    375          & 'drifters_comm_update: number of dimensions must be 2 or higher.' )
+    376 
+    377     nar_est = 100
+    378     if(present(max_add_remove)) nar_est = max(1, max_add_remove)
+    379 
+    380     pe   = mpp_pe()
+    381     npes = mpp_npes()
+    382 
+    383 ! assume pe list is contiguous, self%pe_beg...self%pe_end
+    384     allocate(iadd(self%pe_beg:self%pe_end))
+    385     allocate(table_recv(self%pe_beg:self%pe_end))
+    386     allocate(table_send(self%pe_beg:self%pe_end))
+    387     allocate(data_recv(nar_est*(1+nd), self%pe_beg:self%pe_end))
+    388     allocate(data_send(nar_est*(1+nd), self%pe_beg:self%pe_end))
+    389     allocate(indices_to_remove(nar_est))
+    390 
+
+Page 14          Source Listing                  DRIFTERS_COMM_UPDATE
+2021-06-01 08:54                                 drifters_comm.F90
+
+    391     table_send = 0
+    392     table_recv = 0
+    393     data_send  = 0
+    394     data_recv  = 0
+    395 
+    396     iadd = 0
+    397     irem = 0
+    398     do ip = 1, np
+    399        x = new_positions(1, ip)
+    400        y = new_positions(2, ip)
+    401        xold = drfts%positions(1, ip)
+    402        yold = drfts%positions(2, ip)
+    403 
+    404        if(    xold<self%xcmin .or. xold>self%xcmax .or. &
+    405             & yold<self%ycmin .or. yold>self%ycmax      ) then
+    406           was_in_compute_domain = .FALSE.
+    407        else
+    408           was_in_compute_domain = .TRUE.
+    409        endif
+    410 
+    411 ! check if drifters crossed compute domain boundary
+    412 
+    413        crossed_W = .FALSE.
+    414        crossed_E = .FALSE.
+    415        crossed_S = .FALSE.
+    416        crossed_N = .FALSE.
+    417        if( was_in_compute_domain .and. &
+    418             & (x<self%xcmin) .and. (xold>self%xcmin) ) crossed_W = .TRUE.
+    419        if( was_in_compute_domain .and. &
+    420             & (x>self%xcmax) .and. (xold<self%xcmax) ) crossed_E = .TRUE.
+    421        if( was_in_compute_domain .and. &
+    422             & (y<self%ycmin) .and. (yold>self%ycmin) ) crossed_S = .TRUE.
+    423        if( was_in_compute_domain .and. &
+    424             & (y>self%ycmax) .and. (yold<self%ycmax) ) crossed_N = .TRUE.
+    425 
+    426        neigh_pe = NULL_PE
+    427        if(crossed_N .and. .not. crossed_E .and. .not. crossed_W) neigh_pe = self%pe_N
+    428        if(crossed_N .and.       crossed_E                      ) neigh_pe = self%pe_NE
+    429        if(crossed_E .and. .not. crossed_N .and. .not. crossed_S) neigh_pe = self%pe_E
+    430        if(crossed_S .and.       crossed_E                      ) neigh_pe = self%pe_SE
+    431        if(crossed_S .and. .not. crossed_E .and. .not. crossed_W) neigh_pe = self%pe_S
+    432        if(crossed_S .and.       crossed_W                      ) neigh_pe = self%pe_SW
+    433        if(crossed_W .and. .not. crossed_S .and. .not. crossed_N) neigh_pe = self%pe_W
+    434        if(crossed_N .and.       crossed_W                      ) neigh_pe = self%pe_NW
+    435 
+    436        if(neigh_pe /= NULL_PE) then
+    437           iadd(neigh_pe) = iadd(neigh_pe) + 1
+    438           if(iadd(neigh_pe) > nar_est) then
+    439              write(notemsg, '(a,i4,a,i4,a)') 'drifters_comm_update: exceeded nar_est (', &
+    440                   & iadd(neigh_pe),'>',nar_est,').'
+    441              call mpp_error( FATAL, notemsg)
+    442           endif
+    443           table_send(neigh_pe)  = table_send(neigh_pe) + 1
+    444           k = ( iadd(neigh_pe)-1 )*(1+nd) + 1
+    445           data_send(k       , neigh_pe) = drfts%ids(ip)
+    446           data_send(k+1:k+nd, neigh_pe) = new_positions(:,ip)
+    447        endif
+
+Page 15          Source Listing                  DRIFTERS_COMM_UPDATE
+2021-06-01 08:54                                 drifters_comm.F90
+
+    448 
+    449 ! check if drifters left data domain
+    450 
+    451        left_domain = .FALSE.
+    452        if(       (x<self%xdmin .and. (self%pe_W/=pe)) .or. &
+    453             &    (x>self%xdmax .and. (self%pe_E/=pe)) .or. &
+    454             &    (y<self%ydmin .and. (self%pe_S/=pe)) .or. &
+    455             &    (y>self%ydmax .and. (self%pe_N/=pe)) ) then
+    456           left_domain = .TRUE.
+    457        endif
+    458 
+    459 ! remove if particle was tagged as such
+    460 
+    461        if(present(remove)) then
+    462           if(remove(ip)) left_domain = .TRUE.
+    463        endif
+    464 
+    465        if(left_domain) then
+    466           irem = irem + 1
+    467           if(irem > nar_est) then
+    468              write(notemsg, '(a,i4,a,i4,a)') 'drifters_comm_update: exceeded nar_est (',&
+    469                   & irem,'>',nar_est,').'
+    470              call mpp_error( FATAL, notemsg)
+    471           endif
+    472           indices_to_remove(irem) = ip
+    473        endif
+    474 
+    475     enddo
+    476 
+    477 
+    478 ! update drifters' positions (remove whatever needs to be removed later)
+    479     call drifters_core_set_positions(drfts, new_positions, ermsg)
+    480     if(ermsg/='') call mpp_error( FATAL, ermsg)
+    481 
+    482 ! fill in table_recv from table_send. table_send contains the
+    483 ! number of tuples that will be sent to another pe. table_recv
+    484 ! will contain the number of tuples to be received. The indices
+    485 ! of table_send refer to the pe where the tuples should be sent to;
+    486 ! the indices of table_recv refer to the pe number
+    487 ! (self%pe_beg..self%pe_end) from
+    488 ! which the tuple should be received from.
+    489 !
+    490 ! table_send(to_pe) = ntuples; table_recv(from_pe) = ntuples
+    491 
+    492 ! the following is a transpose operation
+    493 ! table_send(m)[pe] -> table_recv(pe)[m]
+    494     do m = self%pe_beg, self%pe_end
+    495 # 491
+    496 
+    497        if(pe==m) then
+    498           do k = self%pe_beg, self%pe_end
+    499              call mpp_send(table_send(k), plen=1, to_pe=k, tag=COMM_TAG_1)
+    500           enddo
+    501        endif
+    502        call mpp_recv(table_recv(m), glen=1, from_pe=m, tag=COMM_TAG_1)
+    503 
+    504     enddo
+
+Page 16          Source Listing                  DRIFTERS_COMM_UPDATE
+2021-06-01 08:54                                 drifters_comm.F90
+
+    505 
+    506 ! communicate new positions. data_send is an array of size n*(nd+1) times npes.
+    507 ! Each column j of data_send contains the tuple (id, x, y, ..) to be sent to pe=j.
+    508 ! Inversely, data_recv's column j contains tuples (id, x, y,..) received from pe=j.
+    509     do m = self%pe_beg, self%pe_end
+    510        ntuples = table_send(m)
+    511        ndata   = ntuples*(nd+1)
+    512 ! should be able to send ndata?
+    513 # 512
+    514 
+    515        if(pe==m) then
+    516           do k = self%pe_beg, self%pe_end
+    517              call mpp_send(data_send(1,k), plen=nar_est*(1+nd), to_pe=k, tag=COMM_TAG_2)
+    518           enddo
+    519        endif
+    520        call mpp_recv(data_recv(1,m), glen=nar_est*(1+nd), from_pe=m, tag=COMM_TAG_2)
+    521 
+    522     enddo
+    523 
+    524 ! total number of tuples will determine size of ids_to_add/positions_to_add
+    525     ntuples_tot = 0
+    526     do m = self%pe_beg, self%pe_end
+    527        ntuples_tot = ntuples_tot + table_recv(m)
+    528     enddo
+    529 
+    530     allocate(positions_to_add(nd, ntuples_tot))
+    531     allocate(      ids_to_add(    ntuples_tot))
+    532 
+    533 ! fill positions_to_add and ids_to_add.
+    534     k = 0
+    535     do m = self%pe_beg, self%pe_end
+    536 ! get ids/positions coming from all pes
+    537        do n = 1, table_recv(m)
+    538 ! iterate over all ids/positions coming from pe=m
+    539           el = (n-1)*(nd+1) + 1
+    540           id = int(data_recv(el, m))
+    541 ! only add if id not already present in drfts
+    542 ! this can happen if a drifter meanders about
+    543 ! the compute domain boundary
+    544           is_present = .false.
+    545           do j = 1, drfts%np
+    546              if(id == drfts%ids(j)) then
+    547                 is_present = .true.
+    548                 write(notemsg, '(a,i4,a)') 'Drifter ', id, ' already advected (will not be added).'
+    549                 call mpp_error(NOTE, notemsg)
+    550                 exit
+    551              endif
+    552           enddo
+    553           if(.not. is_present) then
+    554              k = k + 1
+    555              ids_to_add(k)         = id
+    556 
+    557              positions_to_add(1:nd, k) = data_recv(el+1:el+nd, m)
+    558 
+    559           endif
+    560        enddo
+    561     enddo
+
+Page 17          Source Listing                  DRIFTERS_COMM_UPDATE
+2021-06-01 08:54                                 drifters_comm.F90
+
+    562 
+    563 ! remove and add
+    564     if(irem > 0 .or. k > 0) then
+    565        write(notemsg, '(i4,a,i4,a)') irem, ' drifter(s) will be removed, ', k,' will be added'
+    566        call mpp_error(NOTE, notemsg)
+    567 !!$       if(k>0) print *,'positions to add ', positions_to_add(:,1:k)
+    568 !!$       if(irem>0) print *,'ids to remove: ', indices_to_remove(1:irem)
+    569     endif
+    570     call drifters_core_remove_and_add(drfts, indices_to_remove(1:irem), &
+    571          & ids_to_add(1:k), positions_to_add(:,1:k), ermsg)
+    572     if(ermsg/='') call mpp_error( FATAL, ermsg)
+    573 
+    574 
+    575 ! make sure unbuffered mpp_isend call returned before deallocating
+    576     call mpp_sync_self()
+    577 
+    578 
+    579     deallocate(ids_to_add)
+    580     deallocate(positions_to_add)
+    581 
+    582     deallocate(iadd)
+    583     deallocate(table_recv)
+    584     deallocate(table_send)
+    585     deallocate(data_recv)
+    586     deallocate(data_send)
+    587     deallocate(indices_to_remove)
+    588 
+    589 
+    590 ! end of parallel code
+    591 
+    592   end subroutine drifters_comm_update
+
+Page 18          Source Listing                  DRIFTERS_COMM_UPDATE
+2021-06-01 08:54 Entry Points                    drifters_comm.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ drifters_comm_mod_mp_drifters_comm_update_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ COMM                       Dummy  337      I(4)            4           scalar   ARG,IN           370                               
+ COMM_TAG_1                 Param  499      I(4)            4           scalar   PRIV             56,499,502                        
+ COMM_TAG_2                 Param  517      I(4)            4           scalar   PRIV             56,517,520                        
+ CROSSED_E                  Local  366      L(4)            4           scalar                    414,420,427,428,429,430,431       
+ CROSSED_N                  Local  366      L(4)            4           scalar                    416,424,427,428,429,433,434       
+ CROSSED_S                  Local  366      L(4)            4           scalar                    415,422,429,430,431,432,433       
+ CROSSED_W                  Local  366      L(4)            4           scalar                    413,418,427,431,432,433,434       
+ DATA_RECV                  Local  358      R(8)            8     2     1        ALC              387,394,520,540,557,585           
+ DATA_SEND                  Local  358      R(8)            8     2     1        ALC              388,393,445,446,517,586           
+ DRFTS                      Dummy  336      DRIFTERS_CORE_TYPE                                                                      
+                                                            192         scalar   ARG,INOUT        372,401,402,445,479,545,546,570   
+ DRIFTERS_COMM_UPDATE       Subr   336                                                                                              
+ DRIFTERS_CORE_REMOVE_AND_A                                                                                                         
+ DD                         Subr   570                                           PRIV             68,570                            
+ DRIFTERS_CORE_SET_POSITION                                                                                                         
+ S                          Subr   479                                           PRIV             68,479                            
+ DRIFTERS_CORE_TYPE         Type   343                                  scalar   PRIV             68,343,606                        
+ EL                         Local  365      I(4)            4           scalar                    539,540,557                       
+ ERMSG                      Local  363      CHAR            128         scalar                    479,480,571,572                   
+ IADD                       Local  356      I(4)            4     1     1        ALC              384,396,437,438,440,444,582       
+ ID                         Local  365      I(4)            4           scalar                    540,546,548,555                   
+ IDS_TO_ADD                 Local  360      I(4)            4     1     1        ALC              531,555,571,579                   
+ INDICES_TO_REMOVE          Local  359      I(4)            4     1     1        ALC              389,472,570,587                   
+ INT                        Func   540                                  scalar                    540                               
+ IP                         Local  352      I(4)            4           scalar                    398,399,400,401,402,445,446,462,47
+                                                                                                  2                                 
+ IREM                       Local  352      I(4)            4           scalar                    397,466,467,469,472,564,565,570   
+ IS_PRESENT                 Local  364      L(4)            4           scalar                    544,547,553                       
+ J                          Local  365      I(4)            4           scalar                    545,546                           
+ K                          Local  365      I(4)            4           scalar                    444,445,446,498,499,516,517,534,55
+                                                                                                  4,555,557,564,565,571             
+ LEFT_DOMAIN                Local  367      L(4)            4           scalar                    451,456,462,465                   
+ M                          Local  365      I(4)            4           scalar                    494,497,502,509,510,515,520,526,52
+                                                                                                  7,535,537,540,557                 
+ MAX                        Func   378                                  scalar                    378                               
+ MAX_ADD_REMOVE             Dummy  337      I(4)            4           scalar   ARG,IN           378                               
+ MPI                        Module 339                                                            339                               
+ MPI_COMM_WORLD             Param  369      I(4)            4           scalar                    369                               
+ MPP_NPES                   Func   381      I(4)            4           scalar   PRIV             53,381,635                        
+ MPP_PE                     Func   380      I(4)            4           scalar   PRIV             53,380,634                        
+ MPP_RECV                   Local  502                                  scalar   PRIV             55,502,520,666,685                
+ MPP_RECV_INT4_SCALAR       Subr   502                                           PRIV             502,666                           
+ MPP_RECV_REAL8_SCALAR      Subr   520                                           PRIV             520,685                           
+ MPP_SEND                   Local  499                                  scalar   PRIV             55,499,517,663,682                
+
+Page 19          Source Listing                  DRIFTERS_COMM_UPDATE
+2021-06-01 08:54 Symbol Table                    drifters_comm.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ MPP_SEND_INT4_SCALAR       Subr   499                                           PRIV             499,663                           
+ MPP_SEND_REAL8_SCALAR      Subr   517                                           PRIV             517,682                           
+ MPP_SYNC_SELF              Subr   576                                           PRIV             55,576,737                        
+ MYCOMM                     Local  353      I(4)            4           scalar                    369,370                           
+ N                          Local  365      I(4)            4           scalar                    537,539                           
+ NAR_EST                    Local  352      I(4)            4           scalar                    377,378,387,388,389,438,440,467,46
+                                                                                                  9,517,520                         
+ ND                         Local  352      I(4)            4           scalar                    372,374,387,388,444,446,511,517,52
+                                                                                                  0,530,539,557                     
+ NDATA                      Local  353      I(4)            4           scalar                    511                               
+ NEIGH_PE                   Local  352      I(4)            4           scalar                    426,427,428,429,430,431,432,433,43
+                                                                                                  4,436,437,438,440,443,444,445,446 
+ NEW_POSITIONS              Dummy  336      R(8)            8     2     1        ARG,INOUT        373,399,400,446,479               
+ NOTE                       Param  549      I(4)            4           scalar   PRIV             53,549,566                        
+ NOTEMSG                    Local  363      CHAR            128         scalar                    439,441,468,470,548,549,565,566   
+ NP                         Local  352      I(4)            4           scalar                    373,374,398                       
+ NPES                       Local  352      I(4)            4           scalar                    381                               
+ NTUPLES                    Local  352      I(4)            4           scalar                    510,511                           
+ NTUPLES_TOT                Local  353      I(4)            4           scalar                    525,527,530,531                   
+ PE                         Local  352      I(4)            4           scalar                    380,452,453,454,455,497,515       
+ POSITIONS_TO_ADD           Local  361      R(8)            8     2     1        ALC              530,557,571,580                   
+ PRESENT                    Func   370                                  scalar                    370,378,461                       
+ REMOVE                     Dummy  337      L(4)            4     1     1        ARG,IN           461,462                           
+ SELF                       Dummy  336      DRIFTERS_COMM_TYPE                                                                      
+                                                            144         scalar   ARG,INOUT        384,385,386,387,388,404,405,418,42
+                                                                                                  0,422,424,427,428,429,430,431,432,
+                                                                                                  433,434,452,453,454,455,494,498,50
+                                                                                                  9,516,526,535                     
+ SIZE                       Func   373                                  scalar                    373                               
+ TABLE_RECV                 Local  357      I(4)            4     1     1        ALC              385,392,502,527,537,583           
+ TABLE_SEND                 Local  357      I(4)            4     1     1        ALC              386,391,443,499,510,584           
+ WAS_IN_COMPUTE_DOMAIN      Local  367      L(4)            4           scalar                    406,408,417,419,421,423           
+ X                          Local  362      R(8)            8           scalar                    399,418,420,452,453               
+ XOLD                       Local  362      R(8)            8           scalar                    401,404,418,420                   
+ Y                          Local  362      R(8)            8           scalar                    400,422,424,454,455               
+ YOLD                       Local  362      R(8)            8           scalar                    402,405,422,424                   
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DRIFTERS_CORE_TYPE.IDS     I(4)            4     24       1     1        ALC              445,546,653                        
+ DRIFTERS_CORE_TYPE.ND      I(4)            4     8              scalar                    372,626,637                        
+ DRIFTERS_CORE_TYPE.NP      I(4)            4     12             scalar                    545,626,638                        
+ DRIFTERS_CORE_TYPE.POSITIONS                                                                                              ...
+                            R(8)            8     96       2     1        ALC              401,402,648,649,654                
+
+Page 20          Source Listing                  DRIFTERS_COMM_UPDATE
+2021-06-01 08:54                                 drifters_comm.F90
+
+    593 
+    594 !===============================================================================
+    595   subroutine drifters_comm_gather(self, drfts, dinp, &
+    596        & lons, lats, do_save_lonlat, &
+    597        & filename, &
+    598        & root, mycomm)
+    599 
+    600 
+    601     use mpi
+    602 
+    603     use drifters_input_mod, only : drifters_input_type, drifters_input_save
+    604 
+    605     type(drifters_comm_type)   :: self
+    606     type(drifters_core_type)   :: drfts
+    607     type(drifters_input_type)  :: dinp
+    608     real, intent(in)           :: lons(:), lats(:)
+    609     logical, intent(in)        :: do_save_lonlat
+    610     character(len=*), intent(in)  :: filename
+    611     integer, intent(in), optional :: root    !< root pe
+    612     integer, intent(in), optional :: mycomm  !< MPI communicator
+    613 
+    614     character(len=128) :: ermesg
+    615 
+    616 # 631
+    617 
+    618 ! parallel code
+    619 
+    620 
+    621     integer :: npf, ip, comm, root_pe, pe, npes, nd, np, npdim, npmax, ier, nptot
+    622     integer :: i, j, k, kk
+    623     integer, allocatable ::  nps(:)
+    624     real    :: x, y
+    625     real, allocatable :: lons0(:), lats0(:), recvbuf(:,:)
+    626     real    :: data(drfts%nd+3, drfts%np)
+    627 
+    628     comm    = MPI_COMM_WORLD
+    629     if(present(mycomm)) comm = mycomm
+    630 
+    631     root_pe = mpp_root_pe()
+    632     if(present(root)) root_pe = root
+    633 
+    634     pe   = mpp_pe()
+    635     npes = mpp_npes()
+    636 
+    637     nd = drfts%nd
+    638     np = drfts%np
+    639     npdim = drfts%npdim
+    640 
+    641     allocate(nps(self%pe_beg:self%pe_end))
+    642     nps = 0
+    643 
+    644 ! npf= number of drifters in compute domain
+    645 
+    646     npf = 0
+    647     do ip = 1, np
+    648        x = drfts%positions(1, ip)
+    649        y = drfts%positions(2, ip)
+
+Page 21          Source Listing                  DRIFTERS_COMM_GATHER
+2021-06-01 08:54                                 drifters_comm.F90
+
+    650        if( x <= self%xcmax .and. x >= self%xcmin .and. &
+    651         &  y <= self%ycmax .and. y >= self%ycmin) then
+    652           npf = npf + 1
+    653           data(1       , npf)   = real(drfts%ids(ip))
+    654           data(1+1:1+nd, npf)   =      drfts%positions(:, ip)
+    655           data(    2+nd, npf)   = lons(ip)
+    656           data(    3+nd, npf)   = lats(ip)
+    657        endif
+    658     enddo
+    659 
+    660 ! gather number of drifters
+    661 # 680
+    662 
+    663     call mpp_send(npf, plen=1, to_pe=root_pe, tag=COMM_TAG_3)
+    664     if(pe==root_pe) then
+    665        do i = self%pe_beg, self%pe_end
+    666           call mpp_recv(nps(i), glen=1, from_pe=i, tag=COMM_TAG_3)
+    667        enddo
+    668     endif
+    669 
+    670 
+    671 ! Now we know the max number of drifters to expect from each PE, so allocate
+    672 ! recvbuf (first dim will be zero on all PEs except root).
+    673 
+    674 ! allocate recvbuf to receive all the data on root PE, strided by npmax*(nd+3)
+    675     npmax = maxval(nps)
+    676     allocate(recvbuf(npmax*(nd+3), self%pe_beg:self%pe_end))
+    677     recvbuf = -1
+    678 
+    679 ! Each PE sends data to recvbuf on root_pe.
+    680 # 703
+    681 
+    682     if(npf > 0) call mpp_send(data(1,1), plen=npf*(nd+3), to_pe=root_pe, tag=COMM_TAG_4)
+    683     if(pe==root_pe) then
+    684        do i = self%pe_beg, self%pe_end
+    685           if(nps(i) > 0) call mpp_recv(recvbuf(1, i), glen=nps(i)*(nd+3), from_pe=i, tag=COMM_TAG_4)
+    686        enddo
+    687     endif
+    688 
+    689 
+    690 ! Set positions and ids
+    691     if(pe == root_pe) then
+    692 ! check dims
+    693        nptot = sum(nps) ! total number of drifters, across al PEs
+    694        if(nptot /= size(dinp%ids)) then
+    695           deallocate(dinp%ids      , stat=ier)
+    696           deallocate(dinp%positions, stat=ier)
+    697           allocate(dinp%ids(nptot))
+    698           allocate(dinp%positions(nd, nptot))
+    699           dinp%ids       = -1
+    700           dinp%positions = -huge(1.)
+    701        endif
+    702 
+    703        allocate(lons0(nptot), lats0(nptot))
+    704 
+    705 ! Set the new positions/ids in dinp, on PE=root. Also set
+    706 ! lons/lats, these arrays will hold garbage if x1, y1, etc. were
+
+Page 22          Source Listing                  DRIFTERS_COMM_GATHER
+2021-06-01 08:54                                 drifters_comm.F90
+
+    707 ! not passed as subroutine arguments, that's ok 'cause we won't
+    708 ! save them.
+    709        j = 1
+    710        do i = self%pe_beg, self%pe_end
+    711           do k = 1, nps(i)
+    712              kk = (nd+3)*(k-1)
+    713              dinp%ids(j)             = int(recvbuf(kk+1          , i))
+    714              dinp%positions(1:nd, j) =     recvbuf(kk+1+1:kk+1+nd, i)
+    715              lons0(j)                =     recvbuf(kk+2+nd, i)
+    716              lats0(j)                =     recvbuf(kk+3+nd, i)
+    717              j = j + 1
+    718           enddo
+    719        enddo
+    720 
+    721        if(do_save_lonlat) then
+    722 
+    723           call drifters_input_save(dinp, filename=filename, &
+    724                & geolon=lons0, geolat=lats0, ermesg=ermesg)
+    725 
+    726        else
+    727 
+    728           call drifters_input_save(dinp, filename=filename, ermesg=ermesg)
+    729 
+    730        endif
+    731 
+    732        deallocate(lons0, lats0)
+    733 
+    734     endif
+    735 
+    736 
+    737     call mpp_sync_self()
+    738 
+    739     deallocate(nps    , stat=ier)
+    740     deallocate(recvbuf, stat=ier)
+    741 
+    742 
+    743 ! _end of parallel code
+    744 
+    745   end subroutine drifters_comm_gather
+
+Page 23          Source Listing                  DRIFTERS_COMM_GATHER
+2021-06-01 08:54 Entry Points                    drifters_comm.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ drifters_comm_mod_mp_drifters_comm_gather_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ COMM                       Local  621      I(4)            4           scalar                    628,629                           
+ COMM_TAG_3                 Param  663      I(4)            4           scalar   PRIV             56,663,666                        
+ COMM_TAG_4                 Param  682      I(4)            4           scalar   PRIV             56,682,685                        
+ DATA                       Local  626      R(8)            8     2     0                         653,654,655,656,682               
+ DINP                       Dummy  595      DRIFTERS_INPUT_TYPE                                                                     
+                                                            912         scalar   ARG,INOUT        694,695,696,697,698,699,700,713,71
+                                                                                                  4,723,728                         
+ DO_SAVE_LONLAT             Dummy  596      L(4)            4           scalar   ARG,IN           721                               
+ DRFTS                      Dummy  595      DRIFTERS_CORE_TYPE                                                                      
+                                                            192         scalar   ARG,INOUT        626,637,638,639,648,649,653,654   
+ DRIFTERS_COMM_GATHER       Subr   595                                                                                              
+ DRIFTERS_INPUT_MOD         Module 603                                                            603                               
+ DRIFTERS_INPUT_SAVE        Subr   603                                                            603,723,728                       
+ DRIFTERS_INPUT_TYPE        Type   603                                  scalar                    603,607                           
+ ERMESG                     Local  614      CHAR            128         scalar                    724,728                           
+ FILENAME                   Dummy  597      CHAR                        scalar   ARG,IN           723,728                           
+ HUGE                       Func   700                                  scalar                    700                               
+ I                          Local  622      I(4)            4           scalar                    665,666,684,685,710,711,713,714,71
+                                                                                                  5,716                             
+ IER                        Local  621      I(4)            4           scalar                    695,696,739,740                   
+ INT                        Func   713                                  scalar                    713                               
+ IP                         Local  621      I(4)            4           scalar                    647,648,649,653,654,655,656       
+ J                          Local  622      I(4)            4           scalar                    709,713,714,715,716,717           
+ K                          Local  622      I(4)            4           scalar                    711,712                           
+ KK                         Local  622      I(4)            4           scalar                    712,713,714,715,716               
+ LATS                       Dummy  596      R(8)            8     1     1        ARG,IN           656                               
+ LATS0                      Local  625      R(8)            8     1     1        ALC              703,716,724,732                   
+ LONS                       Dummy  596      R(8)            8     1     1        ARG,IN           655                               
+ LONS0                      Local  625      R(8)            8     1     1        ALC              703,715,724,732                   
+ MAXVAL                     Func   675                                  scalar                    675                               
+ MPI                        Module 601                                                            601                               
+ MPI_COMM_WORLD             Param  628      I(4)            4           scalar                    628                               
+ MPP_ROOT_PE                Func   631      I(4)            4           scalar   PRIV             54,631                            
+ MYCOMM                     Dummy  598      I(4)            4           scalar   ARG,IN           629                               
+ ND                         Local  621      I(4)            4           scalar                    637,654,655,656,676,682,685,698,71
+                                                                                                  2,714,715,716                     
+ NP                         Local  621      I(4)            4           scalar                    638,647                           
+ NPDIM                      Local  621      I(4)            4           scalar                    639                               
+ NPES                       Local  621      I(4)            4           scalar                    635                               
+ NPF                        Local  621      I(4)            4           scalar                    646,652,653,654,655,656,663,682   
+ NPMAX                      Local  621      I(4)            4           scalar                    675,676                           
+ NPS                        Local  623      I(4)            4     1     1        ALC              641,642,666,675,685,693,711,739   
+ NPTOT                      Local  621      I(4)            4           scalar                    693,694,697,698,703               
+ PE                         Local  621      I(4)            4           scalar                    634,664,683,691                   
+
+Page 24          Source Listing                  DRIFTERS_COMM_GATHER
+2021-06-01 08:54 Symbol Table                    drifters_comm.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ PRESENT                    Func   629                                  scalar                    629,632                           
+ REAL                       Func   653                                  scalar                    653                               
+ RECVBUF                    Local  625      R(8)            8     2     1        ALC              676,677,685,713,714,715,716,740   
+ ROOT                       Dummy  598      I(4)            4           scalar   ARG,IN           632                               
+ ROOT_PE                    Local  621      I(4)            4           scalar                    631,632,663,664,682,683,691       
+ SELF                       Dummy  595      DRIFTERS_COMM_TYPE                                                                      
+                                                            144         scalar   ARG,INOUT        641,650,651,665,676,684,710       
+ SIZE                       Func   694                                  scalar                    694                               
+ SUM                        Func   693                                  scalar                    693                               
+ X                          Local  624      R(8)            8           scalar                    648,650                           
+ Y                          Local  624      R(8)            8           scalar                    649,651                           
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DRIFTERS_CORE_TYPE.NPDIM   I(4)            4     16             scalar                    639                                
+ DRIFTERS_INPUT_TYPE.IDS    I(4)            4     456      1     1        ALC              694,695,697,699,713                
+ DRIFTERS_INPUT_TYPE.POSITIONS                                                                                             ...
+                            R(8)            8     360      2     1        ALC              696,698,700,714                    
+
+Page 25          Source Listing                  DRIFTERS_COMM_GATHER
+2021-06-01 08:54                                 drifters_comm.F90
+
+    746 
+    747 
+    748 end module drifters_comm_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CYCLIC_GLOBAL_DOMAIN       Param  60       I(4)            4           scalar   PRIV             60                                
+ DRIFTERS_COMM_DEL          Subr   73                                                             73                                
+ DRIFTERS_COMM_GATHER       Subr   74                                                             74                                
+ DRIFTERS_COMM_MOD          Module 48                                                                                               
+ DRIFTERS_COMM_SET_DOMAIN   Subr   74                                                             74                                
+ DRIFTERS_COMM_UPDATE       Subr   74                                                             74                                
+ DRIFTERS_CORE_MOD          Module 68                                                             68                                
+ MPP_DEFINE_DOMAINS         Local  58                                   scalar   PRIV             58                                
+ MPP_DOMAINS_MOD            Module 57                                                             57,58,59,60,61                    
+ MPP_GET_LAYOUT             Local  58                                   scalar   PRIV             58                                
+ MPP_MOD                    Module 53                                                             53,54,55,56                       
+
+Page 26          Source Listing                  DRIFTERS_COMM_GATHER
+2021-06-01 08:54                                 drifters_comm.F90
+
+    749 
+    750 !===============================================================================
+    751 !===============================================================================
+
+Page 27          Source Listing                  DRIFTERS_COMM_GATHER
+2021-06-01 08:54 Subprograms/Common Blocks       drifters_comm.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_COMM_DEL          Subr   142                                                                                              
+ DRIFTERS_COMM_GATHER       Subr   595                                                                                              
+ DRIFTERS_COMM_MOD          Module 48                                                                                               
+ DRIFTERS_COMM_NEW          Subr   112                                                                                              
+ DRIFTERS_COMM_SET_COMP_BOU                                                                                                         
+ NDS                        Subr   166                                                                                              
+ DRIFTERS_COMM_SET_DATA_BOU                                                                                                         
+ NDS                        Subr   152                                                                                              
+ DRIFTERS_COMM_SET_DOMAIN   Subr   249                                                                                              
+ DRIFTERS_COMM_SET_PE_NEIGH                                                                                                         
+ BORS                       Subr   180                                                                                              
+ DRIFTERS_COMM_UPDATE       Subr   336                                                                                              
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+
+Page 28          Source Listing                  DRIFTERS_COMM_GATHER
+2021-06-01 08:54                                 drifters_comm.F90
+
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+
+Page 29          Source Listing                  DRIFTERS_COMM_GATHER
+2021-06-01 08:54                                 drifters_comm.F90
+
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : drifters_comm.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

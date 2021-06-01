@@ -1,0 +1,2884 @@
+Page 1           Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 /tmp/ifortQRAktK.i90
+
+      1 # 1 "amip_interp.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 !> @file
+     22 !! @brief Provides observed SST and ice mask data sets that have been interpolated onto your model's grid.
+     23 !! @author Bruce Wyman
+     24 !! @email gfdl.climate.model.info@noaa.gov
+     25 !!
+     26 !! Three possible data sets are available:
+     27 !!
+     28 !!     1)  AMIP \link http://www-pcmdi.llnl.gov/amip \endlink from Jan 1979 to Jan 1989 (2 deg x 2 deg)
+     29 !!     2)  Reynolds OI \link amip_interp.rey_oi.txt \endlink from Nov 1981 to Jan 1999 (1 deg x 1 deg)
+     30 !!     3)  Reynolds EOF \link ftp://podaac.jpl.nasa.gov/pub/sea_surface_temperature/reynolds/rsst/doc/rsst.html \endlink fro
+     30 m Jan 1950 to Dec 1998 (2 deg x 2 deg)
+     31 !!
+     32 !!     All original data are observed monthly means. This module
+     33 !!     interpolates linearly in time between pairs of monthly means.
+     34 !!     Horizontal interpolation is done using the horiz_interp module.
+     35 !!
+     36 !!     When a requested date falls outside the range of dates available
+     37 !!     a namelist option allows for use of the climatological monthly
+     38 !!     mean values which are computed from all of the data in a particular
+     39 !!     data set.
+     40 !! Dataset Name = AMIP 1
+     41 !!   from Jan 1979 to Jan 1989 (2 deg x 2 deg).
+     42 !! Dataset Name = Reynolds OI
+     43 !!   from Nov 1981 to Jan 1999 (1 deg x 1 deg)
+     44 !!             The analysis uses in situ and satellite SST's plus
+     45 !!             SST's simulated by sea-ice cover.
+     46 !! Dataset Name = Reynold's EOF
+     47 !!   from Jan 1950 to Dec 1998 (2 deg x 2 deg)
+     48 !!             NCEP Reynolds Historical Reconstructed Sea Surface Temperature
+     49 !!             The analysis uses both in-situ SSTs and satellite derived SSTs
+     50 !!             from the NOAA Advanced Very High Resolution Radiometer.
+     51 !!             In-situ data is used from 1950 to 1981, while both AVHRR derived
+     52 !!             satellite SSTs and in-situ data are used from 1981 to the
+     53 !!             end of 1998.
+     54 !!
+     55 !! Note: The data set used by this module have been reformatted as 32-bit IEEE.
+     56 !!   The data values are packed into 16-bit integers.
+
+Page 2           Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+     57 !!
+     58 !!   The data sets are read from the following files:
+     59 !!
+     60 !!         amip1           INPUT/amip1_sst.data
+     61 !!         reynolds_io     INPUT/reyoi_sst.data
+     62 !!         reynolds_eof    INPUT/reynolds_sst.data
+     63 
+     64 module amip_interp_mod
+     65 
+     66 use  time_interp_mod, only: time_interp, fraction_of_year
+     67 
+     68 use time_manager_mod, only: time_type, operator(+), operator(>), &
+     69                              get_date, set_time, set_date
+     70 
+     71 ! add by JHC
+     72 use get_cal_time_mod, only: get_cal_time
+     73 
+     74 ! end add by JHC
+     75 
+     76 use  horiz_interp_mod, only: horiz_interp_init, horiz_interp,  &
+     77                              horiz_interp_new, horiz_interp_del, &
+     78                              horiz_interp_type, assignment(=)
+     79 
+     80 use           fms_mod, only: error_mesg, write_version_number,  &
+     81                              NOTE, WARNING, FATAL, stdlog, check_nml_error, &
+     82                              mpp_pe, lowercase, mpp_root_pe,    &
+     83                              NOTE, mpp_error, fms_error_handler
+     84 
+     85 use     constants_mod, only: TFREEZE, pi
+     86 use      platform_mod, only: R4_KIND, I2_KIND
+     87 use mpp_mod,           only: input_nml_file
+     88 use fms2_io_mod,       only: FmsNetcdfFile_t, fms2_io_file_exists=>file_exists, open_file, close_file, &
+     89                              get_dimension_size, fms2_io_read_data=>read_data
+     90 !! These are fms_io specific:
+     91 use        fms_io_mod, only: mpp_io_read_data=>read_data, field_size
+     92 use        mpp_io_mod, only : mpp_open, mpp_read, MPP_RDONLY, MPP_NETCDF, &
+     93                        MPP_MULTI, MPP_SINGLE, mpp_close, mpp_get_times
+     94 use           fms_mod, only: fms_io_file_exists=>file_exist
+     95 
+     96 implicit none
+     97 private
+     98 
+     99 !-----------------------------------------------------------------------
+    100 !----------------- Public interfaces -----------------------------------
+    101 
+    102 public amip_interp_init, get_amip_sst, get_amip_ice, amip_interp_new, &
+    103        amip_interp_del, amip_interp_type, assignment(=)
+    104 
+    105 !-----------------------------------------------------------------------
+    106 !----------------- Public Data -----------------------------------
+    107 integer :: i_sst = 1200
+    108 integer :: j_sst = 600
+    109 real, parameter:: big_number = 1.E30
+    110 logical :: forecast_mode = .false.
+    111 real, allocatable, dimension(:,:) ::  sst_ncep, sst_anom
+    112 
+    113 public i_sst, j_sst, sst_ncep, sst_anom, forecast_mode, use_ncep_sst
+
+Page 3           Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+    114 
+    115 !-----------------------------------------------------------------------
+    116 !--------------------- private below here ------------------------------
+    117 
+    118 !  ---- version number -----
+    119 
+    120 ! Include variable "version" to be written to log file.
+    121 # 1 "../include/file_version.h" 1 
+    122 ! -*-f90-*-
+    123 !***********************************************************************
+    124 !*                   GNU Lesser General Public License
+    125 !*
+    126 !* This file is part of the GFDL Flexible Modeling System (FMS).
+    127 !*
+    128 !* FMS is free software: you can redistribute it and/or modify it under
+    129 !* the terms of the GNU Lesser General Public License as published by
+    130 !* the Free Software Foundation, either version 3 of the License, or (at
+    131 !* your option) any later version.
+    132 !*
+    133 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+    134 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+    135 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+    136 !* for more details.
+    137 !*
+    138 !* You should have received a copy of the GNU Lesser General Public
+    139 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+    140 !***********************************************************************
+    141 
+    142 # 23
+    143 
+    144   character(len=*), parameter :: version = 'unknown'
+    145 
+    146 # 121 "amip_interp.F90" 2 
+    147 
+    148    real, allocatable:: temp1(:,:), temp2(:,:)
+    149 ! add by JHC
+    150    real, allocatable, dimension(:,:) :: tempamip
+    151 ! end add by JHC
+    152 !-----------------------------------------------------------------------
+    153 !------ private defined data type --------
+    154 
+    155 type date_type
+    156    sequence
+    157    integer :: year, month, day
+    158 end type
+    159 
+    160 interface assignment(=)
+    161   module procedure  amip_interp_type_eq
+    162 end interface
+    163 
+    164 interface operator (==)
+    165    module procedure date_equals
+    166 end interface
+    167 
+    168 interface operator (/=)
+    169    module procedure date_not_equals
+    170 end interface
+
+Page 4           Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+    171 
+    172 interface operator (>)
+    173    module procedure date_gt
+    174 end interface
+    175 
+    176 ! <INTERFACE NAME="amip_interp_new">
+    177 !> @brief Function that initializes data needed for the horizontal
+    178 !!         interpolation between the sst grid and model grid. The
+    179 !!         returned variable of type amip_interp_type is needed when
+    180 !!         calling get_amip_sst and get_amip_ice.
+    181 !!
+    182 !!      Function that initializes data needed for the horizontal
+    183 !!         interpolation between the sst grid and model grid. The
+    184 !!         returned variable of type amip_interp_type is needed when
+    185 !!         calling get_amip_sst and get_amip_ice.
+    186 !!
+    187 !!   IN NAME="lon"
+    188 !!     Longitude in radians of the model's grid box edges (1d lat/lon grid case)
+    189 !!     or at grid box mid-point (2d case for arbitrary grids).
+    190 !!
+    191 !!   IN NAME="lat"
+    192 !!     Latitude in radians of the model's grid box edges (1d lat/lon grid case)
+    193 !!     or at grid box mid-point (2d case for arbitrary grids).
+    194 !!
+    195 !!   IN NAME="mask"
+    196 !!     A mask for the model grid.
+    197 !!
+    198 !!   IN NAME="use_climo"
+    199 !!     Flag the specifies that monthly mean climatological values will be used.
+    200 !!
+    201 !!   IN NAME="use_annual"
+    202 !!     Flag the specifies that the annual mean climatological
+    203 !!              will be used.  If both use_annual = use_climo = true,
+    204 !!              then use_annual = true will be used.
+    205 !!
+    206 !!   IN NAME="interp_method"
+    207 !!     specify the horiz_interp scheme. = "conservative" means conservative scheme,
+    208 !!     = "bilinear" means  bilinear interpolation.
+    209 !!
+    210 !!   OUT NAME="Interp"
+    211 !!     A defined data type variable needed when calling get_amip_sst and get_amip_ice.
+    212 !!
+    213 !!     Interp = amip_interp_new ( lon, lat, mask, use_climo, use_annual, interp_method )
+    214 !!
+    215 !!     This function may be called to initialize multiple variables
+    216 !!     of type amip_interp_type.  However, there currently is no
+    217 !!     call to release the storage used by this variable.
+    218 !!
+    219 !!     The size of input augment mask must be a function of the size
+    220 !!     of input augments lon and lat. The first and second dimensions
+    221 !!     of mask must equal (size(lon,1)-1, size(lat,2)-1).
+    222 !!
+    223 !!   ERROR MSG="the value of the namelist parameter DATA_SET being used is not allowed" STATUS="FATAL"
+    224 !!     Check the value of namelist variable DATA_SET.
+    225 !!
+    226 !!   ERROR MSG="requested input data set does not exist" STATUS="FATAL"
+    227 !!     The data set requested is valid but the data does not exist in
+
+Page 5           Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+    228 !!      the INPUT subdirectory. You may have requested amip2 data which
+    229 !!      has not been officially set up.
+    230 !!      See the section on DATA SETS to properly set the data up.
+    231 !!
+    232 !!   ERROR MSG="use_climo mismatch" STATUS="FATAL"
+    233 !!     The namelist variable date_out_of_range = 'fail' and the amip_interp_new
+    234 !!     argument use_climo = true.  This combination is not allowed.
+    235 !!
+    236 !!   ERROR MSG="use_annual(climo) mismatch" STATUS="FATAL"
+    237 !!     The namelist variable date_out_of_range = 'fail' and the amip_interp_new
+    238 !!     argument use_annual = true.  This combination is not allowed.
+    239 interface amip_interp_new
+    240    module procedure amip_interp_new_1d
+    241    module procedure amip_interp_new_2d
+    242 end interface
+    243 
+    244 
+    245 !-----------------------------------------------------------------------
+    246 !----- public data type ------
+    247 ! DATA NAME="amip_interp_type"  TYPE="type (horiz_interp_type)"
+    248 !> @brief All variables in this data type are PRIVATE. It contains information needed by the interpolation module (exchange_
+    248 mod) and buffers data.
+    249 type amip_interp_type
+    250    private
+    251    type (horiz_interp_type) :: Hintrp, Hintrp2 ! add by JHC
+    252    real, pointer            ::    data1(:,:) =>NULL(), &
+    253                                   data2(:,:) =>NULL()
+    254    type (date_type)         ::    Date1,       Date2
+    255    logical                  :: use_climo, use_annual
+    256    logical                  :: I_am_initialized=.false.
+    257 end type
+    258 
+    259 !-----------------------------------------------------------------------
+    260 !  ---- resolution/grid variables ----
+    261 
+    262    integer :: mobs, nobs
+    263    real, allocatable :: lon_bnd(:), lat_bnd(:)
+    264 
+    265 !  ---- global unit & date ----
+    266 
+    267    integer, parameter :: maxc = 128
+    268    integer :: unit
+    269    character(len=maxc) :: file_name_sst, file_name_ice
+    270    type(FmsNetcdfFile_t), target :: fileobj_sst, fileobj_ice
+    271 
+    272    type (date_type) :: Curr_date = date_type( -99, -99, -99 )
+    273    type (date_type) :: Date_end  = date_type( -99, -99, -99 )
+    274 
+    275    real             :: tice_crit_k
+    276    integer(I2_KIND) ::  ice_crit
+    277 
+    278    logical :: module_is_initialized = .false.
+    279 
+    280 !-----------------------------------------------------------------------
+    281 !---- namelist ----
+    282 
+    283 ! <NAMELIST NAME="amip_interp_nml">
+
+Page 6           Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+    284 !   <DATA NAME="data_set" TYPE="character(len=24)" DEFAULT="data_set = 'amip1'">
+    285 !     Name/type of SST data that will be used.
+    286 !  <BR/>
+    287 !        Possible values (case-insensitive) are: <BR/>
+    288 !                          1) amip1<BR/>
+    289 !                          2) reynolds_eof<BR/>
+    290 !                          3) reynolds_oi<BR/>
+    291 !        See the <LINK SRC="amip_interp.html#DATA SETS">data set </LINK>section for more on these data.
+    292 !   </DATA>
+    293 
+    294 !   <DATA NAME="date_out_of_range" TYPE="character(len=16)" DEFAULT="date_out_of_range = 'fail'">
+    295 !     Controls the use of climatological monthly mean data when
+    296 !     the requested date falls outside the range of the data set.<BR/>
+    297 !     Possible values are:
+    298 !     <PRE>
+    299 !   fail      - program will fail if requested date is prior
+    300 !               to or after the data set period.
+    301 !   initclimo - program uses climatological requested data is
+    302 !               prior to data set period and will fail if
+    303 !               requested date is after data set period.
+    304 !   climo     - program uses climatological data anytime.
+    305 !    </PRE>
+    306 !   </DATA>
+    307 
+    308 !   <DATA NAME="tice_crit" TYPE="real" DEFAULT="tice_crit = -1.80">
+    309 !     Freezing point of sea water in degC or degK.
+    310 !   </DATA>
+    311 !   <DATA NAME="verbose" TYPE="integer" DEFAULT="verbose = 0">
+    312 !     Controls printed output, 0 <= verbose <= 3
+    313 !   </DATA>
+    314 
+    315 !---- additional parameters for controlling zonal prescribed sst ----
+    316 !---- these parameters only have an effect when use_zonal=.true. ----
+    317 !   <DATA NAME="use_zonal" TYPE="logical" DEFAULT=".false.">
+    318 !     Flag to selected zonal sst or data set.
+    319 !   </DATA>
+    320 !   <DATA NAME="teq" TYPE="real" DEFAULT="teq=305.">
+    321 !     sst at the equator.
+    322 !   </DATA>
+    323 !   <DATA NAME="tdif" TYPE="real" DEFAULT="tdif=50.">
+    324 !     Equator to pole sst difference.
+    325 !   </DATA>
+    326 !   <DATA NAME="tann" TYPE="real" DEFAULT="tann=20.">
+    327 !     Amplitude of annual cycle.
+    328 !   </DATA>
+    329 !   <DATA NAME="tlag" TYPE="real" DEFAULT="tlag=0.875">
+    330 !     Offset for time of year (for annual cycle).
+    331 !   </DATA>
+    332 
+    333 !   <DATA NAME="amip_date" TYPE="integer(3)" DEFAULT="/-1,-1,-1/">
+    334 !     Single calendar date in integer "(year,month,day)" format
+    335 !     that is used only if set with year>0, month>0, day>0.
+    336 !     If used, model calendar date is replaced by this date,
+    337 !     but model time of day is still used to determine ice/sst.
+    338 !     Used for repeating-single-day (rsd) experiments.
+    339 !   </DATA>
+    340 
+
+Page 7           Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+    341 !   <DATA NAME="sst_pert" TYPE="real" DEFAULT="sst_pert=0.">
+    342 !     Temperature perturbation in degrees Kelvin added onto the SST.
+    343 !                The perturbation is globally-uniform (even near sea-ice).
+    344 !                It is only used when abs(sst_pert) > 1.e-4.  SST perturbation runs
+    345 !                may be useful in accessing model sensitivities.
+    346 !   </DATA>
+    347  character(len=24) :: data_set = 'amip1'   !<  use 'amip1'
+    348 !!      'amip2'
+    349 !!      'reynolds_eof'
+    350 !!      'reynolds_oi'
+    351 !!      'hurrell'
+    352 !!      'daily', when "use_daily=.T."
+    353 ! add by JHC
+    354 
+    355  character(len=16) :: date_out_of_range = 'fail'  !<  use 'fail'
+    356 !!      'initclimo'
+    357 !!      'climo'
+    358 
+    359  real    :: tice_crit    = -1.80       !<  in degC or degK
+    360  integer :: verbose      = 0           !<  0 <= verbose <= 3
+    361 
+    362  logical :: use_zonal    = .false. !< parameters for prescribed zonal sst option
+    363  real :: teq  = 305. !< parameters for prescribed zonal sst option
+    364  real :: tdif = 50. !< parameters for prescribed zonal sst option
+    365  real :: tann = 20. !< parameters for prescribed zonal sst option
+    366  real :: tlag = 0.875 !< parameters for prescribed zonal sst option
+    367 
+    368 
+    369  integer :: amip_date(3)=(/-1,-1,-1/) !< amip date for repeating single day (rsd) option
+    370 
+    371  real :: sst_pert = 0. !< global temperature perturbation used for sensitivity experiments
+    372 
+    373  character(len=6) :: sst_pert_type = 'fixed'  !< use 'random' or 'fixed'
+    374  logical :: do_sst_pert = .false.
+    375  logical :: use_daily = .false. !< if '.true.', give 'data_set = 'daily''
+    376 
+    377  logical :: use_ncep_sst = .false. !< SJL: During nudging:   use_ncep_sst = .T.;  no_anom_sst = .T.
+    378 !!      during forecast:  use_ncep_sst = .T.;  no_anom_sst = .F.
+    379  logical ::  no_anom_sst = .true.  !< SJL: During nudging:   use_ncep_sst = .T.;  no_anom_sst = .T.
+    380 !!      during forecast:  use_ncep_sst = .T.;  no_anom_sst = .F.
+    381  logical :: use_ncep_ice = .false. !< For seasonal forecast: use_ncep_ice = .F.
+    382  logical :: interp_oi_sst = .false. !< changed to false for regular runs
+    383  logical :: use_mpp_io = .false. !< Set to .true. to use mpp_io, otherwise fms2io is used
+    384 
+    385  namelist /amip_interp_nml/ use_ncep_sst, no_anom_sst, use_ncep_ice,  tice_crit, &
+    386                             interp_oi_sst, data_set, date_out_of_range,          &
+    387                             use_zonal, teq, tdif, tann, tlag, amip_date,         &
+    388 ! add by JHC
+    389                             sst_pert, sst_pert_type, do_sst_pert,                &
+    390                             use_daily,                                           &
+    391 ! end add by JHC
+    392                             verbose, i_sst, j_sst, forecast_mode,                &
+    393                             use_mpp_io
+    394 ! </NAMELIST>
+    395 
+    396 
+    397 !-----------------------------------------------------------------------
+
+Page 8           Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+    398 
+    399 contains
+    400 
+    401 !#######################################################################
+    402 ! <SUBROUTINE NAME="get_amip_sst" INTERFACE="get_amip_sst">
+    403 !   <IN NAME="Time" TYPE="time_type" ></IN>
+    404 !   <OUT NAME="sst" TYPE="real" DIM="(:,:)"> </OUT>
+    405 !   <INOUT NAME="Interp" TYPE="amip_interp_type"> </INOUT>
+    406 ! </SUBROUTINE>
+    407 
+    408 ! modified by JHC
+    409 subroutine get_amip_sst (Time, Interp, sst, err_msg, lon_model, lat_model)
+    410 !subroutine get_amip_sst (Time, Interp, sst, err_msg)
+    411 
+    412    type (time_type),         intent(in)    :: Time
+    413    type (amip_interp_type),  intent(inout) :: Interp
+    414    real,                     intent(out)   ::  sst(:,:)
+    415    character(len=*), optional, intent(out) :: err_msg
+    416 
+    417    real, dimension(mobs,nobs) :: sice
+    418 
+    419     integer :: year1, year2, month1, month2
+    420     real    :: fmonth
+    421     type (date_type) :: Date1, Date2, Udate1, Udate2
+    422 
+    423     type(time_type) :: Amip_Time
+    424     integer :: tod(3),dum(3)
+    425 
+    426 ! add by JHC
+    427     real,    intent(in), dimension(:,:), optional :: lon_model, lat_model
+    428     real :: pert
+    429     integer :: i, j, mobs_sst, nobs_sst
+    430     integer :: jhctod(6)
+    431     type (time_type) :: Udate
+    432     character(len=4) :: yyyy
+    433     integer :: nrecords, ierr, k, yr, mo, dy
+    434     integer :: siz(4)
+    435     integer, dimension(:), allocatable :: ryr, rmo, rdy
+    436     character(len=30) :: time_unit
+    437     real, dimension(:), allocatable :: timeval
+    438     character(len=maxc) :: ncfilename
+    439     type(FmsNetcdfFile_t) :: fileobj
+    440     logical :: the_file_exists
+    441 ! end add by JHC
+    442 !< These are fms_io specific
+    443     integer :: unit
+    444 
+    445     if(present(err_msg)) err_msg = ''
+    446     if(.not.Interp%I_am_initialized) then
+    447       if(fms_error_handler('get_amip_sst','The amip_interp_type variable is not initialized',err_msg)) return
+    448     endif
+    449 
+    450 !-----------------------------------------------------------------------
+    451 !----- compute zonally symetric sst ---------------
+    452 
+    453     if ( use_ncep_sst .and. forecast_mode ) no_anom_sst = .false.
+    454 
+
+Page 9           Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+    455     if (all(amip_date>0)) then
+    456        call get_date(Time,dum(1),dum(2),dum(3),tod(1),tod(2),tod(3))
+    457        Amip_Time = set_date(amip_date(1),amip_date(2),amip_date(3),tod(1),tod(2),tod(3))
+    458     else
+    459        Amip_Time = Time
+    460     endif
+    461 
+    462 ! add by JHC
+    463 if ( .not.use_daily ) then
+    464 ! end add by JHC
+    465 
+    466    if ( .not. allocated(temp1) ) allocate (temp1(mobs,nobs))
+    467    if ( .not. allocated(temp2) ) allocate (temp2(mobs,nobs))
+    468 
+    469    if (use_zonal) then
+    470       call zonal_sst (Amip_Time, sice, temp1)
+    471       call horiz_interp ( Interp%Hintrp, temp1, sst )
+    472    else
+    473 
+    474 !-----------------------------------------------------------------------
+    475 !---------- get new observed sea surface temperature -------------------
+    476 
+    477 ! ---- time interpolation for months -----
+    478      call time_interp (Amip_Time, fmonth, year1, year2, month1, month2)
+    479 ! ---- force climatology ----
+    480      if (Interp % use_climo) then
+    481          year1=0; year2=0
+    482      endif
+    483      if (Interp % use_annual) then
+    484           year1=0;  year2=0
+    485          month1=0; month2=0
+    486      endif
+    487 ! ---------------------------
+    488 
+    489      Date1 = date_type( year1, month1, 0 )
+    490      Date2 = date_type( year2, month2, 0 )
+    491 
+    492 !  -- open/rewind file --
+    493      unit = -1
+    494 !-----------------------------------------------------------------------
+    495 
+    496 
+    497       if (Date1 /= Interp % Date1) then
+    498 !       ---- use Date2 for Date1 ----
+    499           if (Date1 == Interp % Date2) then
+    500               Interp % Date1 = Interp % Date2
+    501               Interp % data1 = Interp % data2
+    502               temp1(:,:) = temp2(:,:)   ! SJL BUG fix: June 24, 2011
+    503           else
+    504               call read_record ('sst', Date1, Udate1, temp1)
+    505               if ( use_ncep_sst .and. (.not. no_anom_sst) ) then
+    506                    temp1(:,:) = temp1(:,:) + sst_anom(:,:)
+    507               endif
+    508               call horiz_interp ( Interp%Hintrp, temp1, Interp%data1 )
+    509               call clip_data ('sst', Interp%data1)
+    510              Interp % Date1 = Date1
+    511           endif
+
+Page 10          Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+    512       endif
+    513 
+    514 !-----------------------------------------------------------------------
+    515 
+    516       if (Date2 /= Interp % Date2) then
+    517           call read_record ('sst', Date2, Udate2, temp2)
+    518           if ( use_ncep_sst .and. (.not. no_anom_sst) ) then
+    519                temp2(:,:) = temp2(:,:) + sst_anom(:,:)
+    520           endif
+    521           call horiz_interp ( Interp%Hintrp, temp2, Interp%data2 )
+    522           call clip_data ('sst', Interp%data2)
+    523           Interp % Date2 = Date2
+    524       endif
+    525 
+    526 !-----------------------------------------------------------------------
+    527 !---------- time interpolation (between months) of sst's ---------------
+    528 !-----------------------------------------------------------------------
+    529     sst = Interp % data1 + fmonth * (Interp % data2 - Interp % data1)
+    530 
+    531 !-------------------------------------------------------------------------------
+    532 ! SJL mods for NWP and TCSF ---
+    533 !      Nudging runs: (Note: NCEP SST updated only every 6-hr)
+    534 !      Compute SST anomaly from global SST datasets for subsequent forecast runs
+    535 !-------------------------------------------------------------------------------
+    536     if ( use_ncep_sst .and. no_anom_sst ) then
+    537          sst_anom(:,:) = sst_ncep(:,:) - (temp1(:,:) + fmonth*(temp2(:,:) - temp1(:,:)) )
+    538          call horiz_interp ( Interp%Hintrp, sst_ncep, sst )
+    539          call clip_data ('sst', sst)
+    540     endif
+    541 
+    542 !!! DEBUG CODE
+    543 !          call get_date(Amip_Time,jhctod(1),jhctod(2),jhctod(3),jhctod(4),jhctod(5),jhctod(6))
+    544 !          if (mpp_pe() == 0) then
+    545 !             write (*,200) 'JHC: use_daily = F, AMIP_Time: ',jhctod(1),jhctod(2),jhctod(3),jhctod(4),jhctod(5),jhctod(6)
+    546 !             write (*,300) 'JHC: use_daily = F, interped SST: ', sst(1,1),sst(5,5),sst(10,10)
+    547 !          endif
+    548 !!! END DEBUG CODE
+    549 
+    550 
+    551   endif
+    552 
+    553 ! add by JHC
+    554 else
+    555     call get_date(Amip_Time,jhctod(1),jhctod(2),jhctod(3),jhctod(4),jhctod(5),jhctod(6))
+    556      if (mpp_pe() == mpp_root_pe()) write(*,200) 'amip_interp_mod: use_daily = T, Amip_Time = ',jhctod(1),jhctod(2),jhctod(3
+    556 ),jhctod(4),jhctod(5),jhctod(6)
+    557 
+    558     yr = jhctod(1); mo = jhctod(2); dy = jhctod(3)
+    559 
+    560     write (yyyy,'(i4)') jhctod(1)
+    561 
+    562     file_name_sst = 'INPUT/' // 'sst.day.mean.'//yyyy//'.v2.nc'
+    563     ncfilename = trim(file_name_sst)
+    564     time_unit = 'days since 1978-01-01 00:00:00'
+    565 
+    566     mobs_sst = 1440;  nobs_sst = 720
+    567 
+
+Page 11          Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+    568     call set_sst_grid_edges_daily(mobs_sst, nobs_sst)
+    569     call horiz_interp_new ( Interp%Hintrp2, lon_bnd, lat_bnd, &
+    570                              lon_model, lat_model, interp_method="bilinear" )
+    571 
+    572     if (use_mpp_io) then
+    573 !! USE_MPP_IO_WARNING
+    574             call mpp_error ('amip_interp_mod', &
+    575              'MPP_IO is no longer supported.  Please remove from namelist',&
+    576               WARNING)
+    577             the_file_exists = fms_io_file_exists(ncfilename)
+    578     else
+    579        the_file_exists = fms2_io_file_exists(ncfilename)
+    580     endif !if (use_mpp_io)
+    581 
+    582     if ( (.NOT. the_file_exists)  ) then
+    583         call mpp_error ('amip_interp_mod', &
+    584              'cannot find daily SST input data file: '//trim(ncfilename), NOTE)
+    585     else
+    586         if (mpp_pe() == mpp_root_pe()) call mpp_error ('amip_interp_mod', &
+    587              'Reading NetCDF formatted daily SST from: '//trim(ncfilename), NOTE)
+    588 
+    589         if (use_mpp_io) then
+    590             call field_size(ncfilename, 'TIME', siz)
+    591             nrecords = siz (1)
+    592             if (nrecords < 1) call mpp_error('amip_interp_mod', &
+    593                            'Invalid number of SST records in daily SST data file: '//trim(ncfilename), FATAL)
+    594             allocate(timeval(nrecords), ryr(nrecords), rmo(nrecords), rdy(nrecords))
+    595 
+    596             call mpp_open( unit, ncfilename, MPP_RDONLY, MPP_NETCDF, MPP_MULTI, MPP_SINGLE )
+    597             call mpp_get_times(unit, timeval)
+    598             call mpp_close(unit)
+    599         else
+    600             if(.not. open_file(fileobj, trim(ncfilename), 'read')) &
+    601                 call error_mesg ('get_amip_sst', 'Error in opening file '//trim(ncfilename), FATAL)
+    602 
+    603             call get_dimension_size(fileobj, 'TIME', nrecords)
+    604             if (nrecords < 1) call mpp_error('amip_interp_mod', &
+    605                            'Invalid number of SST records in daily SST data file: '//trim(ncfilename), FATAL)
+    606             allocate(timeval(nrecords), ryr(nrecords), rmo(nrecords), rdy(nrecords))
+    607             call fms2_io_read_data(fileobj, 'TIME', timeval)
+    608         endif !if (use_mpp_io)
+    609 !!! DEBUG CODE
+    610 !          if (mpp_pe() == 0) then
+    611 !             print *, 'JHC: nrecords = ', nrecords
+    612 !             print *, 'JHC: TIME = ', timeval
+    613 !          endif
+    614 !!! END DEBUG CODE
+    615 
+    616         ierr = 1
+    617         do k = 1, nrecords
+    618 
+    619           Udate = get_cal_time (timeval(k), time_unit, 'julian')
+    620           call get_date(Udate,jhctod(1),jhctod(2),jhctod(3),jhctod(4),jhctod(5),jhctod(6))
+    621           ryr(k) = jhctod(1); rmo(k) = jhctod(2); rdy(k) = jhctod(3)
+    622 
+    623           if ( yr == ryr(k) .and. mo == rmo(k) .and. dy == rdy (k) ) ierr = 0
+    624           if (ierr==0) exit
+
+Page 12          Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+    625 
+    626         enddo
+    627 !!! DEBUG CODE
+    628              if (mpp_pe() == 0) then
+    629              print *, 'JHC: k =', k
+    630              print *, 'JHC: ryr(k) rmo(k) rdy(k)',ryr(k), rmo(k), rdy(k)
+    631              print *, 'JHC:  yr     mo     dy   ',yr, mo, dy
+    632           endif
+    633 !!! END DEBUG CODE
+    634         if (ierr .ne. 0) call mpp_error('amip_interp_mod', &
+    635                          'Model time is out of range not in SST data: '//trim(ncfilename), FATAL)
+    636     endif ! if(file_exist(ncfilename))
+    637 
+    638 
+    639 !---- read NETCDF data ----
+    640      if ( .not. allocated(tempamip) ) allocate (tempamip(mobs_sst,nobs_sst))
+    641 
+    642      if (the_file_exists) then
+    643           if (use_mpp_io) then
+    644              call mpp_io_read_data(ncfilename, 'SST', tempamip, timelevel=k, no_domain=.true.)
+    645           else
+    646              call fms2_io_read_data(fileobj, 'SST', tempamip, unlim_dim_level=k)
+    647              call close_file(fileobj)
+    648           endif !if (use_mpp_io)
+    649           tempamip = tempamip + TFREEZE
+    650 
+    651 !!! DEBUG CODE
+    652 !          if (mpp_pe() == 0) then
+    653 !             print*, 'JHC: TFREEZE = ', TFREEZE
+    654 !             print*, lbound(sst)
+    655 !             print*, ubound(sst)
+    656 !             print*, lbound(tempamip)
+    657 !             print*, ubound(tempamip)
+    658 !             write(*,300) 'JHC: tempamip : ', tempamip(100,100), tempamip(200,200), tempamip(300,300)
+    659 !          endif
+    660 !!! END DEBUG CODE
+    661 
+    662           call horiz_interp ( Interp%Hintrp2, tempamip, sst )
+    663           call clip_data ('sst', sst)
+    664 
+    665      endif
+    666 
+    667 !!! DEBUG CODE
+    668 !          if (mpp_pe() == 400) then
+    669 !             write(*,300)'JHC: use_daily = T, daily SST: ', sst(1,1),sst(5,5),sst(10,10)
+    670 !             print *,'JHC: use_daily = T, daily SST: ', sst
+    671 !          endif
+    672 !!! END DEBUG CODE
+    673 
+    674 200 format(a35, 6(i5,1x))
+    675 300 format(a35, 3(f7.3,2x))
+    676 
+    677 endif
+    678 ! end add by JHC
+    679 
+    680 ! add by JHC: add on non-zero sea surface temperature perturbation (namelist option)
+    681 !             This perturbation may be useful in accessing model sensitivities
+
+Page 13          Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+    682 
+    683  if ( do_sst_pert ) then
+    684 
+    685       if ( trim(sst_pert_type) == 'fixed' ) then
+    686           sst = sst + sst_pert
+    687       else if ( trim(sst_pert_type) == 'random' ) then
+    688           call random_seed()
+    689 !!! DEBUG CODE
+    690 !       if (mpp_pe() == 0) then
+    691 !             print*, 'mobs = ', mobs
+    692 !             print*, 'nobs = ', nobs
+    693 !             print*, lbound(sst)
+    694 !             print*, ubound(sst)
+    695 !          endif
+    696 !!! END DEBUG CODE
+    697           do i = 1, size(sst,1)
+    698           do j = 1, size(sst,2)
+    699              call random_number(pert)
+    700              sst (i,j) = sst (i,j) + sst_pert*((pert-0.5)*2)
+    701           end do
+    702           end do
+    703       endif
+    704 
+    705   endif
+    706 ! end add by JHC
+    707 
+    708 !-----------------------------------------------------------------------
+    709 
+    710  end subroutine get_amip_sst
+
+Page 14          Source Listing                  GET_AMIP_SST
+2021-06-01 08:55 Entry Points                    amip_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                        
+                                              
+ amip_interp_mod_mp_get_amip_sst_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ 200                        Label  674                                                            556                               
+ 300                        Label  675                                                                                              
+ ALL                        Func   455                                  scalar                    455                               
+ ALLOCATED                  Func   466                                  scalar                    466,467,640                       
+ AMIP_DATE                  Local  455      I(4)            4     1     3                         369,387,455,457,745,749           
+ AMIP_INTERP_TYPE           Type   413                      4648        scalar                    103,413,723,867,918,1101,1668,1669
+ AMIP_TIME                  Local  423      TIME_TYPE       16          scalar                    457,459,470,478,555               
+ CLOSE_FILE                 Local  647                                  scalar   PRIV             88,647                            
+ COMPRESSED_READ_1D         Subr   607                                           PRIV             607,1430,1431,1432                
+ COMPRESSED_READ_2D         Subr   646                                           PRIV             646,1469,1481                     
+ DATE1                      Local  421      DATE_TYPE       12          scalar                    489,497,499,504,510               
+ DATE2                      Local  421      DATE_TYPE       12          scalar                    490,516,517,523                   
+ DATE_TYPE                  Type   421                      12          scalar   PRIV             254,272,273,421,489,490,731,780,78
+                                                                                                  1,882,883,933,934,993,1003,1013,10
+                                                                                                  22,1032,1055,1382,1383,1438,1539,1
+                                                                                                  556,1573,1598                     
+ DO_SST_PERT                Local  683      L(4)            4           scalar                    374,389,683                       
+ DUM                        Local  424      I(4)            4     1     3                         456                               
+ DY                         Local  433      I(4)            4           scalar                    558,623,631                       
+ ERROR_MESG                 Subr   601                                           PRIV             80,601,877,880,928,931,992,1002,10
+                                                                                                  12,1021,1030,1053,1057,1070,1074,1
+                                                                                                  079,1083,1088,1090,1361,1458,1514 
+ ERR_MSG                    Dummy  409      CHAR                        scalar   ARG,OUT          445,447                           
+ FATAL                      Param  593      I(4)            4           scalar   PRIV             81,593,601,605,635,877,880,928,931
+                                                                                                  ,1058,1071,1075,1080,1084,1088,109
+                                                                                                  0,1294,1362,1420,1428,1447,1460,15
+                                                                                                  14,1672                           
+ FIELD_SIZE                 Subr   590                                           PRIV             91,590                            
+ FILEOBJ                    Local  439      FMSNETCDFFILE_T 872         scalar                    600,603,607,646,647               
+ FILE_NAME_SST              Local  562      CHAR            128         scalar                    562,563,987,995,1005,1016,1025,103
+                                                                                                  4,1065,1069,1071,1078,1080,1087,10
+                                                                                                  88,1398                           
+ FMONTH                     Local  420      R(8)            8           scalar                    478,529,537                       
+ FMS2_IO_FILE_EXISTS        Func   579      L(4)            4           scalar   PRIV             579,1078,1082                     
+ FMS2_IO_READ_DATA          Local  607                                  scalar   PRIV             607,646,1426,1430,1431,1432,1469,1
+                                                                                                  481                               
+ FMSNETCDFFILE_T            Type   439                                  scalar                    88,270,439,1392                   
+ FMS_ERROR_HANDLER          Func   447      L(4)            4           scalar   PRIV             83,447,738                        
+ FMS_IO_FILE_EXISTS         Func   577      L(4)            4           scalar   PRIV             577,1069,1073                     
+ FORECAST_MODE              Local  453      L(4)            4           scalar                    110,113,392,453                   
+ GET_AMIP_SST               Subr   409                                                                                              
+ GET_CAL_TIME               Func   619      RECORD          16          scalar   PRIV             72,619                            
+ GET_DATE                   Subr   456                                           PRIV             69,456,555,620,747,1603           
+ GET_DIMENSION_SIZE         Subr   603                                           PRIV             89,603                            
+
+Page 15          Source Listing                  GET_AMIP_SST
+2021-06-01 08:55 Symbol Table                    amip_interp.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ HORIZ_INTERP               Local  471                                  scalar   PRIV             76,471,508,521,538,662,760,805,826
+ HORIZ_INTERP_BASE_2D       Subr   471                                           PRIV             471,508,521,538,662,760,805,826   
+ HORIZ_INTERP_NEW           Local  569                                  scalar   PRIV             77,569,888,939                    
+ HORIZ_INTERP_NEW_1D_SRC    Subr   569                                           PRIV             569,939                           
+ I                          Local  429      I(4)            4           scalar                    697,700                           
+ IERR                       Local  433      I(4)            4           scalar                    616,623,624,634                   
+ INTERP                     Dummy  409      AMIP_INTERP_TYPE                                                                        
+                                                            4648        scalar   ARG,INOUT        446,471,480,483,497,499,500,501,50
+                                                                                                  8,509,510,516,521,522,523,529,538,
+                                                                                                  569,662                           
+ J                          Local  429      I(4)            4           scalar                    698,700                           
+ JHCTOD                     Local  430      I(4)            4     1     6                         555,556,558,560,620,621           
+ K                          Local  433      I(4)            4           scalar                    617,619,621,623,629,630,644,646   
+ LAT_BND                    Local  569      R(8)            8     1     1        ALC              569,888,939,1106,1123,1136,1138,11
+                                                                                                  51,1153,1167,1169,1181,1182,1196,1
+                                                                                                  198,1367,1645                     
+ LAT_MODEL                  Dummy  409      R(8)            8     2     1        ARG,IN           570                               
+ LON_BND                    Local  569      R(8)            8     1     1        ALC              569,888,939,1105,1123,1131,1133,11
+                                                                                                  50,1153,1160,1162,1164,1180,1182,1
+                                                                                                  189,1191,1193,1366                
+ LON_MODEL                  Dummy  409      R(8)            8     2     1        ARG,IN           570                               
+ MAXC                       Param  438      I(4)            4           scalar                    269,438,1391                      
+ MO                         Local  433      I(4)            4           scalar                    558,623,631                       
+ MOBS                       Local  417      I(4)            4           scalar                    417,466,467,727,989,997,1007,1018,
+                                                                                                  1027,1038,1048,1123,1129,1130,1133
+                                                                                                  ,1153,1159,1161,1164,1329,1360,138
+                                                                                                  4,1387,1472,1473,1624             
+ MOBS_SST                   Local  429      I(4)            4           scalar                    566,568,640                       
+ MONTH1                     Local  419      I(4)            4           scalar                    478,485,489                       
+ MONTH2                     Local  419      I(4)            4           scalar                    478,485,490                       
+ MPP_CLOSE                  Subr   598                                           PRIV             93,598                            
+ MPP_ERROR                  Local  574                                  scalar   PRIV             83,574,583,586,592,604,634,1294,14
+                                                                                                  14,1419,1427,1446,1672            
+ MPP_ERROR_MESG             Subr   574                                           PRIV             574,583,586,592,604,634,1414,1419,
+                                                                                                  1427,1446                         
+ MPP_GET_TIMES              Subr   597                                           PRIV             93,597                            
+ MPP_IO_READ_DATA           Local  644                                  scalar   PRIV             644,1418,1422,1423,1424,1467,1479 
+ MPP_MULTI                  Param  596      I(4)            4           scalar   PRIV             93,596                            
+ MPP_NETCDF                 Param  596      I(4)            4           scalar   PRIV             92,596                            
+ MPP_OPEN                   Subr   596                                           PRIV             92,596                            
+ MPP_PE                     Func   556      I(4)            4           scalar   PRIV             82,556,586,628,969,991,1001,1011,1
+                                                                                                  020,1029,1052,1061,1410,1414,1440 
+ MPP_RDONLY                 Param  596      I(4)            4           scalar   PRIV             92,596                            
+ MPP_ROOT_PE                Func   556      I(4)            4           scalar   PRIV             82,556,586,1414                   
+ MPP_SINGLE                 Param  596      I(4)            4           scalar   PRIV             93,596                            
+ NCFILENAME                 Local  438      CHAR            128         scalar                    563,577,579,584,587,590,593,596,60
+                                                                                                  0,601,605,635,644                 
+ NETCDF_FILE_CLOSE_WRAP     Subr   647                                           PRIV             647                               
+ NETCDF_FILE_OPEN_WRAP      Func   600      L(4)            4           scalar   PRIV             600,1087,1089                     
+ NOBS                       Local  417      I(4)            4           scalar                    417,466,467,727,989,997,1007,1018,
+                                                                                                  1027,1038,1048,1123,1135,1136,1137
+                                                                                                  ,1153,1166,1167,1168,1329,1360,138
+                                                                                                  4,1387,1472,1473,1624,1643        
+ NOBS_SST                   Local  429      I(4)            4           scalar                    566,568,640                       
+ NOTE                       Param  584      I(4)            4           scalar   PRIV             81,584,587,992,1002,1012,1021,1031
+
+Page 16          Source Listing                  GET_AMIP_SST
+2021-06-01 08:55 Symbol Table                    amip_interp.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+                                                                                                  ,1054,1415                        
+ NO_ANOM_SST                Local  453      L(4)            4           scalar                    379,385,453,505,518,536           
+ NRECORDS                   Local  433      I(4)            4           scalar                    591,592,594,603,604,606,617       
+ OPEN_FILE                  Local  600                                  scalar   PRIV             88,600,1087,1089                  
+ PERT                       Local  428      R(8)            8           scalar                    699,700                           
+ PRESENT                    Func   445                                  scalar                    445                               
+ RANDOM_NUMBER              Intrin 699                                                            699                               
+ RANDOM_SEED                Intrin 688                                                            688                               
+ RDY                        Local  435      I(4)            4     1     1        ALC              594,606,621,623,630               
+ READ_DATA_2D_NEW           Subr   644                                           PRIV             644,1467,1479                     
+ RMO                        Local  435      I(4)            4     1     1        ALC              594,606,621,623,630               
+ RYR                        Local  435      I(4)            4     1     1        ALC              594,606,621,623,630               
+ SET_DATE                   Local  457                                  scalar   PRIV             69,457,749                        
+ SET_DATE_I                 Func   457      RECORD          16          scalar   PRIV             457,749                           
+ SICE                       Local  417      R(8)            8     2     0                         470                               
+ SIZ                        Local  434      I(4)            4     1     4        TGT              590,591                           
+ SIZE                       Func   697                                  scalar                    697,698                           
+ SST                        Dummy  409      R(8)            8     2     1        ARG,OUT          471,529,538,539,662,663,686,697,69
+                                                                                                  8,700                             
+ SST_ANOM                   Local  506      R(8)            8     2     1        ALC              113,506,519,537,1043,1044,1045    
+ SST_NCEP                   Local  537      R(8)            8     2     1        ALC              113,537,538,796,817,1039,1040,1041
+ SST_PERT                   Local  686      R(8)            8           scalar                    371,389,686,700                   
+ SST_PERT_TYPE              Local  685      CHAR            6           scalar                    373,389,685,687                   
+ TEMP1                      Local  466      R(8)            8     2     1        ALC              466,470,471,502,504,506,508,537   
+ TEMP2                      Local  467      R(8)            8     2     1        ALC              467,502,517,519,521,537           
+ TEMPAMIP                   Local  640      R(8)            8     2     1        ALC              640,644,646,649,662               
+ TFREEZE                    Param  649      R(8)            8           scalar   PRIV             85,649,796,817,978,979,1506       
+ THE_FILE_EXISTS            Local  440      L(4)            4           scalar                    577,579,582,642                   
+ TIME                       Dummy  409      TIME_TYPE       16          scalar   ARG,IN           456,459                           
+ TIMEVAL                    Local  437      R(8)            8     1     1        ALC              594,597,606,607,619               
+ TIME_INTERP                Local  478                                  scalar   PRIV             66,478,768                        
+ TIME_INTERP_MONTH          Subr   478                                           PRIV             478,768                           
+ TIME_TYPE                  Type   412                                  scalar                    68,412,423,431,722,733,1597,1623  
+ TIME_UNIT                  Local  436      CHAR            30          scalar                    564,619                           
+ TOD                        Local  424      I(4)            4     1     3                         456,457                           
+ TRIM                       Func   563                                  scalar                    563,584,587,593,600,601,605,635,68
+                                                                                                  5,687                             
+ UDATE                      Local  431      TIME_TYPE       16          scalar                    619,620                           
+ UDATE1                     Local  421      DATE_TYPE       12          scalar                    504                               
+ UDATE2                     Local  421      DATE_TYPE       12          scalar                    517                               
+ UNIT                       Local  443      I(4)            4           scalar                    493,596,597,598                   
+ USE_DAILY                  Local  463      L(4)            4           scalar                    375,390,463                       
+ USE_MPP_IO                 Local  572      L(4)            4           scalar                    383,393,572,589,643,1068,1399,1402
+                                                                                                  ,1417,1466,1478,1484              
+ USE_NCEP_SST               Local  453      L(4)            4           scalar                    113,377,385,453,505,518,536,795,81
+                                                                                                  6,973,1037                        
+ USE_ZONAL                  Local  469      L(4)            4           scalar                    362,387,469,758                   
+ WARNING                    Param  576      I(4)            4           scalar   PRIV             81,576                            
+ YEAR1                      Local  419      I(4)            4           scalar                    478,481,484,489                   
+ YEAR2                      Local  419      I(4)            4           scalar                    478,481,484,490                   
+ YR                         Local  433      I(4)            4           scalar                    558,623,631                       
+ YYYY                       Local  432      CHAR            4           scalar                    560,562                           
+
+
+
+Page 17          Source Listing                  GET_AMIP_SST
+2021-06-01 08:55 Symbol Table                    amip_interp.F90
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ AMIP_INTERP_TYPE.DATA1     R(8)            8     4416     2     1        PTR,PRIV         501,508,509,529,790,805,806,836,89 
+                                                                                           1,942,1103,1676                    
+ AMIP_INTERP_TYPE.DATA2     R(8)            8     4512     2     1        PTR,PRIV         501,521,522,529,790,826,827,836,89 
+                                                                                           2,943,1104,1677                    
+ AMIP_INTERP_TYPE.DATE1     DATE_TYPE       12    4608           scalar   PRIV             497,500,510,786,789,807,882,933,16 
+                                                                                           78,1680                            
+ AMIP_INTERP_TYPE.DATE2     DATE_TYPE       12    4620           scalar   PRIV             499,500,516,523,788,789,813,828,88 
+                                                                                           3,934,1679,1681                    
+ AMIP_INTERP_TYPE.HINTRP    HORIZ_INTERP_TYPE                                                                                 
+                                            2208  0              scalar   PRIV             471,508,521,538,760,805,826,888,93 
+                                                                                           9,1107,1675                        
+ AMIP_INTERP_TYPE.HINTRP2   HORIZ_INTERP_TYPE                                                                                 
+                                            2208  2208           scalar   PRIV             569,662                            
+ AMIP_INTERP_TYPE.I_AM_INITIALIZED                                                                                         ...
+                            L(4)            4     4640           scalar   PRIV             446,737,894,945,1109,1671,1684     
+ AMIP_INTERP_TYPE.USE_ANNUAL                                                                                               ...
+                            L(4)            4     4636           scalar   PRIV             483,774,873,874,879,924,925,930,16 
+                                                                                           83                                 
+ AMIP_INTERP_TYPE.USE_CLIMO L(4)            4     4632           scalar   PRIV             480,771,871,872,876,922,923,927,16 
+                                                                                           82                                 
+
+Page 18          Source Listing                  GET_AMIP_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+    711 
+    712 
+    713 !#######################################################################
+    714 ! <SUBROUTINE NAME="get_amip_ice" INTERFACE="get_amip_ice">
+    715 !   <IN NAME="Time"  TYPE="time_type"  > </IN>
+    716 !   <OUT NAME="ice" TYPE="real" DIM="(:,:)"> </OUT>
+    717 !   <INOUT NAME="Interp" TYPE="amip_interp_type"> </INOUT>
+    718 ! </SUBROUTINE>
+    719 
+    720 subroutine get_amip_ice (Time, Interp, ice, err_msg)
+    721 
+    722    type (time_type),         intent(in)    :: Time
+    723    type (amip_interp_type),  intent(inout) :: Interp
+    724    real,                     intent(out)   :: ice(:,:)
+    725    character(len=*), optional, intent(out) :: err_msg
+    726 
+    727     real, dimension(mobs,nobs) :: sice, temp
+    728 
+    729     integer :: year1, year2, month1, month2
+    730     real    :: fmonth
+    731     type (date_type) :: Date1, Date2, Udate1, Udate2
+    732 
+    733     type(time_type) :: Amip_Time
+    734     integer :: tod(3),dum(3)
+    735 
+    736     if(present(err_msg)) err_msg = ''
+    737     if(.not.Interp%I_am_initialized) then
+    738       if(fms_error_handler('get_amip_ice','The amip_interp_type variable is not initialized',err_msg)) return
+    739     endif
+    740 
+    741 !-----------------------------------------------------------------------
+    742 !----- compute zonally symetric sst ---------------
+    743 
+    744 
+    745     if (any(amip_date>0)) then
+    746 
+    747        call get_date(Time,dum(1),dum(2),dum(3),tod(1),tod(2),tod(3))
+    748 
+    749        Amip_Time = set_date(amip_date(1),amip_date(2),amip_date(3),tod(1),tod(2),tod(3))
+    750 
+    751     else
+    752 
+    753        Amip_Time = Time
+    754 
+    755     endif
+    756 
+    757 
+    758 if (use_zonal) then
+    759    call zonal_sst (Amip_Time, sice, temp)
+    760    call horiz_interp ( Interp%Hintrp, sice, ice )
+    761 else
+    762 
+    763 !-----------------------------------------------------------------------
+    764 !---------- get new observed sea surface temperature -------------------
+    765 
+    766 ! ---- time interpolation for months -----
+    767 
+
+Page 19          Source Listing                  GET_AMIP_ICE
+2021-06-01 08:55                                 amip_interp.F90
+
+    768    call time_interp (Amip_Time, fmonth, year1, year2, month1, month2)
+    769 
+    770 ! ---- force climatology ----
+    771    if (Interp % use_climo) then
+    772        year1=0; year2=0
+    773    endif
+    774    if (Interp % use_annual) then
+    775         year1=0;  year2=0
+    776        month1=0; month2=0
+    777    endif
+    778 ! ---------------------------
+    779 
+    780    Date1 = date_type( year1, month1, 0 )
+    781    Date2 = date_type( year2, month2, 0 )
+    782 
+    783    unit = -1
+    784 !-----------------------------------------------------------------------
+    785 
+    786     if (Date1 /= Interp % Date1) then
+    787 !       ---- use Date2 for Date1 ----
+    788         if (Date1 == Interp % Date2) then
+    789             Interp % Date1 = Interp % Date2
+    790             Interp % data1 = Interp % data2
+    791         else
+    792 !-- SJL -------------------------------------------------------------
+    793 ! Can NOT use ncep_sst to determine sea_ice For seasonal forecast
+    794 ! Use climo sea ice for seasonal runs
+    795             if ( use_ncep_sst .and. use_ncep_ice ) then
+    796                where ( sst_ncep <= (TFREEZE+tice_crit) )
+    797                    sice = 1.
+    798                elsewhere
+    799                    sice = 0.
+    800                endwhere
+    801             else
+    802                call read_record ('ice', Date1, Udate1, sice)
+    803             endif
+    804 !--------------------------------------------------------------------
+    805             call horiz_interp ( Interp%Hintrp, sice, Interp%data1 )
+    806             call clip_data ('ice', Interp%data1)
+    807             Interp % Date1 = Date1
+    808         endif
+    809     endif
+    810 
+    811 !-----------------------------------------------------------------------
+    812 
+    813     if (Date2 /= Interp % Date2) then
+    814 
+    815 !-- SJL -------------------------------------------------------------
+    816             if ( use_ncep_sst .and. use_ncep_ice ) then
+    817                where ( sst_ncep <= (TFREEZE+tice_crit) )
+    818                    sice = 1.
+    819                elsewhere
+    820                    sice = 0.
+    821                endwhere
+    822             else
+    823                call read_record ('ice', Date2, Udate2, sice)
+    824             endif
+
+Page 20          Source Listing                  GET_AMIP_ICE
+2021-06-01 08:55                                 amip_interp.F90
+
+    825 !--------------------------------------------------------------------
+    826         call horiz_interp ( Interp%Hintrp, sice, Interp%data2 )
+    827         call clip_data ('ice', Interp%data2)
+    828         Interp % Date2 = Date2
+    829 
+    830     endif
+    831 
+    832 !-----------------------------------------------------------------------
+    833 !---------- time interpolation (between months) ------------------------
+    834 !-----------------------------------------------------------------------
+    835 
+    836    ice = Interp % data1 + fmonth * (Interp % data2 - Interp % data1)
+    837 
+    838 endif
+    839 
+    840 !-----------------------------------------------------------------------
+    841 
+    842  end subroutine get_amip_ice
+
+
+ENTRY POINTS
+
+  Name                                        
+                                              
+ amip_interp_mod_mp_get_amip_ice_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ AMIP_TIME                  Local  733      TIME_TYPE       16          scalar                    749,753,759,768                   
+ ANY                        Func   745                                  scalar                    745                               
+ DATE1                      Local  731      DATE_TYPE       12          scalar                    780,786,788,802,807               
+ DATE2                      Local  731      DATE_TYPE       12          scalar                    781,813,823,828                   
+ DUM                        Local  734      I(4)            4     1     3                         747                               
+ ERR_MSG                    Dummy  720      CHAR                        scalar   ARG,OUT          736,738                           
+ FMONTH                     Local  730      R(8)            8           scalar                    768,836                           
+ GET_AMIP_ICE               Subr   720                                                                                              
+ ICE                        Dummy  720      R(8)            8     2     1        ARG,OUT          760,836                           
+ INTERP                     Dummy  720      AMIP_INTERP_TYPE                                                                        
+                                                            4648        scalar   ARG,INOUT        737,760,771,774,786,788,789,790,80
+                                                                                                  5,806,807,813,826,827,828,836     
+ MONTH1                     Local  729      I(4)            4           scalar                    768,776,780                       
+ MONTH2                     Local  729      I(4)            4           scalar                    768,776,781                       
+ PRESENT                    Func   736                                  scalar                    736                               
+ SICE                       Local  727      R(8)            8     2     0        TGT              759,760,797,799,802,805,818,820,82
+                                                                                                  3,826                             
+ TEMP                       Local  727      R(8)            8     2     0                         759                               
+ TICE_CRIT                  Local  796      R(8)            8           scalar                    359,385,796,817,977               
+ TIME                       Dummy  720      TIME_TYPE       16          scalar   ARG,IN           747,753                           
+ TOD                        Local  734      I(4)            4     1     3                         747,749                           
+ UDATE1                     Local  731      DATE_TYPE       12          scalar                    802                               
+ UDATE2                     Local  731      DATE_TYPE       12          scalar                    823                               
+ UNIT                       Local  783      I(4)            4           scalar                    783,1513                          
+ USE_NCEP_ICE               Local  795      L(4)            4           scalar                    381,385,795,816                   
+ YEAR1                      Local  729      I(4)            4           scalar                    768,772,775,780                   
+
+Page 21          Source Listing                  GET_AMIP_ICE
+2021-06-01 08:55 Symbol Table                    amip_interp.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ YEAR2                      Local  729      I(4)            4           scalar                    768,772,775,781                   
+
+Page 22          Source Listing                  GET_AMIP_ICE
+2021-06-01 08:55                                 amip_interp.F90
+
+    843 
+    844 
+    845 
+    846 !#######################################################################
+    847 
+    848 ! <FUNCTION NAME="amip_interp_new_1d" INTERFACE="amip_interp_new">
+    849 
+    850 !   <IN NAME="lon" TYPE="real" DIM="(:)"> </IN>
+    851 !   <IN NAME="lat" TYPE="real" DIM="(:)"> </IN>
+    852 !   <IN NAME="mask" TYPE="logical" DIM="(:,:)"> </IN>
+    853 !   <IN NAME="use_climo" TYPE="logical" DEFAULT="use_climo = .false."> </IN>
+    854 !   <IN NAME="use_annual" TYPE="logical" DEFAULT="use_annual = .false."> </IN>
+    855 !   <IN NAME="interp_method" TYPE="character(len=*), optional" DEFAULT="interp_method = conservative"></IN>
+    856 !   <OUT NAME="Interp" TYPE="amip_interp_type"> </OUT>
+    857 
+    858 !> @return amip_interp_type Interp
+    859  function amip_interp_new_1d ( lon , lat , mask , use_climo, use_annual, &
+    860                                 interp_method ) result (Interp)
+    861 
+    862  real,    intent(in), dimension(:)   :: lon, lat
+    863  logical, intent(in), dimension(:,:) :: mask
+    864  character(len=*), intent(in), optional       :: interp_method
+    865  logical, intent(in), optional       :: use_climo, use_annual
+    866 
+    867    type (amip_interp_type) :: Interp
+    868 
+    869    if(.not.module_is_initialized) call amip_interp_init
+    870 
+    871    Interp % use_climo  = .false.
+    872    if (present(use_climo)) Interp % use_climo  = use_climo
+    873    Interp % use_annual = .false.
+    874    if (present(use_annual)) Interp % use_annual  = use_annual
+    875 
+    876    if ( date_out_of_range == 'fail' .and. Interp%use_climo ) &
+    877       call error_mesg ('amip_interp_new_1d', 'use_climo mismatch', FATAL)
+    878 
+    879    if ( date_out_of_range == 'fail' .and. Interp%use_annual ) &
+    880       call error_mesg ('amip_interp_new_1d', 'use_annual(climo) mismatch', FATAL)
+    881 
+    882    Interp % Date1 = date_type( -99, -99, -99 )
+    883    Interp % Date2 = date_type( -99, -99, -99 )
+    884 
+    885 !-----------------------------------------------------------------------
+    886 !   ---- initialization of horizontal interpolation ----
+    887 
+    888     call horiz_interp_new ( Interp%Hintrp, lon_bnd, lat_bnd, &
+    889                              lon, lat, interp_method= interp_method )
+    890 
+    891     allocate ( Interp % data1 (size(lon(:))-1,size(lat(:))-1), &
+    892                Interp % data2 (size(lon(:))-1,size(lat(:))-1)  )
+    893 
+    894     Interp%I_am_initialized = .true.
+    895 
+    896    end function amip_interp_new_1d
+
+Page 23          Source Listing                  AMIP_INTERP_NEW_1D
+2021-06-01 08:55 Entry Points                    amip_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                              
+                                                    
+ amip_interp_mod_mp_amip_interp_new_1d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ AMIP_INTERP_INIT           Subr   869                                                            102,869,920,1327,1356             
+ AMIP_INTERP_NEW_1D         Func   859      RECORD          4648        scalar   PRIV                                               
+ DATE_OUT_OF_RANGE          Local  876      CHAR            16          scalar                    355,386,876,879,927,930,1455,1456 
+ HORIZ_INTERP_NEW_1D        Subr   888                                           PRIV             888                               
+ INTERP                     Local  867      AMIP_INTERP_TYPE                                                                        
+                                                            4648        scalar                    871,872,873,874,876,879,882,883,88
+                                                                                                  8,891,892,894                     
+ INTERP_METHOD              Dummy  860      CHAR                        scalar   ARG,IN           889                               
+ LAT                        Dummy  859      R(8)            8     1     1        ARG,IN           889,891,892                       
+ LON                        Dummy  859      R(8)            8     1     1        ARG,IN           889,891,892                       
+ MASK                       Dummy  859      L(4)            4     2     1        ARG,IN                                             
+ MODULE_IS_INITIALIZED      Local  869      L(4)            4           scalar                    278,869,920,1092,1327,1356        
+ PRESENT                    Func   872                                  scalar                    872,874                           
+ SIZE                       Func   891                                  scalar                    891,892                           
+ USE_ANNUAL                 Dummy  859      L(4)            4           scalar   ARG,IN           874                               
+ USE_CLIMO                  Dummy  859      L(4)            4           scalar   ARG,IN           872                               
+
+Page 24          Source Listing                  AMIP_INTERP_NEW_1D
+2021-06-01 08:55                                 amip_interp.F90
+
+    897 ! </FUNCTION>
+    898 
+    899 !#######################################################################
+    900 ! <FUNCTION NAME="amip_interp_new_2d" INTERFACE="amip_interp_new">
+    901 !   <IN NAME="lon" TYPE="real" DIM="(:,:)"> </IN>
+    902 !   <IN NAME="lat" TYPE="real" DIM="(:,:)"> </IN>
+    903 !   <IN NAME="mask" TYPE="logical" DIM="(:,:)"> </IN>
+    904 !   <IN NAME="use_climo" TYPE="logical" DEFAULT="use_climo = .false."> </IN>
+    905 !   <IN NAME="use_annual" TYPE="logical" DEFAULT="use_annual = .false."> </IN>
+    906 !   <IN NAME="interp_method" TYPE="character(len=*), optional" DEFAULT="interp_method = conservative "></IN>
+    907 !   <OUT NAME="Interp" TYPE="amip_interp_type"> </OUT>
+    908 
+    909 !> @return amip_interp_type Interp
+    910  function amip_interp_new_2d ( lon , lat , mask , use_climo, use_annual, &
+    911                                 interp_method ) result (Interp)
+    912 
+    913  real,    intent(in), dimension(:,:)   :: lon, lat
+    914  logical, intent(in), dimension(:,:) :: mask
+    915  character(len=*), intent(in), optional :: interp_method
+    916  logical, intent(in), optional       :: use_climo, use_annual
+    917 
+    918    type (amip_interp_type) :: Interp
+    919 
+    920    if(.not.module_is_initialized) call amip_interp_init
+    921 
+    922    Interp % use_climo  = .false.
+    923    if (present(use_climo)) Interp % use_climo  = use_climo
+    924    Interp % use_annual = .false.
+    925    if (present(use_annual)) Interp % use_annual  = use_annual
+    926 
+    927    if ( date_out_of_range == 'fail' .and. Interp%use_climo ) &
+    928       call error_mesg ('amip_interp_new_2d', 'use_climo mismatch', FATAL)
+    929 
+    930    if ( date_out_of_range == 'fail' .and. Interp%use_annual ) &
+    931       call error_mesg ('amip_interp_new_2d', 'use_annual(climo) mismatch', FATAL)
+    932 
+    933    Interp % Date1 = date_type( -99, -99, -99 )
+    934    Interp % Date2 = date_type( -99, -99, -99 )
+    935 
+    936 !-----------------------------------------------------------------------
+    937 !   ---- initialization of horizontal interpolation ----
+    938 
+    939    call horiz_interp_new ( Interp%Hintrp, lon_bnd, lat_bnd, &
+    940                            lon, lat, interp_method = interp_method)
+    941 
+    942    allocate ( Interp % data1 (size(lon,1),size(lat,2)), &
+    943               Interp % data2 (size(lon,1),size(lat,2)))
+    944 
+    945    Interp%I_am_initialized = .true.
+    946 
+    947    end function amip_interp_new_2d
+
+Page 25          Source Listing                  AMIP_INTERP_NEW_2D
+2021-06-01 08:55 Entry Points                    amip_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                              
+                                                    
+ amip_interp_mod_mp_amip_interp_new_2d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ AMIP_INTERP_NEW_2D         Func   910      RECORD          4648        scalar   PRIV                                               
+ INTERP                     Local  918      AMIP_INTERP_TYPE                                                                        
+                                                            4648        scalar                    922,923,924,925,927,930,933,934,93
+                                                                                                  9,942,943,945                     
+ INTERP_METHOD              Dummy  911      CHAR                        scalar   ARG,IN           940                               
+ LAT                        Dummy  910      R(8)            8     2     1        ARG,IN           940,942,943                       
+ LON                        Dummy  910      R(8)            8     2     1        ARG,IN           940,942,943                       
+ MASK                       Dummy  910      L(4)            4     2     1        ARG,IN                                             
+ PRESENT                    Func   923                                  scalar                    923,925                           
+ SIZE                       Func   942                                  scalar                    942,943                           
+ USE_ANNUAL                 Dummy  910      L(4)            4           scalar   ARG,IN           925                               
+ USE_CLIMO                  Dummy  910      L(4)            4           scalar   ARG,IN           923                               
+
+Page 26          Source Listing                  AMIP_INTERP_NEW_2D
+2021-06-01 08:55                                 amip_interp.F90
+
+    948 ! </FUNCTION>
+    949 
+    950 !#######################################################################
+    951 
+    952  subroutine amip_interp_init()
+    953 
+    954    integer :: unit,io,ierr
+    955 
+    956 !-----------------------------------------------------------------------
+    957 
+    958     call horiz_interp_init
+    959 
+    960 !   ---- read namelist ----
+    961 
+    962     read (input_nml_file, amip_interp_nml, iostat=io)
+    963     ierr = check_nml_error(io,'amip_interp_nml')
+    964 
+    965 !  ----- write namelist/version info -----
+    966     call write_version_number("AMIP_INTERP_MOD", version)
+    967 
+    968     unit = stdlog ( )
+    969     if (mpp_pe() == 0) then
+    970         write (unit,nml=amip_interp_nml)
+    971     endif
+    972 
+    973     if ( .not. use_ncep_sst ) interp_oi_sst = .false.
+    974 
+    975 !   ---- freezing point of sea water in deg K ---
+    976 
+    977     tice_crit_k = tice_crit
+    978     if ( tice_crit_k < 200. ) tice_crit_k = tice_crit_k + TFREEZE
+    979     ice_crit = nint((tice_crit_k-TFREEZE)*100.)
+    980 
+    981 !   ---- set up file dependent variable ----
+    982 !   ----   global file name   ----
+    983 !   ----   grid box edges     ----
+    984 !   ---- initialize zero size grid if not pe 0 ------
+    985 
+    986     if (lowercase(trim(data_set)) == 'amip1') then
+    987         file_name_sst = 'INPUT/' // 'amip1_sst.data'
+    988         file_name_ice = 'INPUT/' // 'amip1_sst.data'
+    989         mobs = 180;  nobs = 91
+    990         call set_sst_grid_edges_amip1
+    991         if (mpp_pe() == 0) &
+    992         call error_mesg ('amip_interp_init', 'using AMIP 1 sst', NOTE)
+    993         Date_end = date_type( 1989, 1, 0 )
+    994     else if (lowercase(trim(data_set)) == 'amip2') then
+    995         file_name_sst = 'INPUT/' // 'amip2_sst.data'
+    996         file_name_ice = 'INPUT/' // 'amip2_ice.data'
+    997         mobs = 360;  nobs = 180
+    998         call set_sst_grid_edges_oi
+    999 !       --- specfied min for amip2 ---
+   1000         tice_crit_k = 271.38
+   1001         if (mpp_pe() == 0) &
+   1002         call error_mesg ('amip_interp_init', 'using AMIP 2 sst', NOTE)
+   1003         Date_end = date_type( 1996, 3, 0 )
+   1004     else if (lowercase(trim(data_set)) == 'hurrell') then
+
+Page 27          Source Listing                  AMIP_INTERP_INIT
+2021-06-01 08:55                                 amip_interp.F90
+
+   1005         file_name_sst = 'INPUT/' // 'hurrell_sst.data'
+   1006         file_name_ice = 'INPUT/' // 'hurrell_ice.data'
+   1007         mobs = 360;  nobs = 180
+   1008         call set_sst_grid_edges_oi
+   1009 !       --- specfied min for hurrell ---
+   1010         tice_crit_k = 271.38
+   1011         if (mpp_pe() == 0) &
+   1012         call error_mesg ('amip_interp_init', 'using HURRELL sst', NOTE)
+   1013         Date_end = date_type( 2011, 8, 16 ) ! updated by JHC
+   1014 ! add by JHC
+   1015     else if (lowercase(trim(data_set)) == 'daily') then
+   1016         file_name_sst = 'INPUT/' // 'hurrell_sst.data'
+   1017         file_name_ice = 'INPUT/' // 'hurrell_ice.data'
+   1018         mobs = 360;  nobs = 180
+   1019         call set_sst_grid_edges_oi
+   1020         if (mpp_pe() == 0) &
+   1021         call error_mesg ('amip_interp_init', 'using AVHRR daily sst', NOTE)
+   1022         Date_end = date_type( 2011, 8, 16 )
+   1023 ! end add by JHC
+   1024     else if (lowercase(trim(data_set)) == 'reynolds_eof') then
+   1025         file_name_sst = 'INPUT/' // 'reynolds_sst.data'
+   1026         file_name_ice = 'INPUT/' // 'reynolds_sst.data'
+   1027         mobs = 180;  nobs = 90
+   1028         call set_sst_grid_edges_oi
+   1029         if (mpp_pe() == 0) &
+   1030         call error_mesg ('amip_interp_init',  &
+   1031              'using NCEP Reynolds Historical Reconstructed SST', NOTE)
+   1032         Date_end = date_type( 1998, 12, 0 )
+   1033     else if (lowercase(trim(data_set)) == 'reynolds_oi') then
+   1034         file_name_sst = 'INPUT/' // 'reyoi_sst.data'
+   1035         file_name_ice = 'INPUT/' // 'reyoi_sst.data'
+   1036 !--- Added by SJL ----------------------------------------------
+   1037         if ( use_ncep_sst ) then
+   1038              mobs = i_sst;  nobs = j_sst
+   1039             if (.not. allocated (sst_ncep)) then
+   1040                 allocate (sst_ncep(i_sst,j_sst))
+   1041                 sst_ncep(:,:) = big_number
+   1042             endif
+   1043             if (.not. allocated (sst_anom)) then
+   1044                 allocate (sst_anom(i_sst,j_sst))
+   1045                 sst_anom(:,:) = big_number
+   1046             endif
+   1047         else
+   1048              mobs = 360;    nobs = 180
+   1049         endif
+   1050 !--- Added by SJL ----------------------------------------------
+   1051         call set_sst_grid_edges_oi
+   1052         if (mpp_pe() == 0) &
+   1053         call error_mesg ('amip_interp_init', 'using Reynolds OI SST', &
+   1054                                                                 NOTE)
+   1055         Date_end = date_type( 1999, 1, 0 )
+   1056     else
+   1057         call error_mesg ('amip_interp_init', 'the value of the &
+   1058         &namelist parameter DATA_SET being used is not allowed', FATAL)
+   1059     endif
+   1060 
+   1061     if (verbose > 1 .and. mpp_pe() == 0) &
+
+Page 28          Source Listing                  AMIP_INTERP_INIT
+2021-06-01 08:55                                 amip_interp.F90
+
+   1062               print *, 'ice_crit,tice_crit_k=',ice_crit,tice_crit_k
+   1063 
+   1064 !  --- check existence of sst data file ??? ---
+   1065     file_name_sst = trim(file_name_sst)//'.nc'
+   1066     file_name_ice = trim(file_name_ice)//'.nc'
+   1067 
+   1068     if (use_mpp_io) then
+   1069        if (.not. fms_io_file_exists(trim(file_name_sst)) ) then
+   1070            call error_mesg ('amip_interp_init', &
+   1071                'file '//trim(file_name_sst)//' does not exist', FATAL)
+   1072        endif
+   1073        if (.not. fms_io_file_exists(trim(file_name_ice)) ) then
+   1074            call error_mesg ('amip_interp_init', &
+   1075                'file '//trim(file_name_ice)//' does not exist', FATAL)
+   1076        endif
+   1077     else
+   1078        if (.not. fms2_io_file_exists(trim(file_name_sst)) ) then
+   1079            call error_mesg ('amip_interp_init', &
+   1080                'file '//trim(file_name_sst)//' does not exist', FATAL)
+   1081        endif
+   1082        if (.not. fms2_io_file_exists(trim(file_name_ice)) ) then
+   1083            call error_mesg ('amip_interp_init', &
+   1084                'file '//trim(file_name_ice)//' does not exist', FATAL)
+   1085        endif
+   1086 
+   1087        if (.not. open_file(fileobj_sst, trim(file_name_sst), 'read')) &
+   1088            call error_mesg ('amip_interp_init', 'Error in opening file '//trim(file_name_sst), FATAL)
+   1089        if (.not. open_file(fileobj_ice, trim(file_name_ice), 'read')) &
+   1090            call error_mesg ('amip_interp_init', 'Error in opening file '//trim(file_name_ice), FATAL)
+   1091     endif !if (use_mpp_io)
+   1092     module_is_initialized = .true.
+   1093 
+   1094  end subroutine amip_interp_init
+
+Page 29          Source Listing                  AMIP_INTERP_INIT
+2021-06-01 08:55 Entry Points                    amip_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                            
+                                                  
+ amip_interp_mod_mp_amip_interp_init_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALLOCATED                  Func   1039                                 scalar                    1039,1043                         
+ AMIP_INTERP_INIT           Subr   952                                                                                              
+ AMIP_INTERP_NML            Local  962                                  scalar                    962,970                           
+ BIG_NUMBER                 Param  1041     R(8)            8           scalar                    1041,1045                         
+ CHECK_NML_ERROR            Func   963      I(4)            4           scalar   PRIV             81,963                            
+ DATA_SET                   Local  986      CHAR            24          scalar                    347,386,986,994,1004,1015,1024,103
+                                                                                                  3,1403,1404,1405,1494,1505        
+ DATE_END                   Local  993      DATE_TYPE       12          scalar                    273,993,1003,1013,1022,1032,1055,1
+                                                                                                  457                               
+ FILEOBJ_ICE                Local  1089     FMSNETCDFFILE_T 872         scalar   TGT              1089,1402                         
+ FILEOBJ_SST                Local  1087     FMSNETCDFFILE_T 872         scalar   TGT              1087,1399                         
+ FILE_NAME_ICE              Local  988      CHAR            128         scalar                    988,996,1006,1017,1026,1035,1066,1
+                                                                                                  073,1075,1082,1084,1089,1090,1401 
+ HORIZ_INTERP_INIT          Subr   958                                           PRIV             76,958                            
+ ICE_CRIT                   Local  979      I(2)            2           scalar                    979,1062,1495                     
+ IERR                       Local  954      I(4)            4           scalar                    963                               
+ INPUT_NML_FILE             Local  962      CHAR                  1     1        ALC,TGT,PRIV     87,962                            
+ INTERP_OI_SST              Local  973      L(4)            4           scalar                    382,386,973,1465                  
+ IO                         Local  954      I(4)            4           scalar                    962,963                           
+ I_SST                      Local  1038     I(4)            4           scalar                    107,113,392,1038,1040,1044        
+ J_SST                      Local  1038     I(4)            4           scalar                    108,113,392,1038,1040,1044        
+ LOWERCASE                  Func   986      CHAR                        scalar   TGT,PRIV         82,986,994,1004,1015,1024,1033,140
+                                                                                                  3,1404,1405,1494,1505             
+ NINT                       Func   979                                  scalar                    979                               
+ STDLOG                     Func   968      I(4)            4           scalar   PRIV             81,968                            
+ TICE_CRIT_K                Local  977      R(8)            8           scalar                    977,978,979,1000,1010,1062,1530,16
+                                                                                                  55,1657                           
+ TRIM                       Func   986                                  scalar                    986,994,1004,1015,1024,1033,1065,1
+                                                                                                  066,1069,1071,1073,1075,1078,1080,
+                                                                                                  1082,1084,1087,1088,1089,1090     
+ UNIT                       Local  954      I(4)            4           scalar                    968,970                           
+ VERBOSE                    Local  1061     I(4)            4           scalar                    360,392,1061,1410,1440            
+ VERSION                    Param  966      CHAR            7           scalar                    966                               
+ WRITE_VERSION_NUMBER       Subr   966                                           PRIV             80,966                            
+
+Page 30          Source Listing                  AMIP_INTERP_INIT
+2021-06-01 08:55                                 amip_interp.F90
+
+   1095 
+   1096 !#######################################################################
+   1097 
+   1098 !> @brief Call this routine for all amip_interp_type variables created by amip_interp_new.
+   1099    subroutine amip_interp_del (Interp)
+   1100 !> @brief A defined data type variable initialized by amip_interp_new and used when calling get_amip_sst and get_amip_ice.
+   1101    type (amip_interp_type), intent(inout) :: Interp
+   1102 
+   1103      if(associated(Interp%data1)) deallocate(Interp%data1)
+   1104      if(associated(Interp%data2)) deallocate(Interp%data2)
+   1105      if(allocated(lon_bnd))       deallocate(lon_bnd)
+   1106      if(allocated(lat_bnd))       deallocate(lat_bnd)
+   1107      call horiz_interp_del ( Interp%Hintrp )
+   1108 
+   1109      Interp%I_am_initialized = .false.
+   1110 
+   1111    end subroutine amip_interp_del
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ amip_interp_mod_mp_amip_interp_del_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALLOCATED                  Func   1105                                 scalar                    1105,1106                         
+ AMIP_INTERP_DEL            Subr   1099                                                                                             
+ ASSOCIATED                 Func   1103                                 scalar                    1103,1104                         
+ HORIZ_INTERP_DEL           Subr   1107                                          PRIV             77,1107                           
+ INTERP                     Dummy  1099     AMIP_INTERP_TYPE                                                                        
+                                                            4648        scalar   ARG,INOUT        1103,1104,1107,1109               
+
+Page 31          Source Listing                  AMIP_INTERP_DEL
+2021-06-01 08:55                                 amip_interp.F90
+
+   1112 !#######################################################################
+   1113 
+   1114 ! </SUBROUTINE>
+   1115 
+   1116 !#######################################################################
+   1117 
+   1118    subroutine set_sst_grid_edges_amip1
+   1119 
+   1120    integer :: i, j
+   1121    real    :: hpie, dlon, dlat, wb, sb
+   1122 
+   1123       allocate ( lon_bnd(mobs+1), lat_bnd(nobs+1) )
+   1124 
+   1125 ! ---- compute grid edges (do only once) -----
+   1126 
+   1127       hpie = 0.5*pi
+   1128 
+   1129       dlon = 4.*hpie/float(mobs);  wb = -0.5*dlon
+   1130       do i = 1, mobs+1
+   1131           lon_bnd(i) = wb + dlon * float(i-1)
+   1132       enddo
+   1133           lon_bnd(mobs+1) = lon_bnd(1) + 4.*hpie
+   1134 
+   1135       dlat = 2.*hpie/float(nobs-1);  sb = -hpie + 0.5*dlat
+   1136       lat_bnd(1) = -hpie;  lat_bnd(nobs+1) = hpie
+   1137       do j = 2, nobs
+   1138           lat_bnd(j) = sb + dlat * float(j-2)
+   1139       enddo
+   1140 
+   1141    end subroutine set_sst_grid_edges_amip1
+
+Page 32          Source Listing                  SET_SST_GRID_EDGES_AMIP1
+2021-06-01 08:55 Entry Points                    amip_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                    
+                                                          
+ amip_interp_mod_mp_set_sst_grid_edges_amip1_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DLAT                       Local  1121     R(8)            8           scalar                    1135,1138                         
+ DLON                       Local  1121     R(8)            8           scalar                    1129,1131                         
+ FLOAT                      Func   1129                                 scalar                    1129,1131,1135,1138               
+ HPIE                       Local  1121     R(8)            8           scalar                    1127,1129,1133,1135,1136          
+ I                          Local  1120     I(4)            4           scalar                    1130,1131                         
+ J                          Local  1120     I(4)            4           scalar                    1137,1138                         
+ PI                         Param  1127     R(8)            8           scalar   PRIV             85,1127,1157,1186,1637            
+ SB                         Local  1121     R(8)            8           scalar                    1135,1138                         
+ SET_SST_GRID_EDGES_AMIP1   Subr   1118                                                           990                               
+ WB                         Local  1121     R(8)            8           scalar                    1129,1131                         
+
+Page 33          Source Listing                  SET_SST_GRID_EDGES_AMIP1
+2021-06-01 08:55                                 amip_interp.F90
+
+   1142 
+   1143 !#######################################################################
+   1144    subroutine set_sst_grid_edges_oi
+   1145 
+   1146    integer :: i, j
+   1147    real    :: hpie, dlon, dlat, wb, sb
+   1148 
+   1149 ! add by JHC
+   1150       if(allocated(lon_bnd))       deallocate(lon_bnd)
+   1151       if(allocated(lat_bnd))       deallocate(lat_bnd)
+   1152 ! end add by JHC
+   1153       allocate ( lon_bnd(mobs+1), lat_bnd(nobs+1) )
+   1154 
+   1155 ! ---- compute grid edges (do only once) -----
+   1156 
+   1157       hpie = 0.5*pi
+   1158 
+   1159       dlon = 4.*hpie/float(mobs);  wb = 0.0
+   1160           lon_bnd(1) = wb
+   1161       do i = 2, mobs+1
+   1162           lon_bnd(i) = wb + dlon * float(i-1)
+   1163       enddo
+   1164           lon_bnd(mobs+1) = lon_bnd(1) + 4.*hpie
+   1165 
+   1166       dlat = 2.*hpie/float(nobs);  sb = -hpie
+   1167       lat_bnd(1) = sb;  lat_bnd(nobs+1) = hpie
+   1168       do j = 2, nobs
+   1169           lat_bnd(j) = sb + dlat * float(j-1)
+   1170       enddo
+   1171 
+   1172    end subroutine set_sst_grid_edges_oi
+
+Page 34          Source Listing                  SET_SST_GRID_EDGES_OI
+2021-06-01 08:55 Entry Points                    amip_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ amip_interp_mod_mp_set_sst_grid_edges_oi_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALLOCATED                  Func   1150                                 scalar                    1150,1151                         
+ DLAT                       Local  1147     R(8)            8           scalar                    1166,1169                         
+ DLON                       Local  1147     R(8)            8           scalar                    1159,1162                         
+ FLOAT                      Func   1159                                 scalar                    1159,1162,1166,1169               
+ HPIE                       Local  1147     R(8)            8           scalar                    1157,1159,1164,1166,1167          
+ I                          Local  1146     I(4)            4           scalar                    1161,1162                         
+ J                          Local  1146     I(4)            4           scalar                    1168,1169                         
+ SB                         Local  1147     R(8)            8           scalar                    1166,1167,1169                    
+ SET_SST_GRID_EDGES_OI      Subr   1144                                                           998,1008,1019,1028,1051           
+ WB                         Local  1147     R(8)            8           scalar                    1159,1160,1162                    
+
+Page 35          Source Listing                  SET_SST_GRID_EDGES_OI
+2021-06-01 08:55                                 amip_interp.F90
+
+   1173 !#######################################################################
+   1174 ! add by JHC
+   1175    subroutine set_sst_grid_edges_daily(mobs_sst, nobs_sst)
+   1176 
+   1177    integer :: i, j, mobs_sst, nobs_sst
+   1178    real    :: hpie, dlon, dlat, wb, sb
+   1179 
+   1180       if(allocated(lon_bnd))       deallocate(lon_bnd)
+   1181       if(allocated(lat_bnd))       deallocate(lat_bnd)
+   1182       allocate ( lon_bnd(mobs_sst+1), lat_bnd(nobs_sst+1) )
+   1183 
+   1184 ! ---- compute grid edges (do only once) -----
+   1185 
+   1186       hpie = 0.5*pi
+   1187 
+   1188       dlon = 4.*hpie/float(mobs_sst);  wb = 0.0
+   1189           lon_bnd(1) = wb
+   1190       do i = 2, mobs_sst+1
+   1191           lon_bnd(i) = wb + dlon * float(i-1)
+   1192       enddo
+   1193           lon_bnd(mobs_sst+1) = lon_bnd(1) + 4.*hpie
+   1194 
+   1195       dlat = 2.*hpie/float(nobs_sst);  sb = -hpie
+   1196       lat_bnd(1) = sb;  lat_bnd(nobs_sst+1) = hpie
+   1197       do j = 2, nobs_sst
+   1198           lat_bnd(j) = sb + dlat * float(j-1)
+   1199       enddo
+   1200 
+   1201    end subroutine set_sst_grid_edges_daily
+
+Page 36          Source Listing                  SET_SST_GRID_EDGES_DAILY
+2021-06-01 08:55 Entry Points                    amip_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                    
+                                                          
+ amip_interp_mod_mp_set_sst_grid_edges_daily_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALLOCATED                  Func   1180                                 scalar                    1180,1181                         
+ DLAT                       Local  1178     R(8)            8           scalar                    1195,1198                         
+ DLON                       Local  1178     R(8)            8           scalar                    1188,1191                         
+ FLOAT                      Func   1188                                 scalar                    1188,1191,1195,1198               
+ HPIE                       Local  1178     R(8)            8           scalar                    1186,1188,1193,1195,1196          
+ I                          Local  1177     I(4)            4           scalar                    1190,1191                         
+ J                          Local  1177     I(4)            4           scalar                    1197,1198                         
+ MOBS_SST                   Dummy  1175     I(4)            4           scalar   ARG,INOUT        1182,1188,1190,1193               
+ NOBS_SST                   Dummy  1175     I(4)            4           scalar   ARG,INOUT        1182,1195,1196,1197               
+ SB                         Local  1178     R(8)            8           scalar                    1195,1196,1198                    
+ SET_SST_GRID_EDGES_DAILY   Subr   1175                                                           568                               
+ WB                         Local  1178     R(8)            8           scalar                    1188,1189,1191                    
+
+Page 37          Source Listing                  SET_SST_GRID_EDGES_DAILY
+2021-06-01 08:55                                 amip_interp.F90
+
+   1202 ! end add by JHC
+   1203 !#######################################################################
+   1204 
+   1205 
+   1206    subroutine a2a_bilinear(nx, ny, dat1, n1, n2, dat2)
+   1207    integer, intent(in):: nx, ny
+   1208    integer, intent(in):: n1, n2
+   1209    real, intent(in) :: dat1(nx,ny)
+   1210    real, intent(out):: dat2(n1,n2)      !< output interpolated data
+   1211 
+   1212 ! local:
+   1213   real:: lon1(nx), lat1(ny)
+   1214   real:: lon2(n1), lat2(n2)
+   1215   real:: dx1, dy1, dx2, dy2
+   1216   real:: xc, yc
+   1217   real:: a1, b1, c1, c2, c3, c4
+   1218   integer i1, i2, jc, i0, j0, it, jt
+   1219   integer i,j
+   1220 
+   1221 
+   1222 !-----------------------------------------------------------
+   1223 ! * Interpolate from "FMS" 1x1 SST data grid to a finer grid
+   1224 !                     lon: 0.5, 1.5, ..., 359.5
+   1225 !                     lat: -89.5, -88.5, ... , 88.5, 89.5
+   1226 !-----------------------------------------------------------
+   1227 
+   1228   dx1 = 360./real(nx) !< INput Grid
+   1229   dy1 = 180./real(ny) !< INput Grid
+   1230 
+   1231   do i=1,nx
+   1232      lon1(i) = 0.5*dx1 + real(i-1)*dx1
+   1233   enddo
+   1234   do j=1,ny
+   1235      lat1(j) = -90. + 0.5*dy1 + real(j-1)*dy1
+   1236   enddo
+   1237 
+   1238   dx2 = 360./real(n1) !< OutPut Grid:
+   1239   dy2 = 180./real(n2) !< OutPut Grid:
+   1240 
+   1241   do i=1,n1
+   1242      lon2(i) = 0.5*dx2 + real(i-1)*dx2
+   1243   enddo
+   1244   do j=1,n2
+   1245      lat2(j) = -90. + 0.5*dy2 + real(j-1)*dy2
+   1246   enddo
+   1247 
+   1248   jt = 1
+   1249   do 5000 j=1,n2
+   1250 
+   1251      yc = lat2(j)
+   1252      if ( yc<lat1(1) ) then
+   1253             jc = 1
+   1254             b1 = 0.
+   1255      elseif ( yc>lat1(ny) ) then
+   1256             jc = ny-1
+   1257             b1 = 1.
+   1258      else
+
+Page 38          Source Listing                  A2A_BILINEAR
+2021-06-01 08:55                                 amip_interp.F90
+
+   1259           do j0=jt,ny-1
+   1260           if ( yc>=lat1(j0) .and. yc<=lat1(j0+1) ) then
+   1261                jc = j0
+   1262                jt = j0
+   1263                b1 = (yc-lat1(jc)) / dy1
+   1264                go to 222
+   1265           endif
+   1266           enddo
+   1267      endif
+   1268 222  continue
+   1269 
+   1270      it = 1
+   1271      do i=1,n1
+   1272         xc = lon2(i)
+   1273        if ( xc>lon1(nx) ) then
+   1274             i1 = nx;     i2 = 1
+   1275             a1 = (xc-lon1(nx)) / dx1
+   1276        elseif ( xc<lon1(1) ) then
+   1277             i1 = nx;     i2 = 1
+   1278             a1 = (xc+360.-lon1(nx)) / dx1
+   1279        else
+   1280             do i0=it,nx-1
+   1281             if ( xc>=lon1(i0) .and. xc<=lon1(i0+1) ) then
+   1282                i1 = i0;  i2 = i0+1
+   1283                it = i0
+   1284                a1 = (xc-lon1(i1)) / dx1
+   1285                go to 111
+   1286             endif
+   1287             enddo
+   1288        endif
+   1289 111    continue
+   1290 
+   1291 ! Debug code:
+   1292        if ( a1<-0.001 .or. a1>1.001 .or.  b1<-0.001 .or. b1>1.001 ) then
+   1293             write(*,*) i,j,a1, b1
+   1294             call mpp_error(FATAL,'a2a bilinear interpolation')
+   1295        endif
+   1296 
+   1297        c1 = (1.-a1) * (1.-b1)
+   1298        c2 =     a1  * (1.-b1)
+   1299        c3 =     a1  *     b1
+   1300        c4 = (1.-a1) *     b1
+   1301 
+   1302 ! Bilinear interpolation:
+   1303        dat2(i,j) = c1*dat1(i1,jc) + c2*dat1(i2,jc) + c3*dat1(i2,jc+1) + c4*dat1(i1,jc+1)
+   1304 
+   1305      enddo   !i-loop
+   1306 
+   1307 5000 continue   ! j-loop
+   1308 
+   1309    end subroutine a2a_bilinear
+
+Page 39          Source Listing                  A2A_BILINEAR
+2021-06-01 08:55 Entry Points                    amip_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                        
+                                              
+ amip_interp_mod_mp_a2a_bilinear_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ 111                        Label  1289                                                           1285                              
+ 222                        Label  1268                                                           1264                              
+ 5000                       Label  1307                                                           1249                              
+ A1                         Local  1217     R(8)            8           scalar                    1275,1278,1284,1292,1293,1297,1298
+                                                                                                  ,1299,1300                        
+ A2A_BILINEAR               Subr   1206                                                           1473                              
+ B1                         Local  1217     R(8)            8           scalar                    1254,1257,1263,1292,1293,1297,1298
+                                                                                                  ,1299,1300                        
+ C1                         Local  1217     R(8)            8           scalar                    1297,1303                         
+ C2                         Local  1217     R(8)            8           scalar                    1298,1303                         
+ C3                         Local  1217     R(8)            8           scalar                    1299,1303                         
+ C4                         Local  1217     R(8)            8           scalar                    1300,1303                         
+ DAT1                       Dummy  1206     R(8)            8     2     0        ARG,IN           1303                              
+ DAT2                       Dummy  1206     R(8)            8     2     0        ARG,OUT          1303                              
+ DX1                        Local  1215     R(8)            8           scalar                    1228,1232,1275,1278,1284          
+ DX2                        Local  1215     R(8)            8           scalar                    1238,1242                         
+ DY1                        Local  1215     R(8)            8           scalar                    1229,1235,1263                    
+ DY2                        Local  1215     R(8)            8           scalar                    1239,1245                         
+ I                          Local  1219     I(4)            4           scalar                    1231,1232,1241,1242,1271,1272,1293
+                                                                                                  ,1303                             
+ I0                         Local  1218     I(4)            4           scalar                    1280,1281,1282,1283               
+ I1                         Local  1218     I(4)            4           scalar                    1274,1277,1282,1284,1303          
+ I2                         Local  1218     I(4)            4           scalar                    1274,1277,1282,1303               
+ IT                         Local  1218     I(4)            4           scalar                    1270,1280,1283                    
+ J                          Local  1219     I(4)            4           scalar                    1234,1235,1244,1245,1249,1251,1293
+                                                                                                  ,1303                             
+ J0                         Local  1218     I(4)            4           scalar                    1259,1260,1261,1262               
+ JC                         Local  1218     I(4)            4           scalar                    1253,1256,1261,1263,1303          
+ JT                         Local  1218     I(4)            4           scalar                    1248,1259,1262                    
+ LAT1                       Local  1213     R(8)            8     1     0                         1235,1252,1255,1260,1263          
+ LAT2                       Local  1214     R(8)            8     1     0                         1245,1251                         
+ LON1                       Local  1213     R(8)            8     1     0                         1232,1273,1275,1276,1278,1281,1284
+ LON2                       Local  1214     R(8)            8     1     0                         1242,1272                         
+ MPP_ERROR_BASIC            Subr   1294                                          PRIV             1294,1672                         
+ N1                         Dummy  1206     I(4)            4           scalar   ARG,IN           1210,1214,1238,1241,1271          
+ N2                         Dummy  1206     I(4)            4           scalar   ARG,IN           1210,1214,1239,1244,1249          
+ NX                         Dummy  1206     I(4)            4           scalar   ARG,IN           1209,1213,1228,1231,1273,1274,1275
+                                                                                                  ,1277,1278,1280                   
+ NY                         Dummy  1206     I(4)            4           scalar   ARG,IN           1209,1213,1229,1234,1255,1256,1259
+ REAL                       Func   1228                                 scalar                    1228,1229,1232,1235,1238,1239,1242
+                                                                                                  ,1245                             
+ XC                         Local  1216     R(8)            8           scalar                    1272,1273,1275,1276,1278,1281,1284
+ YC                         Local  1216     R(8)            8           scalar                    1251,1252,1255,1260,1263          
+
+Page 40          Source Listing                  A2A_BILINEAR
+2021-06-01 08:55                                 amip_interp.F90
+
+   1310 
+   1311 !#######################################################################
+   1312 
+   1313 ! <SUBROUTINE NAME="get_sst_grid_size">
+   1314 
+   1315 !>   @brief Returns the size (i.e., number of longitude and latitude
+   1316 !!         points) of the observed data grid.
+   1317 !!
+   1318 !!   ERROR MSG="have not called amip_interp_new" STATUS="FATAL"
+   1319 !!     Must call amip_interp_new before get_sst_grid_size.
+   1320    subroutine get_sst_grid_size (nlon, nlat)
+   1321 
+   1322    integer, intent(out) :: nlon !< The number of longitude points (first dimension) in the
+   1323 !! observed data grid.  For AMIP 1 nlon = 180, and the Reynolds nlon = 360.
+   1324    integer, intent(out) :: nlat !< The number of latitude points (second dimension) in the
+   1325 !! observed data grid.  For AMIP 1 nlon = 91, and the Reynolds nlon = 180.
+   1326 
+   1327       if ( .not.module_is_initialized ) call amip_interp_init
+   1328 
+   1329       nlon = mobs;  nlat = nobs
+   1330 
+   1331    end subroutine get_sst_grid_size
+
+
+ENTRY POINTS
+
+  Name                                             
+                                                   
+ amip_interp_mod_mp_get_sst_grid_size_             
+
+Page 41          Source Listing                  GET_SST_GRID_SIZE
+2021-06-01 08:55 Symbol Table                    amip_interp.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_SST_GRID_SIZE          Subr   1320                                                                                             
+ NLAT                       Dummy  1320     I(4)            4           scalar   ARG,OUT          1329                              
+ NLON                       Dummy  1320     I(4)            4           scalar   ARG,OUT          1329                              
+
+Page 42          Source Listing                  GET_SST_GRID_SIZE
+2021-06-01 08:55                                 amip_interp.F90
+
+   1332 ! </SUBROUTINE>
+   1333 
+   1334 !#######################################################################
+   1335 
+   1336 ! <SUBROUTINE NAME="get_sst_grid_boundary">
+   1337 
+   1338 
+   1339 !> @brief Returns the grid box boundaries of the observed data grid.
+   1340 !!
+   1341 !! ERROR MSG="have not called amip_interp_new" STATUS="FATAL"
+   1342 !!     Must call amip_interp_new before get_sst_grid_boundary.
+   1343 !!
+   1344 !! ERROR MSG="invalid argument dimensions" STATUS="FATAL"
+   1345 !!     The size of the output argument arrays do not agree with
+   1346 !!     the size of the observed data. See the documentation for
+   1347 !!     interfaces get_sst_grid_size and get_sst_grid_boundary.
+   1348    subroutine get_sst_grid_boundary (blon, blat, mask)
+   1349 
+   1350    real,    intent(out) :: blon(:) !< The grid box edges (in radians) for longitude points of the
+   1351 !! observed data grid. The size of this argument must be nlon+1.
+   1352    real,    intent(out) :: blat(:) !< The grid box edges (in radians) for latitude points of the
+   1353 !! observed data grid. The size of this argument must be nlat+1.
+   1354    logical, intent(out) :: mask(:,:)
+   1355 
+   1356       if ( .not.module_is_initialized ) call amip_interp_init
+   1357 
+   1358 ! ---- check size of argument(s) ----
+   1359 
+   1360       if (size(blon(:)) /= mobs+1 .or. size(blat(:)) /= nobs+1)   &
+   1361       call error_mesg ('get_sst_grid_boundary in amip_interp_mod',  &
+   1362                        'invalid argument dimensions', FATAL)
+   1363 
+   1364 ! ---- return grid box edges -----
+   1365 
+   1366       blon = lon_bnd
+   1367       blat = lat_bnd
+   1368 
+   1369 ! ---- masking (data exists at all points) ----
+   1370 
+   1371       mask = .true.
+   1372 
+   1373 
+   1374    end subroutine get_sst_grid_boundary
+
+Page 43          Source Listing                  GET_SST_GRID_BOUNDARY
+2021-06-01 08:55 Entry Points                    amip_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ amip_interp_mod_mp_get_sst_grid_boundary_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ BLAT                       Dummy  1348     R(8)            8     1     1        ARG,OUT          1360,1367                         
+ BLON                       Dummy  1348     R(8)            8     1     1        ARG,OUT          1360,1366                         
+ GET_SST_GRID_BOUNDARY      Subr   1348                                                                                             
+ MASK                       Dummy  1348     L(4)            4     2     1        ARG,OUT          1371                              
+ SIZE                       Func   1360                                 scalar                    1360                              
+
+Page 44          Source Listing                  GET_SST_GRID_BOUNDARY
+2021-06-01 08:55                                 amip_interp.F90
+
+   1375 ! </SUBROUTINE>
+   1376 
+   1377 !#######################################################################
+   1378 
+   1379    subroutine read_record (type, Date, Adate, dat)
+   1380 
+   1381      character(len=*), intent(in)  :: type
+   1382      type (date_type), intent(in)  :: Date
+   1383      type (date_type), intent(inout) :: Adate
+   1384      real,             intent(out) :: dat(mobs,nobs)
+   1385      real :: tmp_dat(360,180)
+   1386 
+   1387      integer(I2_KIND) :: idat(mobs,nobs)
+   1388      integer :: nrecords, yr, mo, dy, ierr, k
+   1389      integer, dimension(:), allocatable :: ryr, rmo, rdy
+   1390      character(len=38)   :: mesg
+   1391      character(len=maxc) :: ncfilename, ncfieldname
+   1392      type(FmsNetcdfFile_t), pointer :: fileobj
+   1393 
+   1394 !---- set file and field name for NETCDF data sets ----
+   1395 
+   1396         ncfieldname = 'sst'
+   1397      if(type(1:3) == 'sst') then
+   1398         ncfilename = trim(file_name_sst)
+   1399         if (.not. use_mpp_io) fileobj => fileobj_sst
+   1400      else if(type(1:3) == 'ice') then
+   1401         ncfilename = trim(file_name_ice)
+   1402         if (.not. use_mpp_io) fileobj => fileobj_ice
+   1403         if (lowercase(trim(data_set)) == 'amip2' .or. &
+   1404             lowercase(trim(data_set)) == 'hurrell' .or. &
+   1405             lowercase(trim(data_set)) == 'daily') ncfieldname = 'ice' ! modified by JHC
+   1406      endif
+   1407 
+   1408      dy = 0 ! only processing monthly data
+   1409 
+   1410      if (verbose > 2 .and. mpp_pe() == 0)  &
+   1411           print *, 'looking for date = ', Date
+   1412 
+   1413 ! This code can handle amip1, reynolds, or reyoi type SST data files in netCDF format
+   1414      if (mpp_pe() == mpp_root_pe()) call mpp_error ('amip_interp_mod', &
+   1415           'Reading NetCDF formatted input data file: '//trim(ncfilename), NOTE)
+   1416 
+   1417      if (use_mpp_io) then
+   1418         call mpp_io_read_data (ncfilename, 'nrecords', nrecords, no_domain=.true.)
+   1419         if (nrecords < 1) call mpp_error('amip_interp_mod', &
+   1420                            'Invalid number of SST records in SST datafile: '//trim(ncfilename), FATAL)
+   1421         allocate(ryr(nrecords), rmo(nrecords), rdy(nrecords))
+   1422         call mpp_io_read_data(ncfilename, 'yr', ryr, no_domain=.true.)
+   1423         call mpp_io_read_data(ncfilename, 'mo', rmo, no_domain=.true.)
+   1424         call mpp_io_read_data(ncfilename, 'dy', rdy, no_domain=.true.)
+   1425      else
+   1426         call fms2_io_read_data (fileobj, 'nrecords', nrecords)
+   1427         if (nrecords < 1) call mpp_error('amip_interp_mod', &
+   1428                            'Invalid number of SST records in SST datafile: '//trim(ncfilename), FATAL)
+   1429         allocate(ryr(nrecords), rmo(nrecords), rdy(nrecords))
+   1430         call fms2_io_read_data(fileobj, 'yr', ryr)
+   1431         call fms2_io_read_data(fileobj, 'mo', rmo)
+
+Page 45          Source Listing                  READ_RECORD
+2021-06-01 08:55                                 amip_interp.F90
+
+   1432         call fms2_io_read_data(fileobj, 'dy', rdy)
+   1433      endif !if (use_mpp_io)
+   1434 
+   1435      ierr = 1
+   1436      do k = 1, nrecords
+   1437        yr = ryr(k);  mo = rmo(k)
+   1438        Adate = date_type( yr, mo, 0)
+   1439        Curr_date = Adate
+   1440        if (verbose > 2 .and. mpp_pe() == 0)  &
+   1441              print *, '....... checking   ', Adate
+   1442        if (Date == Adate) ierr = 0
+   1443        if (yr == 0 .and. mo == Date%month) ierr = 0
+   1444        if (ierr == 0) exit
+   1445      enddo
+   1446      if (ierr .ne. 0) call mpp_error('amip_interp_mod', &
+   1447                       'Model time is out of range not in SST data: '//trim(ncfilename), FATAL)
+   1448         deallocate(ryr, rmo, rdy)
+   1449 !PRINT *, 'New SST data: ', k, yr, mo, dy, Date%year, Date%month, Date%day, ryr(1), rmo(1)
+   1450 
+   1451 !---- check if climatological data should be used ----
+   1452 
+   1453      if (yr == 0 .or. mo == 0) then
+   1454         ierr = 0
+   1455         if (date_out_of_range == 'fail' )               ierr = 1
+   1456         if (date_out_of_range == 'initclimo' .and.  &
+   1457              Date > Date_end )   ierr = 1
+   1458         if (ierr /= 0) call error_mesg &
+   1459              ('read_record in amip_interp_mod', &
+   1460              'climo data read when NO climo data requested', FATAL)
+   1461      endif
+   1462 
+   1463 !---- read NETCDF data ----
+   1464 
+   1465      if ( interp_oi_sst ) then
+   1466           if (use_mpp_io) then
+   1467              call mpp_io_read_data(ncfilename, ncfieldname, tmp_dat, timelevel=k, no_domain=.true.)
+   1468           else
+   1469              call fms2_io_read_data(fileobj, ncfieldname, tmp_dat, unlim_dim_level=k)
+   1470           endif !if (use_mpp_io)
+   1471 !     interpolate tmp_dat(360, 180) ---> dat(mobs,nobs) (to enable SST anom computation)
+   1472           if ( mobs/=360 .or. nobs/=180 ) then
+   1473                call a2a_bilinear(360, 180, tmp_dat, mobs, nobs, dat)
+   1474           else
+   1475                dat(:,:) = tmp_dat(:,:)
+   1476           endif
+   1477      else
+   1478           if (use_mpp_io) then
+   1479               call mpp_io_read_data(ncfilename, ncfieldname, dat, timelevel=k, no_domain=.true.)
+   1480           else
+   1481               call fms2_io_read_data(fileobj, ncfieldname, dat, unlim_dim_level=k)
+   1482           endif !if (use_mpp_io)
+   1483      endif
+   1484     if (use_mpp_io) then
+   1485         idat =  nint(dat*100.) ! reconstruct packed data for reproducibility
+   1486     else
+   1487         idat =  nint(dat) ! reconstruct packed data for reproducibility
+   1488     endif !(use_mpp_io)
+
+Page 46          Source Listing                  READ_RECORD
+2021-06-01 08:55                                 amip_interp.F90
+
+   1489 
+   1490 !---- unpacking of data ----
+   1491 
+   1492      if (type(1:3) == 'ice') then
+   1493 !---- create fractional [0,1] ice mask
+   1494         if (lowercase(trim(data_set)) /= 'amip2' .and. lowercase(trim(data_set)) /= 'hurrell') then
+   1495                where ( idat <= ice_crit )
+   1496                    dat = 1.
+   1497                elsewhere
+   1498                    dat = 0.
+   1499                endwhere
+   1500         else
+   1501            dat = dat*0.01
+   1502         endif
+   1503      else if (type(1:3) == 'sst') then
+   1504 !---- unpack sst ----
+   1505         if (lowercase(trim(data_set)) /= 'amip2' .and. lowercase(trim(data_set)) /= 'hurrell') then
+   1506                dat = real(idat)*0.01 + TFREEZE
+   1507         endif
+   1508      endif
+   1509 
+   1510 
+   1511      return
+   1512 
+   1513 10   write (mesg, 20) unit
+   1514      call error_mesg ('read_record in amip_interp_mod', mesg, FATAL)
+   1515 
+   1516 20   format ('end of file reading unit ',i2,' (sst data)')
+   1517 
+   1518    end subroutine read_record
+
+Page 47          Source Listing                  READ_RECORD
+2021-06-01 08:55 Entry Points                    amip_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                       
+                                             
+ amip_interp_mod_mp_read_record_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ 10                         Label  1513                                                                                             
+ 20                         Label  1516                                                           1513                              
+ ADATE                      Dummy  1379     DATE_TYPE       12          scalar   ARG,INOUT        1438,1439,1441,1442               
+ COMPRESSED_READ_0D         Subr   1426                                          PRIV             1426                              
+ CURR_DATE                  Local  1439     DATE_TYPE       12          scalar                    272,1439                          
+ DAT                        Dummy  1379     R(8)            8     2     0        ARG,TGT,OUT      1473,1475,1479,1481,1485,1487,1496
+                                                                                                  ,1498,1501,1506                   
+ DATE                       Dummy  1379     DATE_TYPE       12          scalar   ARG,IN           1411,1442,1443,1457               
+ DY                         Local  1388     I(4)            4           scalar                    1408                              
+ FILEOBJ                    Local  1392     FMSNETCDFFILE_T 872         scalar   PTR              1399,1402,1426,1430,1431,1432,1469
+                                                                                                  ,1481                             
+ I2_KIND                    Param  1387     I(4)            4           scalar   PRIV             86,276,1387                       
+ IDAT                       Local  1387     I(2)            2     2     0                         1485,1487,1495,1506               
+ IERR                       Local  1388     I(4)            4           scalar                    1435,1442,1443,1444,1446,1454,1455
+                                                                                                  ,1457,1458                        
+ K                          Local  1388     I(4)            4           scalar                    1436,1437,1467,1469,1479,1481     
+ MESG                       Local  1390     CHAR            38          scalar                    1513,1514                         
+ MO                         Local  1388     I(4)            4           scalar                    1437,1438,1443,1453               
+ NCFIELDNAME                Local  1391     CHAR            128         scalar                    1396,1405,1467,1469,1479,1481     
+ NCFILENAME                 Local  1391     CHAR            128         scalar                    1398,1401,1415,1418,1420,1422,1423
+                                                                                                  ,1424,1428,1447,1467,1479         
+ NINT                       Func   1485                                 scalar                    1485,1487                         
+ NRECORDS                   Local  1388     I(4)            4           scalar                    1418,1419,1421,1426,1427,1429,1436
+ RDY                        Local  1389     I(4)            4     1     1        ALC              1421,1424,1429,1432,1448          
+ READ_DATA_I1D_NEW          Subr   1422                                          PRIV             1422,1423,1424                    
+ READ_DATA_ISCALAR_NEW      Subr   1418                                          PRIV             1418                              
+ READ_RECORD                Subr   1379                                                           504,517,802,823                   
+ REAL                       Func   1506                                 scalar                    1506                              
+ RMO                        Local  1389     I(4)            4     1     1        ALC              1421,1423,1429,1431,1437,1448     
+ RYR                        Local  1389     I(4)            4     1     1        ALC              1421,1422,1429,1430,1437,1448     
+ TMP_DAT                    Local  1385     R(8)            8     2     64800    TGT              1467,1469,1473,1475               
+ TRIM                       Func   1398                                 scalar                    1398,1401,1403,1404,1405,1415,1420
+                                                                                                  ,1428,1447,1494,1505              
+ TYPE                       Dummy  1379     CHAR                        scalar   ARG,IN           1397,1400,1492,1503               
+ YR                         Local  1388     I(4)            4           scalar                    1437,1438,1443,1453               
+
+
+
+Page 48          Source Listing                  READ_RECORD
+2021-06-01 08:55 Symbol Table                    amip_interp.F90
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DATE_TYPE.MONTH            I(4)            4     4              scalar                    1443,1543,1560,1578                
+
+Page 49          Source Listing                  READ_RECORD
+2021-06-01 08:55                                 amip_interp.F90
+
+   1519 
+   1520 !#######################################################################
+   1521 
+   1522    subroutine clip_data (type, dat)
+   1523 
+   1524    character(len=*), intent(in)    :: type
+   1525    real,             intent(inout) :: dat(:,:)
+   1526 
+   1527    if (type(1:3) == 'ice') then
+   1528        dat = min(max(dat,0.0),1.0)
+   1529    else if (type(1:3) == 'sst') then
+   1530        dat = max(tice_crit_k,dat)
+   1531    endif
+   1532 
+   1533    end subroutine clip_data
+
+
+ENTRY POINTS
+
+  Name                                     
+                                           
+ amip_interp_mod_mp_clip_data_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CLIP_DATA                  Subr   1522                                                           509,522,539,663,806,827           
+ DAT                        Dummy  1522     R(8)            8     2     1        ARG,INOUT        1528,1530                         
+ MAX                        Func   1528                                 scalar                    1528,1530                         
+ MIN                        Func   1528                                 scalar                    1528                              
+ TYPE                       Dummy  1522     CHAR                        scalar   ARG,IN           1527,1529                         
+
+Page 50          Source Listing                  CLIP_DATA
+2021-06-01 08:55                                 amip_interp.F90
+
+   1534 
+   1535 !#######################################################################
+   1536 
+   1537 !> @return logical answer
+   1538 function date_equals (Left, Right) result (answer)
+   1539 type (date_type), intent(in) :: Left, Right
+   1540 logical :: answer
+   1541 
+   1542    if (Left % year  == Right % year  .and.  &
+   1543        Left % month == Right % month .and.  &
+   1544        Left % day   == Right % day ) then
+   1545            answer = .true.
+   1546    else
+   1547            answer = .false.
+   1548    endif
+   1549 
+   1550 end function date_equals
+
+
+ENTRY POINTS
+
+  Name                                       
+                                             
+ amip_interp_mod_mp_date_equals_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ANSWER                     Local  1540     L(4)            4           scalar                    1545,1547                         
+ DATE_EQUALS                Func   1538     L(4)            4           scalar                    499,788,1442                      
+ LEFT                       Dummy  1538     DATE_TYPE       12          scalar   ARG,IN           1542,1543,1544                    
+ RIGHT                      Dummy  1538     DATE_TYPE       12          scalar   ARG,IN           1542,1543,1544                    
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DATE_TYPE.DAY              I(4)            4     8              scalar                    1544,1561,1579                     
+ DATE_TYPE.YEAR             I(4)            4     0              scalar                    1542,1559,1577                     
+
+Page 51          Source Listing                  DATE_EQUALS
+2021-06-01 08:55                                 amip_interp.F90
+
+   1551 
+   1552 !#######################################################################
+   1553 
+   1554 !> @return logical answer
+   1555 function date_not_equals (Left, Right) result (answer)
+   1556 type (date_type), intent(in) :: Left, Right
+   1557 logical :: answer
+   1558 
+   1559    if (Left % year  == Right % year  .and.  &
+   1560        Left % month == Right % month .and.  &
+   1561        Left % day   == Right % day ) then
+   1562            answer = .false.
+   1563    else
+   1564            answer = .true.
+   1565    endif
+   1566 
+   1567 end function date_not_equals
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ amip_interp_mod_mp_date_not_equals_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ANSWER                     Local  1557     L(4)            4           scalar                    1562,1564                         
+ DATE_NOT_EQUALS            Func   1555     L(4)            4           scalar                    497,516,786,813                   
+ LEFT                       Dummy  1555     DATE_TYPE       12          scalar   ARG,IN           1559,1560,1561                    
+ RIGHT                      Dummy  1555     DATE_TYPE       12          scalar   ARG,IN           1559,1560,1561                    
+
+Page 52          Source Listing                  DATE_NOT_EQUALS
+2021-06-01 08:55                                 amip_interp.F90
+
+   1568 
+   1569 !#######################################################################
+   1570 
+   1571 !> #return logical answer
+   1572 function date_gt (Left, Right) result (answer)
+   1573 type (date_type), intent(in) :: Left, Right
+   1574 logical :: answer
+   1575 integer :: i, dif(3)
+   1576 
+   1577    dif(1) = Left%year  - Right%year
+   1578    dif(2) = Left%month - Right%month
+   1579    dif(3) = Left%day   - Right%day
+   1580    answer = .false.
+   1581    do i = 1, 3
+   1582      if (dif(i) == 0) cycle
+   1583      if (dif(i)  < 0) exit
+   1584      if (dif(i)  > 0) then
+   1585          answer = .true.
+   1586          exit
+   1587      endif
+   1588    enddo
+   1589 
+   1590 end function date_gt
+
+
+ENTRY POINTS
+
+  Name                                   
+                                         
+ amip_interp_mod_mp_date_gt_             
+
+Page 53          Source Listing                  DATE_GT
+2021-06-01 08:55 Symbol Table                    amip_interp.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ANSWER                     Local  1574     L(4)            4           scalar                    1580,1585                         
+ DATE_GT                    Func   1572     L(4)            4           scalar                    1457                              
+ DIF                        Local  1575     I(4)            4     1     3                         1577,1578,1579,1582,1583,1584     
+ I                          Local  1575     I(4)            4           scalar                    1581,1582,1583,1584               
+ LEFT                       Dummy  1572     DATE_TYPE       12          scalar   ARG,IN           1577,1578,1579                    
+ RIGHT                      Dummy  1572     DATE_TYPE       12          scalar   ARG,IN           1577,1578,1579                    
+
+Page 54          Source Listing                  DATE_GT
+2021-06-01 08:55                                 amip_interp.F90
+
+   1591 
+   1592 !#######################################################################
+   1593 
+   1594 subroutine print_dates (Time, Date1, Udate1,  &
+   1595                               Date2, Udate2, fmonth)
+   1596 
+   1597    type (time_type), intent(in) :: Time
+   1598    type (date_type), intent(in) :: Date1, Udate1, Date2, Udate2
+   1599    real,             intent(in) :: fmonth
+   1600 
+   1601    integer :: year, month, day, hour, minute, second
+   1602 
+   1603    call get_date (Time, year, month, day, hour, minute, second)
+   1604 
+   1605    write (*,10) year,month,day, hour,minute,second
+   1606    write (*,20) fmonth
+   1607    write (*,30) Date1, Udate1
+   1608    write (*,40) Date2, Udate2
+   1609 
+   1610 10 format (/,' date(y/m/d h:m:s) = ',i4,2('/',i2.2),1x,2(i2.2,':'),i2.2)
+   1611 20 format (' fmonth = ',f9.7)
+   1612 30 format (' date1(y/m/d) = ',i4,2('/',i2.2),6x, &
+   1613                     'used = ',i4,2('/',i2.2),6x  )
+   1614 40 format (' date2(y/m/d) = ',i4,2('/',i2.2),6x, &
+   1615                     'used = ',i4,2('/',i2.2),6x  )
+   1616 
+   1617 end subroutine print_dates
+
+
+ENTRY POINTS
+
+  Name                                       
+                                             
+ amip_interp_mod_mp_print_dates_             
+
+Page 55          Source Listing                  PRINT_DATES
+2021-06-01 08:55 Symbol Table                    amip_interp.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ 10                         Label  1610                                                           1605                              
+ 20                         Label  1611                                                           1606                              
+ 30                         Label  1612                                                           1607                              
+ 40                         Label  1614                                                           1608                              
+ DATE1                      Dummy  1594     DATE_TYPE       12          scalar   ARG,IN           1607                              
+ DATE2                      Dummy  1595     DATE_TYPE       12          scalar   ARG,IN           1608                              
+ DAY                        Local  1601     I(4)            4           scalar                    1603,1605                         
+ FMONTH                     Dummy  1595     R(8)            8           scalar   ARG,IN           1606                              
+ HOUR                       Local  1601     I(4)            4           scalar                    1603,1605                         
+ MINUTE                     Local  1601     I(4)            4           scalar                    1603,1605                         
+ MONTH                      Local  1601     I(4)            4           scalar                    1603,1605                         
+ PRINT_DATES                Subr   1594                                                                                             
+ SECOND                     Local  1601     I(4)            4           scalar                    1603,1605                         
+ TIME                       Dummy  1594     TIME_TYPE       16          scalar   ARG,IN           1603                              
+ UDATE1                     Dummy  1594     DATE_TYPE       12          scalar   ARG,IN           1607                              
+ UDATE2                     Dummy  1595     DATE_TYPE       12          scalar   ARG,IN           1608                              
+ YEAR                       Local  1601     I(4)            4           scalar                    1603,1605                         
+
+Page 56          Source Listing                  PRINT_DATES
+2021-06-01 08:55                                 amip_interp.F90
+
+   1618 
+   1619 !#######################################################################
+   1620 
+   1621 subroutine zonal_sst (Time, ice, sst)
+   1622 
+   1623    type (time_type), intent(in)  :: Time
+   1624    real,             intent(out) :: ice(mobs,nobs), sst(mobs,nobs)
+   1625 
+   1626    real    :: tpi, fdate, eps, ph, sph, sph2, ts
+   1627    integer :: j
+   1628 
+   1629 ! namelist needed
+   1630 !
+   1631 !  teq  = sst at equator
+   1632 !  tdif = equator to pole sst difference
+   1633 !  tann = amplitude of annual cycle
+   1634 !  tlag = offset for time of year (for annual cycle)
+   1635 !
+   1636 
+   1637     tpi = 2.0*pi
+   1638 
+   1639     fdate = fraction_of_year (Time)
+   1640 
+   1641     eps = sin( tpi*(fdate-tlag) ) * tann
+   1642 
+   1643     do j = 1, nobs
+   1644 
+   1645         ph  = 0.5*(lat_bnd(j)+lat_bnd(j+1))
+   1646        sph  = sin(ph)
+   1647        sph2 = sph*sph
+   1648 
+   1649        ts = teq - tdif*sph2 - eps*sph
+   1650 
+   1651        sst(:,j) = ts
+   1652 
+   1653     enddo
+   1654 
+   1655     where ( sst < tice_crit_k )
+   1656        ice = 1.0
+   1657        sst = tice_crit_k
+   1658     elsewhere
+   1659        ice  = 0.0
+   1660     endwhere
+   1661 
+   1662 
+   1663 end subroutine zonal_sst
+
+Page 57          Source Listing                  ZONAL_SST
+2021-06-01 08:55 Entry Points                    amip_interp.F90
+
+
+
+ENTRY POINTS
+
+  Name                                     
+                                           
+ amip_interp_mod_mp_zonal_sst_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ EPS                        Local  1626     R(8)            8           scalar                    1641,1649                         
+ FDATE                      Local  1626     R(8)            8           scalar                    1639,1641                         
+ FRACTION_OF_YEAR           Func   1639     R(8)            8           scalar   PRIV             66,1639                           
+ ICE                        Dummy  1621     R(8)            8     2     0        ARG,OUT          1656,1659                         
+ J                          Local  1627     I(4)            4           scalar                    1643,1645,1651                    
+ PH                         Local  1626     R(8)            8           scalar                    1645,1646                         
+ SIN                        Func   1641                                 scalar                    1641,1646                         
+ SPH                        Local  1626     R(8)            8           scalar                    1646,1647,1649                    
+ SPH2                       Local  1626     R(8)            8           scalar                    1647,1649                         
+ SST                        Dummy  1621     R(8)            8     2     0        ARG,OUT          1651,1655,1657                    
+ TANN                       Local  1641     R(8)            8           scalar                    365,387,1641                      
+ TDIF                       Local  1649     R(8)            8           scalar                    364,387,1649                      
+ TEQ                        Local  1649     R(8)            8           scalar                    363,387,1649                      
+ TIME                       Dummy  1621     TIME_TYPE       16          scalar   ARG,IN           1639                              
+ TLAG                       Local  1641     R(8)            8           scalar                    366,387,1641                      
+ TPI                        Local  1626     R(8)            8           scalar                    1637,1641                         
+ TS                         Local  1626     R(8)            8           scalar                    1649,1651                         
+ ZONAL_SST                  Subr   1621                                                           470,759                           
+
+Page 58          Source Listing                  ZONAL_SST
+2021-06-01 08:55                                 amip_interp.F90
+
+   1664 
+   1665 !#######################################################################
+   1666 
+   1667 subroutine amip_interp_type_eq(amip_interp_out, amip_interp_in)
+   1668     type(amip_interp_type), intent(inout) :: amip_interp_out
+   1669     type(amip_interp_type), intent(in)    :: amip_interp_in
+   1670 
+   1671     if(.not.amip_interp_in%I_am_initialized) then
+   1672       call mpp_error(FATAL,'amip_interp_type_eq: amip_interp_type variable on right hand side is unassigned')
+   1673     endif
+   1674 
+   1675     amip_interp_out%Hintrp     =  amip_interp_in%Hintrp
+   1676     amip_interp_out%data1      => amip_interp_in%data1
+   1677     amip_interp_out%data2      => amip_interp_in%data2
+   1678     amip_interp_out%Date1      =  amip_interp_in%Date1
+   1679     amip_interp_out%Date2      =  amip_interp_in%Date2
+   1680     amip_interp_out%Date1      =  amip_interp_in%Date1
+   1681     amip_interp_out%Date2      =  amip_interp_in%Date2
+   1682     amip_interp_out%use_climo  =  amip_interp_in%use_climo
+   1683     amip_interp_out%use_annual =  amip_interp_in%use_annual
+   1684     amip_interp_out%I_am_initialized = .true.
+   1685 
+   1686 end subroutine amip_interp_type_eq
+
+
+ENTRY POINTS
+
+  Name                                               
+                                                     
+ amip_interp_mod_mp_amip_interp_type_eq_             
+
+Page 59          Source Listing                  AMIP_INTERP_TYPE_EQ
+2021-06-01 08:55 Symbol Table                    amip_interp.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ AMIP_INTERP_IN             Dummy  1667     AMIP_INTERP_TYPE                                                                        
+                                                            4648        scalar   ARG,IN           1671,1675,1676,1677,1678,1679,1680
+                                                                                                  ,1681,1682,1683                   
+ AMIP_INTERP_OUT            Dummy  1667     AMIP_INTERP_TYPE                                                                        
+                                                            4648        scalar   ARG,INOUT        1675,1676,1677,1678,1679,1680,1681
+                                                                                                  ,1682,1683,1684                   
+ AMIP_INTERP_TYPE_EQ        Subr   1667                                          PRIV                                               
+ HORIZ_INTERP_TYPE_EQ       Subr   1675                                          PRIV             1675                              
+
+Page 60          Source Listing                  AMIP_INTERP_TYPE_EQ
+2021-06-01 08:55                                 amip_interp.F90
+
+   1687 
+   1688 !#######################################################################
+   1689 
+   1690 end module amip_interp_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ AMIP_INTERP_DEL            Subr   103                                                            103                               
+ AMIP_INTERP_MOD            Module 64                                                                                               
+ AMIP_INTERP_NEW            Local  239                                  scalar                    102                               
+ CONSTANTS_MOD              Module 85                                                             85                                
+ FMS2_IO_MOD                Module 88                                                             88                                
+ FMS_IO_MOD                 Module 91                                                             91                                
+ FMS_MOD                    Module 80                                                             80,94                             
+ GET_AMIP_ICE               Subr   102                                                            102                               
+ GET_AMIP_SST               Subr   102                                                            102                               
+ GET_CAL_TIME_MOD           Module 72                                                             72                                
+ HORIZ_INTERP_MOD           Module 76                                                             76                                
+ HORIZ_INTERP_TYPE          Type   78                                   scalar   PRIV             78,251                            
+ MPP_IO_MOD                 Module 92                                                             92                                
+ MPP_MOD                    Module 87                                                             87                                
+ MPP_READ                   Local  92                                   scalar   PRIV             92                                
+ NULL                       Func   252                                  scalar   PTR              252,253                           
+ Operator (+)                      68                                                                                               
+ PLATFORM_MOD               Module 86                                                             86                                
+ R4_KIND                    Param  86       I(4)            4           scalar   PRIV             86                                
+ SET_TIME                   Local  69                                   scalar   PRIV             69                                
+ TIME_INTERP_MOD            Module 66                                                             66                                
+ TIME_MANAGER_MOD           Module 68                                                             68                                
+
+Page 61          Source Listing                  AMIP_INTERP_TYPE_EQ
+2021-06-01 08:55                                 amip_interp.F90
+
+   1691 ! <INFO>
+   1692 
+   1693 !   <FUTURE>
+   1694 !     Add AMIP 2 data set.
+   1695 !
+   1696 !     Other data sets (or extend current data sets).
+   1697 !   </FUTURE>
+   1698 
+   1699 ! </INFO>
+
+Page 62          Source Listing                  AMIP_INTERP_TYPE_EQ
+2021-06-01 08:55 Subprograms/Common Blocks       amip_interp.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ A2A_BILINEAR               Subr   1206                                                           1473                              
+ AMIP_INTERP_DEL            Subr   1099                                                                                             
+ AMIP_INTERP_INIT           Subr   952                                                                                              
+ AMIP_INTERP_MOD            Module 64                                                                                               
+ AMIP_INTERP_NEW_1D         Func   859      RECORD          4648        scalar   PRIV                                               
+ AMIP_INTERP_NEW_2D         Func   910      RECORD          4648        scalar   PRIV                                               
+ AMIP_INTERP_TYPE_EQ        Subr   1667                                          PRIV                                               
+ CLIP_DATA                  Subr   1522                                                           509,522,539,663,806,827           
+ DATE_EQUALS                Func   1538     L(4)            4           scalar                    499,788,1442                      
+ DATE_GT                    Func   1572     L(4)            4           scalar                    1457                              
+ DATE_NOT_EQUALS            Func   1555     L(4)            4           scalar                    497,516,786,813                   
+ GET_AMIP_ICE               Subr   720                                                                                              
+ GET_AMIP_SST               Subr   409                                                                                              
+ GET_SST_GRID_BOUNDARY      Subr   1348                                                                                             
+ GET_SST_GRID_SIZE          Subr   1320                                                                                             
+ PRINT_DATES                Subr   1594                                                                                             
+ READ_RECORD                Subr   1379                                                           504,517,802,823                   
+ SET_SST_GRID_EDGES_AMIP1   Subr   1118                                                           990                               
+ SET_SST_GRID_EDGES_DAILY   Subr   1175                                                           568                               
+ SET_SST_GRID_EDGES_OI      Subr   1144                                                           998,1008,1019,1028,1051           
+ ZONAL_SST                  Subr   1621                                                           470,759                           
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+
+Page 63          Source Listing                  AMIP_INTERP_TYPE_EQ
+2021-06-01 08:55                                 amip_interp.F90
+
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+
+Page 64          Source Listing                  AMIP_INTERP_TYPE_EQ
+2021-06-01 08:55                                 amip_interp.F90
+
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : amip_interp.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

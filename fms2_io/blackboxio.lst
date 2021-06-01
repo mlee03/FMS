@@ -1,0 +1,1590 @@
+Page 1           Source Listing                  BLACKBOXIO_INIT
+2021-06-01 08:53                                 /tmp/ifortVUw5jm.i90
+
+      1 # 1 "blackboxio.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 module blackboxio
+     22 use netcdf
+     23 use mpp_domains_mod
+     24 use fms_io_utils_mod
+     25 use netcdf_io_mod
+     26 use fms_netcdf_domain_io_mod
+     27 use fms_netcdf_unstructured_domain_io_mod
+     28 use mpp_mod, only: mpp_pe
+     29 use, intrinsic :: iso_fortran_env, only: error_unit
+     30 use platform_mod
+     31 implicit none
+     32 private
+     33 
+     34 integer, private :: fms2_ncchksz = -1 !< Chunksize (bytes) used in nc_open and nc_create
+     35 
+     36 public :: blackboxio_init
+     37 public :: create_diskless_netcdf_file_wrap
+     38 public :: netcdf_save_restart_wrap2
+     39 public :: netcdf_restore_state_wrap
+     40 public :: create_diskless_domain_file
+     41 public :: save_domain_restart_wrap
+     42 public :: restore_domain_state_wrap
+     43 public :: create_diskless_unstructured_domain_file
+     44 public :: unstructured_write_restart_wrap
+     45 
+     46 
+     47 contains
+     48 !> @brief Accepts the namelist fms2_io_nml variables relevant to blackboxio
+     49 subroutine blackboxio_init (chksz)
+     50 integer, intent(in) :: chksz
+     51  fms2_ncchksz = chksz
+     52 end subroutine blackboxio_init
+
+Page 2           Source Listing                  BLACKBOXIO_INIT
+2021-06-01 08:53 Entry Points                    blackboxio.F90
+
+
+
+ENTRY POINTS
+
+  Name                                      
+                                            
+ blackboxio_mp_blackboxio_init_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ BLACKBOXIO_INIT            Subr   49                                                                                               
+ CHKSZ                      Dummy  49       I(4)            4           scalar   ARG,IN           51                                
+ FMS2_NCCHKSZ               Local  51       I(4)            4           scalar   PRIV             34,51,145,146                     
+
+Page 3           Source Listing                  BLACKBOXIO_INIT
+2021-06-01 08:53                                 blackboxio.F90
+
+     53 
+     54 
+     55 !> @brief Create a new file path.
+     56 !! @internal
+     57 subroutine get_new_filename(path, new_path, directory, timestamp, new_name)
+     58 
+     59   character(len=*), intent(in) :: path !< File path.
+     60   character(len=*), intent(out) :: new_path !< New file path.
+     61   character(len=*), intent(in), optional :: directory !< Directory
+     62   character(len=*), intent(in), optional :: timestamp !< Time.
+     63   character(len=*), intent(in), optional :: new_name !< New file basename.
+     64 
+     65   character(len=256) :: dir
+     66   character(len=256) :: tstamp
+     67   character(len=256) :: nname
+     68 
+     69   dir = ""
+     70   if (present(directory)) then
+     71     call string_copy(dir, trim(directory)//"/")
+     72   endif
+     73   tstamp = ""
+     74   if (present(timestamp)) then
+     75     call string_copy(tstamp, trim(timestamp)//".")
+     76   endif
+     77   call string_copy(nname, trim(path))
+     78   if (present(new_name)) then
+     79     call string_copy(nname, trim(new_name))
+     80   endif
+     81   call string_copy(new_path, trim(dir)//trim(tstamp)//trim(nname))
+     82 end subroutine get_new_filename
+
+Page 4           Source Listing                  GET_NEW_FILENAME
+2021-06-01 08:53 Entry Points                    blackboxio.F90
+
+
+
+ENTRY POINTS
+
+  Name                                       
+                                             
+ blackboxio_mp_get_new_filename_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DIR                        Local  65       CHAR            256         scalar                    69,71,81                          
+ DIRECTORY                  Dummy  57       CHAR                        scalar   ARG,IN           70,71                             
+ GET_NEW_FILENAME           Subr   57                                                             391,424,533,565,656               
+ NEW_NAME                   Dummy  57       CHAR                        scalar   ARG,IN           78,79                             
+ NEW_PATH                   Dummy  57       CHAR                        scalar   ARG,OUT          81                                
+ NNAME                      Local  67       CHAR            256         scalar                    77,79,81                          
+ PATH                       Dummy  57       CHAR                        scalar   ARG,IN           77                                
+ PRESENT                    Func   70                                   scalar                    70,74,78                          
+ STRING_COPY                Subr   71                                            PRIV             71,75,77,79,81,126,469,499,504,606
+ TIMESTAMP                  Dummy  57       CHAR                        scalar   ARG,IN           74,75                             
+ TRIM                       Func   71                                   scalar                    71,75,77,79,81                    
+ TSTAMP                     Local  66       CHAR            256         scalar                    73,75,81                          
+
+Page 5           Source Listing                  GET_NEW_FILENAME
+2021-06-01 08:53                                 blackboxio.F90
+
+     83 
+     84 
+     85 !> @brief Create a unique filename (poor man's version of mktemp).
+     86 !! @internal
+     87 subroutine tempfile(filename)
+     88 
+     89   character(len=*), intent(out) :: filename !< New unique filename.
+     90 
+     91   real :: numr
+     92   integer :: numi
+     93 
+     94   do while(.true.)
+     95     call random_number(numr)
+     96     numi = transfer(numr, numi)
+     97     numi = iand(numi, z'FFFFFF')
+     98     write(filename, '(a,z6.6)') "tmp", numi
+     99     if (.not. file_exists(filename)) then
+    100       exit
+    101     endif
+    102   enddo
+    103 end subroutine tempfile
+
+
+ENTRY POINTS
+
+  Name                               
+                                     
+ blackboxio_mp_tempfile_             
+
+Page 6           Source Listing                  TEMPFILE
+2021-06-01 08:53 Symbol Table                    blackboxio.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FILENAME                   Dummy  87       CHAR                        scalar   ARG,OUT          98,99                             
+ FILE_EXISTS                Func   99       L(4)            4           scalar   PRIV             99                                
+ IAND                       Func   97                                   scalar                    97                                
+ NUMI                       Local  92       I(4)            4           scalar                    96,97,98                          
+ NUMR                       Local  91       R(8)            8           scalar                    95,96                             
+ RANDOM_NUMBER              Intrin 95                                                             95                                
+ TEMPFILE                   Subr   87                                                             128                               
+ TRANSFER                   Func   96                                   scalar                    96                                
+
+Page 7           Source Listing                  TEMPFILE
+2021-06-01 08:53                                 blackboxio.F90
+
+    104 
+    105 
+    106 !> @brief Create a "diskless" netcdf file to act as a buffer to support our "register
+    107 !!        data to a file without knowing its name" legacy restart I/O workflow.
+    108 !! @return Flag telling whether the creation of the buffer was successful.
+    109 !! @internal
+    110 function create_diskless_netcdf_file(fileobj, pelist, path) &
+    111   result(success)
+    112 
+    113   class(FmsNetcdfFile_t), intent(inout) :: fileobj !< File object.
+    114   integer, dimension(:), intent(in), optional :: pelist !< List of ranks associated
+    115 !! with this file.  If not
+    116 !! provided, only the current
+    117 !! rank will be able to
+    118 !! act on the file.
+    119   character(len=*), intent(in), optional :: path !< File path.
+    120   logical :: success
+    121 
+    122   integer :: cmode
+    123   integer :: err
+    124 
+    125   if (present(path)) then
+    126     call string_copy(fileobj%path, path)
+    127   else
+    128     call tempfile(fileobj%path)
+    129   endif
+    130   fileobj%nc_format = "classic"
+    131   fileobj%is_readonly = .false.
+    132   if (present(pelist)) then
+    133     allocate(fileobj%pelist(size(pelist)))
+    134     fileobj%pelist(:) = pelist(:)
+    135   else
+    136     allocate(fileobj%pelist(1))
+    137     fileobj%pelist(1) = mpp_pe()
+    138   endif
+    139   fileobj%io_root = fileobj%pelist(1)
+    140   fileobj%is_root = mpp_pe() .eq. fileobj%io_root
+    141   fileobj%is_restart = .true.
+    142   fileobj%is_diskless = .true.
+    143   cmode = ior(nf90_noclobber, nf90_classic_model)
+    144   cmode = ior(cmode, nf90_diskless)
+    145   if (fms2_ncchksz == -1) call error("create_diskless_netcdf_file :: fms2_ncchksz not set.")
+    146   err = nf90_create(trim(fileobj%path), cmode, fileobj%ncid, chunksize=fms2_ncchksz)
+    147   success = err .eq. nf90_noerr
+    148   if (.not. success) then
+    149     deallocate(fileobj%pelist)
+    150     return
+    151   endif
+    152   allocate(fileobj%restart_vars(max_num_restart_vars))
+    153   fileobj%num_restart_vars = 0
+    154   allocate(fileobj%compressed_dims(max_num_compressed_dims))
+    155   fileobj%num_compressed_dims = 0
+    156 end function create_diskless_netcdf_file
+
+Page 8           Source Listing                  CREATE_DISKLESS_NETCDF_FILE
+2021-06-01 08:53 Entry Points                    blackboxio.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ blackboxio_mp_create_diskless_netcdf_file_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CMODE                      Local  122      I(4)            4           scalar                    143,144,146                       
+ CREATE_DISKLESS_NETCDF_FIL                                                                                                         
+ E                          Func   110      L(4)            4           scalar                    365,462,603                       
+ ERR                        Local  123      I(4)            4           scalar                    146,147                           
+ ERROR                      Subr   145                                           PRIV             145,265,300,345,457,495,598,631   
+ FILEOBJ                    Dummy  110      RECORD          872         scalar   ARG,INOUT        126,128,130,131,133,134,136,137,13
+                                                                                                  9,140,141,142,146,149,152,153,154,
+                                                                                                  155                               
+ FMSNETCDFFILE_T            Type   113                                  scalar   PRIV             113,163,164,326,331,356,373,387,38
+                                                                                                  8,412,420,421                     
+ IOR                        Func   143                                  scalar                    143,144                           
+ MAX_NUM_COMPRESSED_DIMS    Param  154      I(4)            4           scalar   PRIV             154                               
+ MAX_NUM_RESTART_VARS       Param  152      I(4)            4           scalar   PRIV             152                               
+ MPP_PE                     Func   137      I(4)            4           scalar   PRIV             28,137,140                        
+ NF90_CLASSIC_MODEL         Param  143      I(4)            4           scalar   PRIV             143                               
+ NF90_CREATE                Func   146      I(4)            4           scalar   PRIV             146                               
+ NF90_DISKLESS              Param  144      I(4)            4           scalar   PRIV             144                               
+ NF90_NOCLOBBER             Param  143      I(4)            4           scalar   PRIV             143                               
+ NF90_NOERR                 Param  147      I(4)            4           scalar   PRIV             147                               
+ PATH                       Dummy  110      CHAR                        scalar   ARG,IN           125,126                           
+ PELIST                     Dummy  110      I(4)            4     1     1        ARG,IN           132,133,134                       
+ PRESENT                    Func   125                                  scalar                    125,132                           
+ SIZE                       Func   133                                  scalar                    133                               
+ SUCCESS                    Local  120      L(4)            4           scalar                    147,148                           
+ TRIM                       Func   146                                  scalar                    146                               
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ FMSNETCDFFILE_T.COMPRESSED_DIMS                                                                                           ...
+                            RECORD          408   696      1     1        ALC              154,308,309,310,311,313,314,316    
+ FMSNETCDFFILE_T.IO_ROOT    I(4)            4     592            scalar                    139,140                            
+ FMSNETCDFFILE_T.IS_DISKLESS                                                                                               ...
+                            L(4)            4     772            scalar                    142                                
+ FMSNETCDFFILE_T.IS_READONLY                                                                                               ...
+                            L(4)            4     256            scalar                    131,187                            
+ FMSNETCDFFILE_T.IS_RESTART L(4)            4     600            scalar                    141,285,343,493,629                
+ FMSNETCDFFILE_T.IS_ROOT    L(4)            4     596            scalar                    140,187                            
+ FMSNETCDFFILE_T.NCID       I(4)            4     260            scalar                    146,189,190,191,194,196,201,203,20 
+                                                                                           6,209,212,218,221,226,237,244,245, 
+                                                                                           248,250,254,256,260,262,268,269,27 
+                                                                                           7,279                              
+
+Page 9           Source Listing                  CREATE_DISKLESS_NETCDF_FILE
+2021-06-01 08:53 Symbol Table                    blackboxio.F90
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ FMSNETCDFFILE_T.NC_FORMAT  CHAR            256   264            scalar                    130                                
+ FMSNETCDFFILE_T.NUM_COMPRESSED_DIMS                                                                                       ...
+                            I(4)            4     768            scalar                    155,307,318                        
+ FMSNETCDFFILE_T.NUM_RESTART_VARS                                                                                          ...
+                            I(4)            4     688            scalar                    153,287,303                        
+ FMSNETCDFFILE_T.PATH       CHAR            256   0              scalar                    126,128,146,391,392,424,425,469,60 
+                                                                                           6                                  
+ FMSNETCDFFILE_T.PELIST     I(4)            4     520      1     1        ALC              133,134,136,137,139,149,343        
+ FMSNETCDFFILE_T.RESTART_VARS                                                                                              ...
+                            RECORD          2104  616      1     1        ALC              152,288,289,290,291,292,293,294,29 
+                                                                                           5,296,297,298                      
+
+Page 10          Source Listing                  CREATE_DISKLESS_NETCDF_FILE
+2021-06-01 08:53                                 blackboxio.F90
+
+    157 
+    158 
+    159 !> @brief Copy metadata from one file object to another.
+    160 !! @internal
+    161 subroutine copy_metadata(fileobj, new_fileobj)
+    162 
+    163   class(FmsNetcdfFile_t), intent(in), target :: fileobj !< File object.
+    164   class(FmsNetcdfFile_t), intent(inout) :: new_fileobj !< New file object.
+    165 
+    166   integer :: err
+    167   integer :: natt
+    168   integer :: ndim
+    169   integer :: varndim
+    170   integer :: nvar
+    171   character(len=nf90_max_name) :: n
+    172   character(len=nf90_max_name) :: varname
+    173   character(len=nf90_max_name), dimension(nf90_max_dims) :: dimnames
+    174   integer, dimension(nf90_max_dims) :: dimlens
+    175   integer :: xtype
+    176   integer, dimension(nf90_max_var_dims) :: dimids
+    177   integer, dimension(nf90_max_var_dims) :: d
+    178   integer :: ulim_dimid
+    179   integer :: varid
+    180   integer :: i
+    181   integer :: j
+    182   integer :: k
+    183   integer(kind=i4_kind), dimension(:), allocatable :: buf_int
+    184   real(kind=r4_kind), dimension(:), allocatable :: buf_float
+    185   real(kind=r8_kind), dimension(:), allocatable :: buf_double
+    186 
+    187   if (fileobj%is_root .and. .not. new_fileobj%is_readonly) then
+    188 !Copy global attributes to the new file.
+    189     call set_netcdf_mode(fileobj%ncid, define_mode)
+    190     call set_netcdf_mode(new_fileobj%ncid, define_mode)
+    191     err = nf90_inquire(fileobj%ncid, nattributes=natt)
+    192     call check_netcdf_code(err)
+    193     do i = 1, natt
+    194       err = nf90_inq_attname(fileobj%ncid, nf90_global, i, n)
+    195       call check_netcdf_code(err)
+    196       err = nf90_copy_att(fileobj%ncid, nf90_global, n, new_fileobj%ncid, nf90_global)
+    197       call check_netcdf_code(err)
+    198     enddo
+    199 
+    200 !Copy the dimensions to the new file.
+    201     err = nf90_inquire(fileobj%ncid, ndimensions=ndim)
+    202     call check_netcdf_code(err)
+    203     err = nf90_inquire(fileobj%ncid, unlimiteddimid=ulim_dimid)
+    204     call check_netcdf_code(err)
+    205     do i = 1, ndim
+    206       err = nf90_inquire_dimension(fileobj%ncid, i, dimnames(i), dimlens(i))
+    207       call check_netcdf_code(err)
+    208       if (i .eq. ulim_dimid) then
+    209         err = nf90_def_dim(new_fileobj%ncid, dimnames(i), nf90_unlimited, dimids(i))
+    210         ulim_dimid = dimids(i)
+    211       else
+    212         err = nf90_def_dim(new_fileobj%ncid, dimnames(i), dimlens(i), dimids(i))
+    213       endif
+
+Page 11          Source Listing                  COPY_METADATA
+2021-06-01 08:53                                 blackboxio.F90
+
+    214       call check_netcdf_code(err)
+    215     enddo
+    216 
+    217 !Copy the variables to the new file.
+    218     err = nf90_inquire(fileobj%ncid, nvariables=nvar)
+    219     call check_netcdf_code(err)
+    220     do i = 1, nvar
+    221       err = nf90_inquire_variable(fileobj%ncid, i, varname, xtype, varndim, d, natt)
+    222       call check_netcdf_code(err)
+    223 
+    224 !Map to new dimension ids.
+    225       do j = 1, varndim
+    226         err = nf90_inquire_dimension(fileobj%ncid, d(j), n)
+    227         call check_netcdf_code(err)
+    228         do k = 1, ndim
+    229           if (string_compare(n, dimnames(k))) then
+    230             d(j) = dimids(k)
+    231             exit
+    232           endif
+    233         enddo
+    234       enddo
+    235 
+    236 !Define variable in new file.
+    237       err = nf90_def_var(new_fileobj%ncid, varname, xtype, d(1:varndim), varid)
+    238       call check_netcdf_code(err)
+    239 
+    240 !If the variable is an "axis", copy its data to the new file.
+    241       if (varndim .eq. 1 .and. d(1) .ne. ulim_dimid) then
+    242         do k = 1, ndim
+    243           if (string_compare(varname, dimnames(k))) then
+    244             call set_netcdf_mode(fileobj%ncid, data_mode)
+    245             call set_netcdf_mode(new_fileobj%ncid, data_mode)
+    246             if (xtype .eq. nf90_int) then
+    247               allocate(buf_int(dimlens(k)))
+    248               err = nf90_get_var(fileobj%ncid, i, buf_int)
+    249               call check_netcdf_code(err)
+    250               err = nf90_put_var(new_fileobj%ncid, varid, buf_int)
+    251               deallocate(buf_int)
+    252             elseif (xtype .eq. nf90_float) then
+    253               allocate(buf_float(dimlens(k)))
+    254               err = nf90_get_var(fileobj%ncid, i, buf_float)
+    255               call check_netcdf_code(err)
+    256               err = nf90_put_var(new_fileobj%ncid, varid, buf_float)
+    257               deallocate(buf_float)
+    258             elseif (xtype .eq. nf90_double) then
+    259               allocate(buf_double(dimlens(k)))
+    260               err = nf90_get_var(fileobj%ncid, i, buf_double)
+    261               call check_netcdf_code(err)
+    262               err = nf90_put_var(new_fileobj%ncid, varid, buf_double)
+    263               deallocate(buf_double)
+    264             else
+    265               call error("this branch should not be reached.")
+    266             endif
+    267             call check_netcdf_code(err)
+    268             call set_netcdf_mode(fileobj%ncid, define_mode)
+    269             call set_netcdf_mode(new_fileobj%ncid, define_mode)
+    270             exit
+
+Page 12          Source Listing                  COPY_METADATA
+2021-06-01 08:53                                 blackboxio.F90
+
+    271           endif
+    272         enddo
+    273       endif
+    274 
+    275 !Copy variable attributes to the new file.
+    276       do j = 1, natt
+    277         err = nf90_inq_attname(fileobj%ncid, i, j, n)
+    278         call check_netcdf_code(err)
+    279         err = nf90_copy_att(fileobj%ncid, i, n, new_fileobj%ncid, varid)
+    280         call check_netcdf_code(err)
+    281       enddo
+    282     enddo
+    283   endif
+    284 
+    285   if (new_fileobj%is_restart) then
+    286 !Copy pointers to buffers (this is aliasing!).
+    287     do i = 1, fileobj%num_restart_vars
+    288       new_fileobj%restart_vars(i)%varname = fileobj%restart_vars(i)%varname
+    289       if (associated(fileobj%restart_vars(i)%data0d)) then
+    290         new_fileobj%restart_vars(i)%data0d => fileobj%restart_vars(i)%data0d
+    291       elseif (associated(fileobj%restart_vars(i)%data1d)) then
+    292         new_fileobj%restart_vars(i)%data1d => fileobj%restart_vars(i)%data1d
+    293       elseif (associated(fileobj%restart_vars(i)%data2d)) then
+    294         new_fileobj%restart_vars(i)%data2d => fileobj%restart_vars(i)%data2d
+    295       elseif (associated(fileobj%restart_vars(i)%data3d)) then
+    296         new_fileobj%restart_vars(i)%data3d => fileobj%restart_vars(i)%data3d
+    297       elseif (associated(fileobj%restart_vars(i)%data4d)) then
+    298         new_fileobj%restart_vars(i)%data4d => fileobj%restart_vars(i)%data4d
+    299       else
+    300         call error("this branch should not be reached.")
+    301       endif
+    302     enddo
+    303     new_fileobj%num_restart_vars = fileobj%num_restart_vars
+    304   endif
+    305 
+    306 !Copy compressed dimension metadata.
+    307   do i = 1, fileobj%num_compressed_dims
+    308     new_fileobj%compressed_dims(i)%dimname = fileobj%compressed_dims(i)%dimname
+    309     k = size(fileobj%compressed_dims(i)%npes_corner)
+    310     allocate(new_fileobj%compressed_dims(i)%npes_corner(k))
+    311     allocate(new_fileobj%compressed_dims(i)%npes_nelems(k))
+    312     do j = 1, k
+    313       new_fileobj%compressed_dims(i)%npes_corner(j) = fileobj%compressed_dims(i)%npes_corner(j)
+    314       new_fileobj%compressed_dims(i)%npes_nelems(j) = fileobj%compressed_dims(i)%npes_nelems(j)
+    315     enddo
+    316     new_fileobj%compressed_dims(i)%nelems = fileobj%compressed_dims(i)%nelems
+    317   enddo
+    318   new_fileobj%num_compressed_dims = fileobj%num_compressed_dims
+    319 end subroutine copy_metadata
+
+Page 13          Source Listing                  COPY_METADATA
+2021-06-01 08:53 Entry Points                    blackboxio.F90
+
+
+
+ENTRY POINTS
+
+  Name                                    
+                                          
+ blackboxio_mp_copy_metadata_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ASSOCIATED                 Func   289                                  scalar                    289,291,293,295,297               
+ BUF_DOUBLE                 Local  185      R(8)            8     1     1        ALC              259,260,262,263                   
+ BUF_FLOAT                  Local  184      R(4)            4     1     1        ALC              253,254,256,257                   
+ BUF_INT                    Local  183      I(4)            4     1     1        ALC              247,248,250,251                   
+ CHECK_NETCDF_CODE          Subr   192                                           PRIV             192,195,197,202,204,207,214,219,22
+                                                                                                  2,227,238,249,255,261,267,278,280 
+ COPY_METADATA              Subr   161                                                            347,497,633                       
+ D                          Local  177      I(4)            4     1     1024     TGT              221,226,230,237,241               
+ DATA_MODE                  Param  244      I(4)            4           scalar   PRIV             244,245                           
+ DEFINE_MODE                Param  189      I(4)            4           scalar   PRIV             189,190,268,269                   
+ DIMIDS                     Local  176      I(4)            4     1     1024                      209,210,212,230                   
+ DIMLENS                    Local  174      I(4)            4     1     1024                      206,212,247,253,259               
+ DIMNAMES                   Local  173      CHAR            256   1     1024                      206,209,212,229,243               
+ ERR                        Local  166      I(4)            4           scalar                    191,192,194,195,196,197,201,202,20
+                                                                                                  3,204,206,207,209,212,214,218,219,
+                                                                                                  221,222,226,227,237,238,248,249,25
+                                                                                                  0,254,255,256,260,261,262,267,277,
+                                                                                                  278,279,280                       
+ FILEOBJ                    Dummy  161      RECORD          872         scalar   ARG,TGT,IN       187,189,191,194,196,201,203,206,21
+                                                                                                  8,221,226,244,248,254,260,268,277,
+                                                                                                  279,287,288,289,290,291,292,293,29
+                                                                                                  4,295,296,297,298,303,307,308,309,
+                                                                                                  313,314,316,318                   
+ I                          Local  180      I(4)            4           scalar                    193,194,205,206,208,209,210,212,22
+                                                                                                  0,221,248,254,260,277,279,287,288,
+                                                                                                  289,290,291,292,293,294,295,296,29
+                                                                                                  7,298,307,308,309,310,311,313,314,
+                                                                                                  316                               
+ I4_KIND                    Param  183      I(4)            4           scalar   PRIV             183                               
+ J                          Local  181      I(4)            4           scalar                    225,226,230,276,277,312,313,314   
+ K                          Local  182      I(4)            4           scalar                    228,229,230,242,243,247,253,259,30
+                                                                                                  9,310,311,312                     
+ N                          Local  171      CHAR            256         scalar                    194,196,226,229,277,279           
+ NATT                       Local  167      I(4)            4           scalar                    191,193,221,276                   
+ NDIM                       Local  168      I(4)            4           scalar                    201,205,228,242                   
+ NEW_FILEOBJ                Dummy  161      RECORD          872         scalar   ARG,INOUT        187,190,196,209,212,237,245,250,25
+                                                                                                  6,262,269,279,285,288,290,292,294,
+                                                                                                  296,298,303,308,310,311,313,314,31
+                                                                                                  6,318                             
+ NF90_COPY_ATT              Func   196      I(4)            4           scalar   PRIV             196,279                           
+ NF90_DEF_DIM               Func   209      I(4)            4           scalar   PRIV             209,212                           
+ NF90_DEF_VAR               Local  237                                  scalar   PRIV             237                               
+ NF90_DEF_VAR_MANYDIMS      Func   237      I(4)            4           scalar   PRIV             237                               
+ NF90_DOUBLE                Param  258      I(4)            4           scalar   PRIV             258                               
+
+Page 14          Source Listing                  COPY_METADATA
+2021-06-01 08:53 Symbol Table                    blackboxio.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ NF90_FLOAT                 Param  252      I(4)            4           scalar   PRIV             252                               
+ NF90_GET_VAR               Local  248                                  scalar   PRIV             248,254,260                       
+ NF90_GET_VAR_1D_EIGHTBYTER                                                                                                         
+ EAL                        Func   260      I(4)            4           scalar   PRIV             260                               
+ NF90_GET_VAR_1D_FOURBYTEIN                                                                                                         
+ T                          Func   248      I(4)            4           scalar   PRIV             248                               
+ NF90_GET_VAR_1D_FOURBYTERE                                                                                                         
+ AL                         Func   254      I(4)            4           scalar   PRIV             254                               
+ NF90_GLOBAL                Param  194      I(4)            4           scalar   PRIV             194,196                           
+ NF90_INQUIRE               Func   191      I(4)            4           scalar   PRIV             191,201,203,218                   
+ NF90_INQUIRE_DIMENSION     Func   206      I(4)            4           scalar   PRIV             206,226                           
+ NF90_INQUIRE_VARIABLE      Func   221      I(4)            4           scalar   PRIV             221                               
+ NF90_INQ_ATTNAME           Func   194      I(4)            4           scalar   PRIV             194,277                           
+ NF90_INT                   Param  246      I(4)            4           scalar   PRIV             246                               
+ NF90_MAX_DIMS              Param  173      I(4)            4           scalar   PRIV             173,174                           
+ NF90_MAX_NAME              Param  171      I(4)            4           scalar   PRIV             171,172,173                       
+ NF90_MAX_VAR_DIMS          Param  176      I(4)            4           scalar   PRIV             176,177                           
+ NF90_PUT_VAR               Local  250                                  scalar   PRIV             250,256,262                       
+ NF90_PUT_VAR_1D_EIGHTBYTER                                                                                                         
+ EAL                        Func   262      I(4)            4           scalar   PRIV             262                               
+ NF90_PUT_VAR_1D_FOURBYTEIN                                                                                                         
+ T                          Func   250      I(4)            4           scalar   PRIV             250                               
+ NF90_PUT_VAR_1D_FOURBYTERE                                                                                                         
+ AL                         Func   256      I(4)            4           scalar   PRIV             256                               
+ NF90_UNLIMITED             Param  209      I(4)            4           scalar   PRIV             209                               
+ NVAR                       Local  170      I(4)            4           scalar                    218,220                           
+ R4_KIND                    Param  184      I(4)            4           scalar   PRIV             184                               
+ R8_KIND                    Param  185      I(4)            4           scalar   PRIV             185                               
+ SET_NETCDF_MODE            Subr   189                                           PRIV             189,190,244,245,268,269           
+ SIZE                       Func   309                                  scalar                    309                               
+ STRING_COMPARE             Func   229      L(4)            4           scalar   PRIV             229,243,392,425,534,566,657       
+ ULIM_DIMID                 Local  178      I(4)            4           scalar                    203,208,210,241                   
+ VARID                      Local  179      I(4)            4           scalar                    237,250,256,262,279               
+ VARNAME                    Local  172      CHAR            256         scalar                    221,237,243                       
+ VARNDIM                    Local  169      I(4)            4           scalar                    221,225,237,241                   
+ XTYPE                      Local  175      I(4)            4           scalar                    221,237,246,252,258               
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ COMPRESSEDDIMENSION_T.DIMNAME                                                                                             ...
+                            CHAR            256   0              scalar                    308                                
+ COMPRESSEDDIMENSION_T.NELEMS                                                                                              ...
+                            I(4)            4     400            scalar                    316                                
+ COMPRESSEDDIMENSION_T.NPES_CORNER                                                                                         ...
+                            I(4)            4     256      1     1        ALC              309,310,313                        
+ COMPRESSEDDIMENSION_T.NPES_NELEMS                                                                                         ...
+                            I(4)            4     328      1     1        ALC              311,314                            
+ RESTARTVARIABLE_T.DATA0D   RECORD                256            scalar   PTR              289,290                            
+ RESTARTVARIABLE_T.DATA1D   RECORD                384      1     1        PTR              291,292                            
+ RESTARTVARIABLE_T.DATA2D   RECORD                536      2     1        PTR              293,294                            
+ RESTARTVARIABLE_T.DATA3D   RECORD                712      3     1        PTR              295,296                            
+ RESTARTVARIABLE_T.DATA4D   RECORD                912      4     1        PTR              297,298                            
+
+Page 15          Source Listing                  COPY_METADATA
+2021-06-01 08:53 Symbol Table                    blackboxio.F90
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ RESTARTVARIABLE_T.VARNAME  CHAR            256   0              scalar                    288                                
+
+Page 16          Source Listing                  COPY_METADATA
+2021-06-01 08:53                                 blackboxio.F90
+
+    320 
+    321 
+    322 !> @brief Make a copy of a file's metadata to support "intermediate restarts".
+    323 !! @internal
+    324 subroutine new_netcdf_file(fileobj, path, mode, new_fileobj, nc_format)
+    325 
+    326   class(FmsNetcdfFile_t), intent(in), target :: fileobj !< File object.
+    327   character(len=*), intent(in) :: path !< Name of new file.
+    328   character(len=*), intent(in) :: mode !< File mode.  Allowed values are:
+    329 !! "read", "append", "write", or
+    330 !! "overwrite".
+    331   class(FmsNetcdfFile_t), intent(out) :: new_fileobj !< New file object.
+    332   character(len=*), intent(in), optional :: nc_format !< Netcdf format that
+    333 !! new files are written
+    334 !! as.  Allowed values
+    335 !! are: "64bit", "classic",
+    336 !! or "netcdf4". Defaults to
+    337 !! "64bit".
+    338 
+    339   logical :: success
+    340 
+    341 !Open the new file.
+    342   success = netcdf_file_open(new_fileobj, path, mode, nc_format, &
+    343                              fileobj%pelist, fileobj%is_restart)
+    344   if (.not. success) then
+    345     call error("error opening file "//trim(path)//".")
+    346   endif
+    347   call copy_metadata(fileobj, new_fileobj)
+    348 end subroutine new_netcdf_file
+
+Page 17          Source Listing                  NEW_NETCDF_FILE
+2021-06-01 08:53 Entry Points                    blackboxio.F90
+
+
+
+ENTRY POINTS
+
+  Name                                      
+                                            
+ blackboxio_mp_new_netcdf_file_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FILEOBJ                    Dummy  324      RECORD          872         scalar   ARG,TGT,IN       343,347                           
+ MODE                       Dummy  324      CHAR                        scalar   ARG,IN           342                               
+ NC_FORMAT                  Dummy  324      CHAR                        scalar   ARG,IN           342                               
+ NETCDF_FILE_OPEN           Func   342      L(4)            4           scalar   PRIV             342                               
+ NEW_FILEOBJ                Dummy  324      RECORD          872         scalar   ARG,OUT          342,347                           
+ NEW_NETCDF_FILE            Subr   324                                                            396,429                           
+ PATH                       Dummy  324      CHAR                        scalar   ARG,IN           342,345                           
+ SUCCESS                    Local  339      L(4)            4           scalar                    342,344                           
+ TRIM                       Func   345                                  scalar                    345                               
+
+Page 18          Source Listing                  NEW_NETCDF_FILE
+2021-06-01 08:53                                 blackboxio.F90
+
+    349 
+    350 
+    351 !> @brief Wrapper to distinguish interfaces.
+    352 !! @return Flag telling whether the creation of the buffer was successful.
+    353 function create_diskless_netcdf_file_wrap(fileobj, pelist, path) &
+    354   result(success)
+    355 
+    356   type(FmsNetcdfFile_t), intent(inout) :: fileobj !< File object.
+    357   integer, dimension(:), intent(in), optional :: pelist !< List of ranks associated
+    358 !! with this file.  If not
+    359 !! provided, only the current
+    360 !! rank will be able to
+    361 !! act on the file.
+    362   character(len=*), intent(in), optional :: path !< File path.
+    363   logical :: success
+    364 
+    365   success = create_diskless_netcdf_file(fileobj, pelist, path)
+    366 end function create_diskless_netcdf_file_wrap
+
+
+ENTRY POINTS
+
+  Name                                                       
+                                                             
+ blackboxio_mp_create_diskless_netcdf_file_wrap_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CREATE_DISKLESS_NETCDF_FIL                                                                                                         
+ E_WRAP                     Func   353      L(4)            4           scalar                                                      
+ FILEOBJ                    Dummy  353      FMSNETCDFFILE_T 872         scalar   ARG,INOUT        365                               
+ PATH                       Dummy  353      CHAR                        scalar   ARG,IN           365                               
+ PELIST                     Dummy  353      I(4)            4     1     1        ARG,IN           365                               
+ SUCCESS                    Local  363      L(4)            4           scalar                    365                               
+
+Page 19          Source Listing                  CREATE_DISKLESS_NETCDF_FILE_WRAP
+2021-06-01 08:53                                 blackboxio.F90
+
+    367 
+    368 
+    369 !> @brief Support for writing new restarts from a diskless file.
+    370 subroutine netcdf_save_restart_wrap2(fileobj, unlim_dim_level, directory, timestamp, &
+    371                                      filename, nc_format)
+    372 
+    373   type(FmsNetcdfFile_t), intent(in), target :: fileobj !< File object.
+    374   integer, intent(in), optional :: unlim_dim_level !< Unlimited dimension
+    375 !! level.
+    376   character(len=*), intent(in), optional :: directory !< Directory to write restart file to.
+    377   character(len=*), intent(in), optional :: timestamp !< Model time.
+    378   character(len=*), intent(in), optional :: filename !< New name for the file.
+    379   character(len=*), intent(in), optional :: nc_format !< Netcdf format that
+    380 !! new files are written
+    381 !! as.  Allowed values
+    382 !! are: "64bit", "classic",
+    383 !! or "netcdf4". Defaults to
+    384 !! "64bit".
+    385 
+    386   character(len=256) :: new_name
+    387   type(FmsNetcdfFile_t), target :: new_fileobj
+    388   type(FmsNetcdfFile_t), pointer :: p
+    389   logical :: close_new_file
+    390 
+    391   call get_new_filename(fileobj%path, new_name, directory, timestamp, filename)
+    392   if (string_compare(fileobj%path, new_name)) then
+    393     p => fileobj
+    394     close_new_file = .false.
+    395   else
+    396     call new_netcdf_file(fileobj, new_name, "write", new_fileobj, nc_format)
+    397     p => new_fileobj
+    398     close_new_file = .true.
+    399   endif
+    400   call netcdf_save_restart(p, unlim_dim_level)
+    401   if (close_new_file) then
+    402     call netcdf_file_close(p)
+    403   endif
+    404 end subroutine netcdf_save_restart_wrap2
+
+Page 20          Source Listing                  NETCDF_SAVE_RESTART_WRAP2
+2021-06-01 08:53 Entry Points                    blackboxio.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                
+                                                      
+ blackboxio_mp_netcdf_save_restart_wrap2_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CLOSE_NEW_FILE             Local  389      L(4)            4           scalar                    394,398,401                       
+ DIRECTORY                  Dummy  370      CHAR                        scalar   ARG,IN           391                               
+ FILENAME                   Dummy  371      CHAR                        scalar   ARG,IN           391                               
+ FILEOBJ                    Dummy  370      FMSNETCDFFILE_T 872         scalar   ARG,TGT,IN       391,392,393,396                   
+ NC_FORMAT                  Dummy  371      CHAR                        scalar   ARG,IN           396                               
+ NETCDF_FILE_CLOSE          Subr   402                                           PRIV             402,435                           
+ NETCDF_SAVE_RESTART        Subr   400                                           PRIV             400,658,661                       
+ NETCDF_SAVE_RESTART_WRAP2  Subr   370                                                                                              
+ NEW_FILEOBJ                Local  387      FMSNETCDFFILE_T 872         scalar   TGT              396,397                           
+ NEW_NAME                   Local  386      CHAR            256         scalar                    391,392,396                       
+ P                          Local  388      FMSNETCDFFILE_T 872         scalar   PTR              393,397,400,402                   
+ TIMESTAMP                  Dummy  370      CHAR                        scalar   ARG,IN           391                               
+ UNLIM_DIM_LEVEL            Dummy  370      I(4)            4           scalar   ARG,IN           400                               
+
+Page 21          Source Listing                  NETCDF_SAVE_RESTART_WRAP2
+2021-06-01 08:53                                 blackboxio.F90
+
+    405 
+    406 
+    407 !> @brief Loop through registered restart variables and read them from
+    408 !!        a netcdf file.
+    409 subroutine netcdf_restore_state_wrap(fileobj, unlim_dim_level, directory, timestamp, &
+    410                                      filename)
+    411 
+    412   type(FmsNetcdfFile_t), intent(inout), target :: fileobj !< File object.
+    413   integer, intent(in), optional :: unlim_dim_level !< Unlimited dimension
+    414 !! level.
+    415   character(len=*), intent(in), optional :: directory !< Directory to write restart file to.
+    416   character(len=*), intent(in), optional :: timestamp !< Model time.
+    417   character(len=*), intent(in), optional :: filename !< New name for the file.
+    418 
+    419   character(len=256) :: new_name
+    420   type(FmsNetcdfFile_t), target :: new_fileobj
+    421   type(FmsNetcdfFile_t), pointer :: p
+    422   logical :: close_new_file
+    423 
+    424   call get_new_filename(fileobj%path, new_name, directory, timestamp, filename)
+    425   if (string_compare(fileobj%path, new_name)) then
+    426     p => fileobj
+    427     close_new_file = .false.
+    428   else
+    429     call new_netcdf_file(fileobj, new_name, "read", new_fileobj)
+    430     p => new_fileobj
+    431     close_new_file = .true.
+    432   endif
+    433   call netcdf_restore_state(p, unlim_dim_level)
+    434   if (close_new_file) then
+    435     call netcdf_file_close(p)
+    436   endif
+    437 end subroutine netcdf_restore_state_wrap
+
+Page 22          Source Listing                  NETCDF_RESTORE_STATE_WRAP
+2021-06-01 08:53 Entry Points                    blackboxio.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                
+                                                      
+ blackboxio_mp_netcdf_restore_state_wrap_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CLOSE_NEW_FILE             Local  422      L(4)            4           scalar                    427,431,434                       
+ DIRECTORY                  Dummy  409      CHAR                        scalar   ARG,IN           424                               
+ FILENAME                   Dummy  410      CHAR                        scalar   ARG,IN           424                               
+ FILEOBJ                    Dummy  409      FMSNETCDFFILE_T 872         scalar   ARG,TGT,INOUT    424,425,426,429                   
+ NETCDF_RESTORE_STATE       Subr   433                                           PRIV             433                               
+ NETCDF_RESTORE_STATE_WRAP  Subr   409                                                                                              
+ NEW_FILEOBJ                Local  420      FMSNETCDFFILE_T 872         scalar   TGT              429,430                           
+ NEW_NAME                   Local  419      CHAR            256         scalar                    424,425,429                       
+ P                          Local  421      FMSNETCDFFILE_T 872         scalar   PTR              426,430,433,435                   
+ TIMESTAMP                  Dummy  409      CHAR                        scalar   ARG,IN           424                               
+ UNLIM_DIM_LEVEL            Dummy  409      I(4)            4           scalar   ARG,IN           433                               
+
+Page 23          Source Listing                  NETCDF_RESTORE_STATE_WRAP
+2021-06-01 08:53                                 blackboxio.F90
+
+    438 
+    439 
+    440 !> @brief Create a "diskless" netcdf file to act as a buffer to support our "register
+    441 !!        data to a file without knowing its name" legacy restart I/O workflow.
+    442 !! @return Flag telling whether the creation of the buffer was successful.
+    443 function create_diskless_domain_file(fileobj, domain, path) &
+    444   result(success)
+    445 
+    446   type(FmsNetcdfDomainFile_t), intent(inout) :: fileobj !< File object.
+    447   type(domain2d), intent(in) :: domain !< Two-dimensional domain.
+    448   character(len=*), intent(in), optional :: path !< File path.
+    449   logical :: success
+    450 
+    451   type(domain2d), pointer :: io_domain
+    452   integer :: pelist_size
+    453   integer, dimension(:), allocatable :: pelist
+    454 
+    455   io_domain => mpp_get_io_domain(domain)
+    456   if (.not. associated(io_domain)) then
+    457     call error("input domain does not have an io_domain.")
+    458   endif
+    459   pelist_size = mpp_get_domain_npes(io_domain)
+    460   allocate(pelist(pelist_size))
+    461   call mpp_get_pelist(io_domain, pelist)
+    462   success = create_diskless_netcdf_file(fileobj, pelist, path)
+    463   deallocate(pelist)
+    464   fileobj%domain = domain
+    465   allocate(fileobj%xdims(max_num_domain_decomposed_dims))
+    466   fileobj%nx = 0
+    467   allocate(fileobj%ydims(max_num_domain_decomposed_dims))
+    468   fileobj%ny = 0
+    469   call string_copy(fileobj%non_mangled_path, fileobj%path)
+    470 end function create_diskless_domain_file
+
+Page 24          Source Listing                  CREATE_DISKLESS_DOMAIN_FILE
+2021-06-01 08:53 Entry Points                    blackboxio.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ blackboxio_mp_create_diskless_domain_file_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ASSOCIATED                 Func   456                                  scalar                    456                               
+ CREATE_DISKLESS_DOMAIN_FIL                                                                                                         
+ E                          Func   443      L(4)            4           scalar                                                      
+ DOMAIN                     Dummy  443      DOMAIN2D        752         scalar   ARG,IN           455,464                           
+ DOMAIN2D                   Type   447                                  scalar                    447,451                           
+ FILEOBJ                    Dummy  443      FMSNETCDFDOMAINFILE_T                                                                   
+                                                            2040        scalar   ARG,INOUT        462,464,465,466,467,468,469       
+ FMSNETCDFDOMAINFILE_T      Type   446                                  scalar   PRIV             446,477,481,516,529,530,554,561,56
+                                                                                                  2                                 
+ IO_DOMAIN                  Local  451      DOMAIN2D        752         scalar   PTR              455,456,459,461                   
+ MAX_NUM_DOMAIN_DECOMPOSED_                                                                                                         
+ DIMS                       Param  465      I(4)            4           scalar   PRIV             465,467                           
+ MPP_GET_DOMAIN_NPES        Func   459      I(4)            4           scalar   PRIV             459                               
+ MPP_GET_IO_DOMAIN          Func   455      RECORD          752         scalar   PTR,PRIV         455                               
+ MPP_GET_PELIST             Local  461                                  scalar   PRIV             461                               
+ MPP_GET_PELIST2D           Subr   461                                           PRIV             461                               
+ PATH                       Dummy  443      CHAR                        scalar   ARG,IN           462                               
+ PELIST                     Local  453      I(4)            4     1     1        ALC              460,461,462,463                   
+ PELIST_SIZE                Local  452      I(4)            4           scalar                    459,460                           
+ SUCCESS                    Local  449      L(4)            4           scalar                    462                               
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ FMSNETCDFDOMAINFILE_T.DOMAIN                                                                                              ...
+                            DOMAIN2D        752   872            scalar                    464,492                            
+ FMSNETCDFDOMAINFILE_T.NON_MANGLED_PATH                                                                                    ...
+                            CHAR            256   1780           scalar                    469,533,534,565,566                
+ FMSNETCDFDOMAINFILE_T.NX   I(4)            4     1696           scalar                    466,498,502                        
+ FMSNETCDFDOMAINFILE_T.NY   I(4)            4     1776           scalar                    468,503,507                        
+ FMSNETCDFDOMAINFILE_T.XDIMS                                                                                               ...
+                            RECORD          260   1624     1     1        ALC              465,499,500                        
+ FMSNETCDFDOMAINFILE_T.YDIMS                                                                                               ...
+                            RECORD          260   1704     1     1        ALC              467,504,505                        
+
+Page 25          Source Listing                  CREATE_DISKLESS_DOMAIN_FILE
+2021-06-01 08:53                                 blackboxio.F90
+
+    471 
+    472 
+    473 !> @brief Make a copy of a file's metadata to support "intermediate restarts".
+    474 !! @internal
+    475 subroutine new_domain_file(fileobj, path, mode, new_fileobj, nc_format)
+    476 
+    477   type(FmsNetcdfDomainFile_t), intent(in) :: fileobj !< File object.
+    478   character(len=*), intent(in) :: path !< Name of new file.
+    479   character(len=*), intent(in) :: mode !< File mode.  Allowed values are:
+    480 !! "read", "append", "write", or "overwrite".
+    481   type(FmsNetcdfDomainFile_t), intent(out) :: new_fileobj !< File object.
+    482   character(len=*), intent(in), optional :: nc_format !< Netcdf format that
+    483 !! new files are written
+    484 !! as.  Allowed values
+    485 !! are: "64bit", "classic",
+    486 !! or "netcdf4". Defaults to
+    487 !! "64bit".
+    488 
+    489   logical :: success
+    490   integer :: i
+    491 
+    492   success = open_domain_file(new_fileobj, path, mode, fileobj%domain, nc_format, &
+    493                              fileobj%is_restart)
+    494   if (.not. success) then
+    495     call error("error opening file "//trim(path)//".")
+    496   endif
+    497   call copy_metadata(fileobj, new_fileobj)
+    498   do i = 1, fileobj%nx
+    499     call string_copy(new_fileobj%xdims(i)%varname, fileobj%xdims(i)%varname)
+    500     new_fileobj%xdims(i)%pos = fileobj%xdims(i)%pos
+    501   enddo
+    502   new_fileobj%nx = fileobj%nx
+    503   do i = 1, fileobj%ny
+    504     call string_copy(new_fileobj%ydims(i)%varname, fileobj%ydims(i)%varname)
+    505     new_fileobj%ydims(i)%pos = fileobj%ydims(i)%pos
+    506   enddo
+    507   new_fileobj%ny = fileobj%ny
+    508 end subroutine new_domain_file
+
+Page 26          Source Listing                  NEW_DOMAIN_FILE
+2021-06-01 08:53 Entry Points                    blackboxio.F90
+
+
+
+ENTRY POINTS
+
+  Name                                      
+                                            
+ blackboxio_mp_new_domain_file_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FILEOBJ                    Dummy  475      FMSNETCDFDOMAINFILE_T                                                                   
+                                                            2040        scalar   ARG,IN           492,493,497,498,499,500,502,503,50
+                                                                                                  4,505,507                         
+ I                          Local  490      I(4)            4           scalar                    498,499,500,503,504,505           
+ MODE                       Dummy  475      CHAR                        scalar   ARG,IN           492                               
+ NC_FORMAT                  Dummy  475      CHAR                        scalar   ARG,IN           492                               
+ NEW_DOMAIN_FILE            Subr   475                                                            538,570                           
+ NEW_FILEOBJ                Dummy  475      FMSNETCDFDOMAINFILE_T                                                                   
+                                                            2040        scalar   ARG,OUT          492,497,499,500,502,504,505,507   
+ OPEN_DOMAIN_FILE           Func   492      L(4)            4           scalar   PRIV             492                               
+ PATH                       Dummy  475      CHAR                        scalar   ARG,IN           492,495                           
+ SUCCESS                    Local  489      L(4)            4           scalar                    492,494                           
+ TRIM                       Func   495                                  scalar                    495                               
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DOMAINDIMENSION_T.POS      I(4)            4     256            scalar                    500,505                            
+ DOMAINDIMENSION_T.VARNAME  CHAR            256   0              scalar                    499,504                            
+
+Page 27          Source Listing                  NEW_DOMAIN_FILE
+2021-06-01 08:53                                 blackboxio.F90
+
+    509 
+    510 
+    511 !> @brief Loop through registered restart variables and write them to
+    512 !!        a netcdf file.
+    513 subroutine save_domain_restart_wrap(fileobj, unlim_dim_level, directory, timestamp, &
+    514                                     filename, nc_format)
+    515 
+    516   type(FmsNetcdfDomainFile_t), intent(in), target :: fileobj !< File object.
+    517   integer, intent(in), optional :: unlim_dim_level !< Unlimited dimension level.
+    518   character(len=*), intent(in), optional :: directory !< Directory to write restart file to.
+    519   character(len=*), intent(in), optional :: timestamp !< Model time.
+    520   character(len=*), intent(in), optional :: filename !< New name for the file.
+    521   character(len=*), intent(in), optional :: nc_format !< Netcdf format that
+    522 !! new files are written
+    523 !! as.  Allowed values
+    524 !! are: "64bit", "classic",
+    525 !! or "netcdf4". Defaults to
+    526 !! "64bit".
+    527 
+    528   character(len=256) :: new_name
+    529   type(FmsNetcdfDomainFile_t), target :: new_fileobj
+    530   type(FmsNetcdfDomainFile_t), pointer :: p
+    531   logical :: close_new_file
+    532 
+    533   call get_new_filename(fileobj%non_mangled_path, new_name, directory, timestamp, filename)
+    534   if (string_compare(fileobj%non_mangled_path, new_name)) then
+    535     p => fileobj
+    536     close_new_file = .false.
+    537   else
+    538     call new_domain_file(fileobj, new_name, "write", new_fileobj, nc_format)
+    539     p => new_fileobj
+    540     close_new_file = .true.
+    541   endif
+    542   call save_domain_restart(p, unlim_dim_level)
+    543   if (close_new_file) then
+    544     call close_domain_file(p)
+    545   endif
+    546 end subroutine save_domain_restart_wrap
+
+Page 28          Source Listing                  SAVE_DOMAIN_RESTART_WRAP
+2021-06-01 08:53 Entry Points                    blackboxio.F90
+
+
+
+ENTRY POINTS
+
+  Name                                               
+                                                     
+ blackboxio_mp_save_domain_restart_wrap_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CLOSE_DOMAIN_FILE          Subr   544                                           PRIV             544,576                           
+ CLOSE_NEW_FILE             Local  531      L(4)            4           scalar                    536,540,543                       
+ DIRECTORY                  Dummy  513      CHAR                        scalar   ARG,IN           533                               
+ FILENAME                   Dummy  514      CHAR                        scalar   ARG,IN           533                               
+ FILEOBJ                    Dummy  513      FMSNETCDFDOMAINFILE_T                                                                   
+                                                            2040        scalar   ARG,TGT,IN       533,534,535,538                   
+ NC_FORMAT                  Dummy  514      CHAR                        scalar   ARG,IN           538                               
+ NEW_FILEOBJ                Local  529      FMSNETCDFDOMAINFILE_T                                                                   
+                                                            2040        scalar   TGT              538,539                           
+ NEW_NAME                   Local  528      CHAR            256         scalar                    533,534,538                       
+ P                          Local  530      FMSNETCDFDOMAINFILE_T                                                                   
+                                                            2040        scalar   PTR              535,539,542,544                   
+ SAVE_DOMAIN_RESTART        Subr   542                                           PRIV             542                               
+ SAVE_DOMAIN_RESTART_WRAP   Subr   513                                                                                              
+ TIMESTAMP                  Dummy  513      CHAR                        scalar   ARG,IN           533                               
+ UNLIM_DIM_LEVEL            Dummy  513      I(4)            4           scalar   ARG,IN           542                               
+
+Page 29          Source Listing                  SAVE_DOMAIN_RESTART_WRAP
+2021-06-01 08:53                                 blackboxio.F90
+
+    547 
+    548 
+    549 !> @brief Loop through registered restart variables and read them from
+    550 !!        a netcdf file.
+    551 subroutine restore_domain_state_wrap(fileobj, unlim_dim_level, directory, timestamp, &
+    552                                      filename)
+    553 
+    554   type(FmsNetcdfDomainFile_t), intent(in), target :: fileobj !< File object.
+    555   integer, intent(in), optional :: unlim_dim_level !< Unlimited dimension level.
+    556   character(len=*), intent(in), optional :: directory !< Directory to write restart file to.
+    557   character(len=*), intent(in), optional :: timestamp !< Model time.
+    558   character(len=*), intent(in), optional :: filename !< New name for the file.
+    559 
+    560   character(len=256) :: new_name
+    561   type(FmsNetcdfDomainFile_t), target :: new_fileobj
+    562   type(FmsNetcdfDomainFile_t), pointer :: p
+    563   logical :: close_new_file
+    564 
+    565   call get_new_filename(fileobj%non_mangled_path, new_name, directory, timestamp, filename)
+    566   if (string_compare(fileobj%non_mangled_path, new_name)) then
+    567     p => fileobj
+    568     close_new_file = .false.
+    569   else
+    570     call new_domain_file(fileobj, new_name, "read", new_fileobj)
+    571     p => new_fileobj
+    572     close_new_file = .true.
+    573   endif
+    574   call restore_domain_state(p, unlim_dim_level)
+    575   if (close_new_file) then
+    576     call close_domain_file(p)
+    577   endif
+    578 end subroutine restore_domain_state_wrap
+
+Page 30          Source Listing                  RESTORE_DOMAIN_STATE_WRAP
+2021-06-01 08:53 Entry Points                    blackboxio.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                
+                                                      
+ blackboxio_mp_restore_domain_state_wrap_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CLOSE_NEW_FILE             Local  563      L(4)            4           scalar                    568,572,575                       
+ DIRECTORY                  Dummy  551      CHAR                        scalar   ARG,IN           565                               
+ FILENAME                   Dummy  552      CHAR                        scalar   ARG,IN           565                               
+ FILEOBJ                    Dummy  551      FMSNETCDFDOMAINFILE_T                                                                   
+                                                            2040        scalar   ARG,TGT,IN       565,566,567,570                   
+ NEW_FILEOBJ                Local  561      FMSNETCDFDOMAINFILE_T                                                                   
+                                                            2040        scalar   TGT              570,571                           
+ NEW_NAME                   Local  560      CHAR            256         scalar                    565,566,570                       
+ P                          Local  562      FMSNETCDFDOMAINFILE_T                                                                   
+                                                            2040        scalar   PTR              567,571,574,576                   
+ RESTORE_DOMAIN_STATE       Subr   574                                           PRIV             574                               
+ RESTORE_DOMAIN_STATE_WRAP  Subr   551                                                                                              
+ TIMESTAMP                  Dummy  551      CHAR                        scalar   ARG,IN           565                               
+ UNLIM_DIM_LEVEL            Dummy  551      I(4)            4           scalar   ARG,IN           574                               
+
+Page 31          Source Listing                  RESTORE_DOMAIN_STATE_WRAP
+2021-06-01 08:53                                 blackboxio.F90
+
+    579 
+    580 
+    581 !> @brief Create a "diskless" netcdf file to act as a buffer to support our "register
+    582 !!        data to a file without knowing its name" legacy restart I/O workflow.
+    583 !! @return Flag telling whether the creation of the buffer was successful.
+    584 function create_diskless_unstructured_domain_file(fileobj, domain, path) &
+    585   result(success)
+    586 
+    587   type(FmsNetcdfUnstructuredDomainFile_t), intent(inout) :: fileobj !< File object.
+    588   type(domainug), intent(in) :: domain !< Two-dimensional domain.
+    589   character(len=*), intent(in), optional :: path !< File path.
+    590   logical :: success
+    591 
+    592   type(domainug), pointer :: io_domain
+    593   integer :: pelist_size
+    594   integer, dimension(:), allocatable :: pelist
+    595 
+    596   io_domain => mpp_get_ug_io_domain(domain)
+    597   if (.not. associated(io_domain)) then
+    598     call error("input domain does not have an io_domain.")
+    599   endif
+    600   pelist_size = mpp_get_ug_domain_npes(io_domain)
+    601   allocate(pelist(pelist_size))
+    602   call mpp_get_ug_domain_pelist(io_domain, pelist)
+    603   success = create_diskless_netcdf_file(fileobj, pelist, path)
+    604   deallocate(pelist)
+    605   fileobj%domain = domain
+    606   call string_copy(fileobj%non_mangled_path, fileobj%path)
+    607 end function create_diskless_unstructured_domain_file
+
+Page 32          Source Listing                  CREATE_DISKLESS_UNSTRUCTURED_DOMAIN_FILE
+2021-06-01 08:53 Entry Points                    blackboxio.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                               
+                                                                     
+ blackboxio_mp_create_diskless_unstructured_domain_file_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ASSOCIATED                 Func   597                                  scalar                    597                               
+ CREATE_DISKLESS_UNSTRUCTUR                                                                                                         
+ ED_DOMAIN_FILE             Func   584      L(4)            4           scalar                                                      
+ DOMAIN                     Dummy  584      DOMAINUG        544         scalar   ARG,IN           596,605                           
+ DOMAINUG                   Type   588                                  scalar                    588,592                           
+ FILEOBJ                    Dummy  584      FMSNETCDFUNSTRUCTUREDDOMAINFILE_T                                                       
+                                                            1672        scalar   ARG,INOUT        603,605,606                       
+ FMSNETCDFUNSTRUCTUREDDOMAI                                                                                                         
+ NFILE_T                    Type   587                                  scalar   PRIV             587,614,618,641,654               
+ IO_DOMAIN                  Local  592      DOMAINUG        544         scalar   PTR              596,597,600,602                   
+ MPP_GET_UG_DOMAIN_NPES     Func   600      I(4)            4           scalar   PRIV             600                               
+ MPP_GET_UG_DOMAIN_PELIST   Subr   602                                           PRIV             602                               
+ MPP_GET_UG_IO_DOMAIN       Func   596      RECORD          544         scalar   PTR,PRIV         596                               
+ PATH                       Dummy  584      CHAR                        scalar   ARG,IN           603                               
+ PELIST                     Local  594      I(4)            4     1     1        ALC              601,602,603,604                   
+ PELIST_SIZE                Local  593      I(4)            4           scalar                    600,601                           
+ SUCCESS                    Local  590      L(4)            4           scalar                    603                               
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ FMSNETCDFUNSTRUCTUREDDOMAINFILE_T.DOMAIN                                                                                  ...
+                            DOMAINUG        544   872            scalar                    605,628                            
+ FMSNETCDFUNSTRUCTUREDDOMAINFILE_T.NON_MANGLED_PATH                                                                        ...
+                            CHAR            256   1416           scalar                    606,656,657                        
+
+Page 33          Source Listing                  CREATE_DISKLESS_UNSTRUCTURED_DOMAIN_FILE
+2021-06-01 08:53                                 blackboxio.F90
+
+    608 
+    609 
+    610 !> @brief Make a copy of a file's metadata to support "intermediate restarts".
+    611 !! @internal
+    612 subroutine new_unstructured_domain_file(fileobj, path, mode, new_fileobj, nc_format)
+    613 
+    614   type(FmsNetcdfUnstructuredDomainFile_t), intent(in) :: fileobj !< File object.
+    615   character(len=*), intent(in) :: path !< Name of new file.
+    616   character(len=*), intent(in) :: mode !< File mode.  Allowed values are:
+    617 !! "read", "append", "write", or "overwrite."
+    618   type(FmsNetcdfUnstructuredDomainFile_t), intent(out) :: new_fileobj !< New file object.
+    619   character(len=*), intent(in), optional :: nc_format !< Netcdf format that
+    620 !! new files are written
+    621 !! as.  Allowed values
+    622 !! are: "64bit", "classic",
+    623 !! or "netcdf4". Defaults to
+    624 !! "64bit".
+    625 
+    626   logical :: success
+    627 
+    628   success = open_unstructured_domain_file(new_fileobj, path, mode, fileobj%domain, &
+    629                                           nc_format, fileobj%is_restart)
+    630   if (.not. success) then
+    631     call error("error while opening file "//trim(path)//".")
+    632   endif
+    633   call copy_metadata(fileobj, new_fileobj)
+    634 end subroutine new_unstructured_domain_file
+
+
+ENTRY POINTS
+
+  Name                                                   
+                                                         
+ blackboxio_mp_new_unstructured_domain_file_             
+
+Page 34          Source Listing                  NEW_UNSTRUCTURED_DOMAIN_FILE
+2021-06-01 08:53 Symbol Table                    blackboxio.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FILEOBJ                    Dummy  612      FMSNETCDFUNSTRUCTUREDDOMAINFILE_T                                                       
+                                                            1672        scalar   ARG,IN           628,629,633                       
+ MODE                       Dummy  612      CHAR                        scalar   ARG,IN           628                               
+ NC_FORMAT                  Dummy  612      CHAR                        scalar   ARG,IN           629                               
+ NEW_FILEOBJ                Dummy  612      FMSNETCDFUNSTRUCTUREDDOMAINFILE_T                                                       
+                                                            1672        scalar   ARG,OUT          628,633                           
+ NEW_UNSTRUCTURED_DOMAIN_FI                                                                                                         
+ LE                         Subr   612                                                            660                               
+ OPEN_UNSTRUCTURED_DOMAIN_F                                                                                                         
+ ILE                        Func   628      L(4)            4           scalar   PRIV             628                               
+ PATH                       Dummy  612      CHAR                        scalar   ARG,IN           628,631                           
+ SUCCESS                    Local  626      L(4)            4           scalar                    628,630                           
+ TRIM                       Func   631                                  scalar                    631                               
+
+Page 35          Source Listing                  NEW_UNSTRUCTURED_DOMAIN_FILE
+2021-06-01 08:53                                 blackboxio.F90
+
+    635 
+    636 
+    637 !> @brief Wrapper to distinguish interfaces.
+    638 subroutine unstructured_write_restart_wrap(fileobj, unlim_dim_level, directory, timestamp, &
+    639                                            filename, nc_format)
+    640 
+    641   type(FmsNetcdfUnstructuredDomainFile_t), intent(in) :: fileobj !< File object.
+    642   integer, intent(in), optional :: unlim_dim_level !< Unlimited dimension level.
+    643   character(len=*), intent(in), optional :: directory !< Directory to write restart file to.
+    644   character(len=*), intent(in), optional :: timestamp !< Model time.
+    645   character(len=*), intent(in), optional :: filename !< New name for the file.
+    646   character(len=*), intent(in), optional :: nc_format !< Netcdf format that
+    647 !! new files are written
+    648 !! as.  Allowed values
+    649 !! are: "64bit", "classic",
+    650 !! or "netcdf4". Defaults to
+    651 !! "64bit".
+    652 
+    653   character(len=256) :: new_name
+    654   type(FmsNetcdfUnstructuredDomainFile_t) :: new_fileobj
+    655 
+    656   call get_new_filename(fileobj%non_mangled_path, new_name, directory, timestamp, filename)
+    657   if (string_compare(fileobj%non_mangled_path, new_name)) then
+    658     call netcdf_save_restart(fileobj, unlim_dim_level)
+    659   else
+    660     call new_unstructured_domain_file(fileobj, new_name, "write", new_fileobj, nc_format)
+    661     call netcdf_save_restart(new_fileobj, unlim_dim_level)
+    662     call close_unstructured_domain_file(new_fileobj)
+    663   endif
+    664 end subroutine unstructured_write_restart_wrap
+
+Page 36          Source Listing                  UNSTRUCTURED_WRITE_RESTART_WRAP
+2021-06-01 08:53 Entry Points                    blackboxio.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                      
+                                                            
+ blackboxio_mp_unstructured_write_restart_wrap_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CLOSE_UNSTRUCTURED_DOMAIN_                                                                                                         
+ FILE                       Subr   662                                           PRIV             662                               
+ DIRECTORY                  Dummy  638      CHAR                        scalar   ARG,IN           656                               
+ FILENAME                   Dummy  639      CHAR                        scalar   ARG,IN           656                               
+ FILEOBJ                    Dummy  638      FMSNETCDFUNSTRUCTUREDDOMAINFILE_T                                                       
+                                                            1672        scalar   ARG,IN           656,657,658,660                   
+ NC_FORMAT                  Dummy  639      CHAR                        scalar   ARG,IN           660                               
+ NEW_FILEOBJ                Local  654      FMSNETCDFUNSTRUCTUREDDOMAINFILE_T                                                       
+                                                            1672        scalar                    660,661,662                       
+ NEW_NAME                   Local  653      CHAR            256         scalar                    656,657,660                       
+ TIMESTAMP                  Dummy  638      CHAR                        scalar   ARG,IN           656                               
+ UNLIM_DIM_LEVEL            Dummy  638      I(4)            4           scalar   ARG,IN           658,661                           
+ UNSTRUCTURED_WRITE_RESTART                                                                                                         
+ _WRAP                      Subr   638                                                                                              
+
+Page 37          Source Listing                  UNSTRUCTURED_WRITE_RESTART_WRAP
+2021-06-01 08:53                                 blackboxio.F90
+
+    665 
+    666 
+    667 end module blackboxio
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ BLACKBOXIO                 Module 21                                                                                               
+ BLACKBOXIO_INIT            Subr   36                                                             36                                
+ ERROR_UNIT                 Param  29       I(4)            4           scalar   PRIV             29                                
+ FMS_IO_UTILS_MOD           Module 24                                                             24                                
+ FMS_NETCDF_DOMAIN_IO_MOD   Module 26                                                             26                                
+ FMS_NETCDF_UNSTRUCTURED_DO                                                                                                         
+ MAIN_IO_MOD                Module 27                                                             27                                
+ ISO_FORTRAN_ENV            Module 29                                                             29                                
+ MPP_DOMAINS_MOD            Module 23                                                             23                                
+ MPP_MOD                    Module 28                                                             28                                
+ NETCDF                     Module 22                                                             22                                
+ NETCDF_IO_MOD              Module 25                                                             25                                
+ NETCDF_RESTORE_STATE_WRAP  Subr   39                                                             39                                
+ NETCDF_SAVE_RESTART_WRAP2  Subr   38                                                             38                                
+ PLATFORM_MOD               Module 30                                                             30                                
+ RESTORE_DOMAIN_STATE_WRAP  Subr   42                                                             42                                
+ SAVE_DOMAIN_RESTART_WRAP   Subr   41                                                             41                                
+ UNSTRUCTURED_WRITE_RESTART                                                                                                         
+ _WRAP                      Subr   44                                                             44                                
+
+Page 38          Source Listing                  UNSTRUCTURED_WRITE_RESTART_WRAP
+2021-06-01 08:53 Subprograms/Common Blocks       blackboxio.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ BLACKBOXIO                 Module 21                                                                                               
+ BLACKBOXIO_INIT            Subr   49                                                                                               
+ COPY_METADATA              Subr   161                                                            347,497,633                       
+ CREATE_DISKLESS_DOMAIN_FIL                                                                                                         
+ E                          Func   443      L(4)            4           scalar                                                      
+ CREATE_DISKLESS_NETCDF_FIL                                                                                                         
+ E                          Func   110      L(4)            4           scalar                    365,462,603                       
+ CREATE_DISKLESS_NETCDF_FIL                                                                                                         
+ E_WRAP                     Func   353      L(4)            4           scalar                                                      
+ CREATE_DISKLESS_UNSTRUCTUR                                                                                                         
+ ED_DOMAIN_FILE             Func   584      L(4)            4           scalar                                                      
+ GET_NEW_FILENAME           Subr   57                                                             391,424,533,565,656               
+ NETCDF_RESTORE_STATE_WRAP  Subr   409                                                                                              
+ NETCDF_SAVE_RESTART_WRAP2  Subr   370                                                                                              
+ NEW_DOMAIN_FILE            Subr   475                                                            538,570                           
+ NEW_NETCDF_FILE            Subr   324                                                            396,429                           
+ NEW_UNSTRUCTURED_DOMAIN_FI                                                                                                         
+ LE                         Subr   612                                                            660                               
+ RESTORE_DOMAIN_STATE_WRAP  Subr   551                                                                                              
+ SAVE_DOMAIN_RESTART_WRAP   Subr   513                                                                                              
+ TEMPFILE                   Subr   87                                                             128                               
+ UNSTRUCTURED_WRITE_RESTART                                                                                                         
+ _WRAP                      Subr   638                                                                                              
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+
+Page 39          Source Listing                  UNSTRUCTURED_WRITE_RESTART_WRAP
+2021-06-01 08:53                                 blackboxio.F90
+
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+
+Page 40          Source Listing                  UNSTRUCTURED_WRITE_RESTART_WRAP
+2021-06-01 08:53                                 blackboxio.F90
+
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : ./,/opt/intel/2020/compilers_and_libraries/linux/mkl/include/,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/,
+           /usr/include/,./,./,../fms2_io/include/,../include/,./,/opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/,/opt/intel/2020/compilers_and_libraries/linux/daal/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,/usr/local/include/,/usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/,
+           /usr/include/,/usr/include/,/usr/include/
+       -list filename : blackboxio.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

@@ -1,0 +1,2611 @@
+Page 1           Source Listing                  DIAG_AXIS_INIT
+2021-06-01 08:54                                 /tmp/ifortUilZha.i90
+
+      1 # 1 "diag_axis.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 !> @file
+     22 !! @brief is an integral part
+     23 !!   of diag_manager_mod. It helps to create axis IDs
+     24 !!   that are used in register_diag_field.
+     25 !! @author Seth Underwood
+     26 !! @email gfdl.climate.model.info@noaa.gov
+     27 !! @description Users first create axis ID by calling
+     28 !!   diag_axis_init, then use this axis ID in
+     29 !!   register_diag_field.
+     30 MODULE diag_axis_mod
+     31 use platform_mod
+     32 ! <CONTACT EMAIL="seth.underwood@noaa.gov">
+     33 !   Seth Underwood
+     34 ! </CONTACT>
+     35 
+     36 ! <OVERVIEW> <TT>diag_axis_mod</TT> is an integral part
+     37 !   of diag_manager_mod. It helps to create axis IDs
+     38 !   that are used in register_diag_field.
+     39 ! </OVERVIEW>
+     40 
+     41 ! <DESCRIPTION> Users first create axis ID by calling
+     42 !   diag_axis_init, then use this axis ID in
+     43 !   register_diag_field.
+     44 ! </DESCRIPTION>
+     45 
+     46   USE mpp_domains_mod, ONLY: domainUG, domain1d, domain2d, mpp_get_compute_domain,&
+     47        & mpp_get_domain_components, null_domain1d, null_domain2d, null_domainUG,&
+     48        & NORTH, EAST, CENTER, &
+     49        & OPERATOR(.NE.), mpp_get_global_domain, mpp_get_domain_name
+     50   USE fms_mod, ONLY: error_mesg, write_version_number, lowercase, uppercase,&
+     51        & fms_error_handler, FATAL, NOTE
+     52   USE diag_data_mod, ONLY: diag_axis_type, max_subaxes, max_axes,&
+     53        & max_num_axis_sets, max_axis_attributes, debug_diag_manager,&
+     54        & first_send_data_call, diag_atttype
+     55 
+     56   USE netcdf, ONLY: NF90_INT, NF90_FLOAT, NF90_CHAR
+     57 
+
+Page 2           Source Listing                  DIAG_AXIS_INIT
+2021-06-01 08:54                                 diag_axis.F90
+
+     58 
+     59   IMPLICIT NONE
+     60 
+     61   PRIVATE
+     62   PUBLIC  diag_axis_init, get_diag_axis, get_domain1d, get_domain2d,&
+     63        & get_axis_length, get_axis_global_length, diag_subaxes_init,&
+     64        & get_diag_axis_cart, get_diag_axis_data, max_axes, get_axis_aux,&
+     65        & get_tile_count, get_axes_shift, get_diag_axis_name,&
+     66        & get_axis_num, get_diag_axis_domain_name, diag_axis_add_attribute,&
+     67        & get_domainUG, axis_compatible_check, axis_is_compressed, &
+     68        & get_compressed_axes_ids, get_axis_reqfld, &
+     69        & NORTH, EAST, CENTER
+     70 
+     71 ! Module variables
+     72 ! Parameters
+     73 ! Include variable "version" to be written to log file
+     74 # 1 "../include/file_version.h" 1 
+     75 ! -*-f90-*-
+     76 !***********************************************************************
+     77 !*                   GNU Lesser General Public License
+     78 !*
+     79 !* This file is part of the GFDL Flexible Modeling System (FMS).
+     80 !*
+     81 !* FMS is free software: you can redistribute it and/or modify it under
+     82 !* the terms of the GNU Lesser General Public License as published by
+     83 !* the Free Software Foundation, either version 3 of the License, or (at
+     84 !* your option) any later version.
+     85 !*
+     86 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     87 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     88 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     89 !* for more details.
+     90 !*
+     91 !* You should have received a copy of the GNU Lesser General Public
+     92 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     93 !***********************************************************************
+     94 
+     95 # 23
+     96 
+     97   character(len=*), parameter :: version = 'unknown'
+     98 
+     99 # 74 "diag_axis.F90" 2 
+    100 
+    101 !----------
+    102 !ug support
+    103   integer(I4_KIND),parameter,public :: DIAG_AXIS_NODOMAIN = 0
+    104   integer(I4_KIND),parameter,public :: DIAG_AXIS_2DDOMAIN = 1
+    105   integer(I4_KIND),parameter,public :: DIAG_AXIS_UGDOMAIN = 2
+    106 !----------
+    107 
+    108 ! counter of number of axes defined
+    109   INTEGER, DIMENSION(:), ALLOCATABLE :: num_subaxes !< counter of number of axes defined
+    110   INTEGER :: num_def_axes = 0
+    111 
+    112 ! storage for axis set names
+    113   CHARACTER(len=128), DIMENSION(:), ALLOCATABLE, SAVE :: Axis_sets !< storage for axis set names
+    114   INTEGER :: num_axis_sets = 0
+
+Page 3           Source Listing                  DIAG_AXIS_INIT
+2021-06-01 08:54                                 diag_axis.F90
+
+    115 
+    116 ! ---- global storage for all defined axes ----
+    117   TYPE(diag_axis_type), ALLOCATABLE, SAVE :: Axes(:) !< ---- global storage for all defined axes ----
+    118   LOGICAL :: module_is_initialized = .FALSE.
+    119 
+    120 ! <INTERFACE NAME="diag_axis_add_attribute">
+    121 !   <OVERVIEW>
+    122 !     Add a attribute to the diag axis
+    123 !   </OVERVIEW>
+    124 !   <TEMPLATE>
+    125 !     SUBROUTINE diag_axis_add_attribute(diag_axis_id, att_name, att_value)
+    126 !   </TEMPLATE>
+    127 !   <DESCRIPTION>
+    128 !     Add an arbitrary attribute and value to the diagnostic axis.  Any number
+    129 !     of attributes can be added to a given axis.  All attribute addition must
+    130 !     be done before first <TT>send_data</TT> call.
+    131 !
+    132 !     If a real or integer attribute is already defined, a FATAL error will be called.
+    133 !     If a character attribute is already defined, then it will be prepended to the
+    134 !     existing attribute value.
+    135 !   </DESCRIPTION>
+    136 !   <IN NAME="diag_axis_id" TYPE="INTEGER" />
+    137 !   <IN NAME="att_name" TYPE="CHARACTER(len=*)" />
+    138 !   <IN NAME="att_value" TYPE="REAL|INTEGER|CHARACTER(len=*)" />
+    139   INTERFACE diag_axis_add_attribute
+    140      MODULE PROCEDURE diag_axis_add_attribute_scalar_r
+    141      MODULE PROCEDURE diag_axis_add_attribute_scalar_i
+    142      MODULE PROCEDURE diag_axis_add_attribute_scalar_c
+    143      MODULE PROCEDURE diag_axis_add_attribute_r1d
+    144      MODULE PROCEDURE diag_axis_add_attribute_i1d
+    145   END INTERFACE diag_axis_add_attribute
+    146 ! </INTERFACE>
+    147 
+    148 CONTAINS
+    149 
+    150 !> @brief Initialize the axis, and return the axis ID.
+    151 !! @return integer axis ID
+    152 !! @description <TT>diag_axis_init</TT> initializes an axis and returns the axis ID that
+    153 !!     is to be used with <TT>register_diag_field</TT>.  This function also
+    154 !!     increments the axis counter and fills in the axes
+    155   INTEGER FUNCTION diag_axis_init(name, DATA, units, cart_name, long_name, direction,&
+    156        & set_name, edges, Domain, Domain2, DomainU, aux, req, tile_count, domain_position )
+    157     CHARACTER(len=*), INTENT(in) :: name !< Short name for axis
+    158     REAL, DIMENSION(:), INTENT(in) :: DATA !< Array of coordinate values
+    159     CHARACTER(len=*), INTENT(in) :: units !< Units for the axis
+    160     CHARACTER(len=*), INTENT(in) :: cart_name !< Cartesian axis ("X", "Y", "Z", "T")
+    161     CHARACTER(len=*), INTENT(in), OPTIONAL :: long_name !< Long name for the axis.
+    162     CHARACTER(len=*), INTENT(in), OPTIONAL :: set_name
+    163     INTEGER, INTENT(in), OPTIONAL :: direction !< Indicates the direction of the axis
+    164     INTEGER, INTENT(in), OPTIONAL :: edges !< Axis ID for the previously defined "edges axis"
+    165     TYPE(domain1d), INTENT(in), OPTIONAL :: Domain
+    166     TYPE(domain2d), INTENT(in), OPTIONAL :: Domain2
+    167     TYPE(domainUG), INTENT(in), OPTIONAL :: DomainU
+    168     CHARACTER(len=*), INTENT(in), OPTIONAL :: aux !< Auxiliary name, can only be <TT>geolon_t</TT> or <TT>geolat_t</TT>
+    169     CHARACTER(len=*), INTENT(in), OPTIONAL :: req !< Required field names.
+    170     INTEGER, INTENT(in), OPTIONAL :: tile_count
+    171     INTEGER, INTENT(in), OPTIONAL :: domain_position
+
+Page 4           Source Listing                  DIAG_AXIS_INIT
+2021-06-01 08:54                                 diag_axis.F90
+
+    172 
+    173 
+    174     TYPE(domain1d) :: domain_x, domain_y
+    175     INTEGER :: ierr, axlen
+    176     INTEGER :: i, set, tile
+    177     INTEGER :: isc, iec, isg, ieg
+    178     CHARACTER(len=128) :: emsg
+    179 
+    180     IF ( .NOT.module_is_initialized ) THEN
+    181        CALL write_version_number("DIAG_AXIS_MOD", version)
+    182     ENDIF
+    183 
+    184     IF ( PRESENT(tile_count)) THEN
+    185        tile = tile_count
+    186     ELSE
+    187        tile = 1
+    188     END IF
+    189 
+    190 ! Allocate the axes
+    191     IF (.NOT. ALLOCATED(Axis_sets)) ALLOCATE(Axis_sets(max_num_axis_sets))
+    192     IF (.NOT. ALLOCATED(Axes)) ALLOCATE(Axes(max_axes))
+    193     IF (.NOT. ALLOCATED(num_subaxes)) THEN
+    194        ALLOCATE(num_subaxes(max_axes))
+    195        num_subaxes = 0
+    196     END IF
+    197 
+    198 !---- is there an axis set? ----
+    199     IF ( PRESENT(set_name) ) THEN
+    200        set = get_axis_set_num (set_name)
+    201 !---- add new set name ----
+    202        IF (set == 0) THEN
+    203           num_axis_sets = num_axis_sets + 1
+    204           IF ( num_axis_sets > max_num_axis_sets ) THEN
+    205              WRITE (emsg, FMT='("num_axis_sets (",I2,") exceeds max_num_axis_sets (",I2,"). ")')&
+    206                   & num_axis_sets, max_num_axis_sets
+    207 ! <ERROR STATUS="FATAL">
+    208 !   num_axis_sets (<num_axis_sets>) exceeds max_num_axis_sets(<num_axis_sets>).
+    209 !   Increase max_num_axis_sets via diag_manager_nml.
+    210 ! </ERROR>
+    211              CALL error_mesg('diag_axis_mod::diag_axis_init',&
+    212                   & TRIM(emsg)//'  Increase max_num_axis_sets via diag_manager_nml.', FATAL)
+    213           END IF
+    214           set = num_axis_sets
+    215           Axis_sets(set) = set_name
+    216        END IF
+    217     ELSE
+    218        set = 0
+    219     END IF
+    220 
+    221 !---- see if axis already exists --
+    222 ! if this is time axis, return the ID of a previously defined
+    223 ! if this is spatial axis, FATAL error
+    224     DO i = 1, num_def_axes
+    225        IF ( TRIM(name) == Axes(i)%name ) THEN
+    226           IF ( TRIM(name) == 'Stations' .OR. TRIM(name) == 'Levels') THEN
+    227              diag_axis_init = i
+    228              RETURN
+
+Page 5           Source Listing                  DIAG_AXIS_INIT
+2021-06-01 08:54                                 diag_axis.F90
+
+    229           ELSE IF ( set == Axes(i)%set ) THEN
+    230              IF ( TRIM(lowercase(name)) == 'time' .OR.&
+    231                   & TRIM(lowercase(cart_name)) == 't' .OR.&
+    232                   & TRIM(lowercase(name)) == 'nv' .OR.&
+    233                   & TRIM(lowercase(cart_name)) == 'n' ) THEN
+    234                 diag_axis_init = i
+    235                 RETURN
+    236              ELSE IF ( (lowercase(cart_name) /= 'x' .AND. lowercase(cart_name) /= 'y')&
+    237                   & .OR. tile /= Axes(i)%tile_count) THEN
+    238 ! <ERROR STATUS="FATAL">axis_name <NAME> and axis_set already exist.</ERROR>
+    239                 CALL error_mesg('diag_axis_mod::diag_axis_init',&
+    240                      & 'axis_name '//TRIM(name)//' and axis_set already exist.', FATAL)
+    241              END IF
+    242           END IF
+    243        END IF
+    244     END DO
+    245 
+    246 !---- register axis ----
+    247     num_def_axes = num_def_axes + 1
+    248 ! <ERROR STATUS="FATAL">max_axes exceeded, increase it via diag_manager_nml</ERROR>
+    249     IF (num_def_axes > max_axes) CALL error_mesg ('diag_axis_mod::diag_axis_init',&
+    250          & 'max_axes exceeded, increase via diag_manager_nml', FATAL)
+    251     diag_axis_init = num_def_axes
+    252 
+    253 !---- check and then save cart_name name ----
+    254     IF ( TRIM(uppercase(cart_name)) == 'X' .OR.&
+    255          & TRIM(uppercase(cart_name)) == 'Y' .OR.&
+    256          & TRIM(uppercase(cart_name)) == 'Z' .OR.&
+    257          & TRIM(uppercase(cart_name)) == 'T' .OR.&
+    258          & TRIM(uppercase(cart_name)) == 'U' .OR.&
+    259          & TRIM(uppercase(cart_name)) == 'N' ) THEN
+    260        Axes(diag_axis_init)%cart_name = TRIM(uppercase(cart_name))
+    261     ELSE
+    262 ! <ERROR STATUS="FATAL">Invalid cart_name name.</ERROR>
+    263        CALL error_mesg('diag_axis_mod::diag_axis_init', 'Invalid cart_name name. '//TRIM(uppercase(cart_name)), FATAL)
+    264     END IF
+    265 
+    266 !---- allocate storage for coordinate values of axis ----
+    267     IF ( Axes(diag_axis_init)%cart_name == 'T' ) THEN
+    268        axlen = 0
+    269     ELSE
+    270        axlen = SIZE(DATA(:))
+    271     END IF
+    272     ALLOCATE ( Axes(diag_axis_init)%data(1:axlen) )
+    273 
+    274 ! Initialize Axes(diag_axis_init)
+    275     Axes(diag_axis_init)%name   = TRIM(name)
+    276     Axes(diag_axis_init)%data   = DATA(1:axlen)
+    277     Axes(diag_axis_init)%units  = units
+    278     Axes(diag_axis_init)%length = axlen
+    279     Axes(diag_axis_init)%set    = set
+    280 ! start and end are used in subaxes information only
+    281     Axes(diag_axis_init)%start = -1
+    282     Axes(diag_axis_init)%end = -1
+    283     Axes(diag_axis_init)%subaxis_name = ""
+    284     Axes(diag_axis_init)%shift = 0
+    285     Axes(diag_axis_init)%num_attributes = 0
+
+Page 6           Source Listing                  DIAG_AXIS_INIT
+2021-06-01 08:54                                 diag_axis.F90
+
+    286 
+    287     IF ( PRESENT(long_name) ) THEN
+    288        Axes(diag_axis_init)%long_name = long_name
+    289     ELSE
+    290        Axes(diag_axis_init)%long_name = name
+    291     END IF
+    292 
+    293     IF ( PRESENT(aux) ) THEN
+    294        Axes(diag_axis_init)%aux = TRIM(aux)
+    295     ELSE
+    296        Axes(diag_axis_init)%aux = 'none'
+    297     END IF
+    298 
+    299     IF ( PRESENT(req) ) THEN
+    300        Axes(diag_axis_init)%req = TRIM(req)
+    301     ELSE
+    302        Axes(diag_axis_init)%req = 'none'
+    303     END IF
+    304     IF ( PRESENT(domain_position) ) THEN
+    305        if (domain_position == NORTH .or. domain_position == EAST .or. domain_position == CENTER) then
+    306           Axes(diag_axis_init)%domain_position = domain_position
+    307        else
+    308           CALL error_mesg('diag_axis_mod::diag_axis_init', "Position must be NORTH, EAST, or CENTER" ,&
+    309                          FATAL)
+    310        endif
+    311     ELSE
+    312        Axes(diag_axis_init)%domain_position = CENTER
+    313     END IF
+    314 
+    315 !---- axis direction (-1, 0, or +1) ----
+    316     IF ( PRESENT(direction) )THEN
+    317        IF ( ABS(direction) /= 1 .AND. direction /= 0 )&
+    318 ! <ERROR STATUS="FATAL">direction must be 0, +1, or -1</ERROR>
+    319             & CALL error_mesg('diag_axis_mod::diag_axis_init', 'direction must be 0, +1 or -1', FATAL)
+    320        Axes(diag_axis_init)%direction = direction
+    321     ELSE
+    322        Axes(diag_axis_init)%direction = 0
+    323     END IF
+    324 
+    325 !---- Handle the DomainU check
+    326     IF (present(DomainU) .AND. (PRESENT(Domain2) .OR. PRESENT(Domain)) ) THEN
+    327 ! <ERROR STATUS="FATAL">Presence of DomainU and another Domain at the same time is prohibited</ERROR>
+    328        CALL error_mesg('diag_axis_mod::diag_axis_init',&
+    329             & 'Presence of DomainU and another Domain at the same time is prohibited', FATAL)
+    330 !---- domain2d type ----
+    331     ELSE IF ( PRESENT(Domain2) .AND. PRESENT(Domain)) THEN
+    332 ! <ERROR STATUS="FATAL">Presence of both Domain and Domain2 at the same time is prohibited</ERROR>
+    333        CALL error_mesg('diag_axis_mod::diag_axis_init',&
+    334             & 'Presence of both Domain and Domain2 at the same time is prohibited', FATAL)
+    335     ELSE IF ( PRESENT(Domain2) .OR. PRESENT(Domain)) THEN
+    336        IF ( Axes(diag_axis_init)%cart_name /= 'X' .AND. Axes(diag_axis_init)%cart_name /= 'Y') THEN
+    337 ! <ERROR STATUS="FATAL">Domain must not be present for an axis which is not in the X or Y direction.</ERROR>
+    338           CALL error_mesg('diag_axis_mod::diag_axis_init',&
+    339                & 'A Structured Domain must not be present for an axis which is not in the X or Y direction', FATAL)
+    340        END IF
+    341     ELSE IF (present(DomainU) .AND. Axes(diag_axis_init)%cart_name /= 'U') THEN
+    342           CALL error_mesg('diag_axis_mod::diag_axis_init',&
+
+Page 7           Source Listing                  DIAG_AXIS_INIT
+2021-06-01 08:54                                 diag_axis.F90
+
+    343                & 'In the unstructured domain, the axis cart_name must be U', FATAL)
+    344     END IF
+    345 
+    346     Axes(diag_axis_init)%tile_count = tile
+    347 
+    348     IF ( PRESENT(Domain2) ) THEN
+    349        Axes(diag_axis_init)%Domain2 = Domain2
+    350        CALL mpp_get_domain_components(Domain2, domain_x, domain_y, tile_count=tile_count)
+    351        IF ( Axes(diag_axis_init)%cart_name == 'X' ) Axes(diag_axis_init)%Domain = domain_x
+    352        IF ( Axes(diag_axis_init)%cart_name == 'Y' ) Axes(diag_axis_init)%Domain = domain_y
+    353        Axes(diag_axis_init)%DomainUG = null_DomainUG
+    354     ELSE IF ( PRESENT(Domain)) THEN
+    355 !---- domain1d type ----
+    356        Axes(diag_axis_init)%Domain2 = null_domain2d ! needed since not 2-D domain
+    357        Axes(diag_axis_init)%Domain = Domain
+    358        Axes(diag_axis_init)%DomainUG = null_DomainUG
+    359     ELSE IF (present(DomainU)) THEN
+    360        Axes(diag_axis_init)%Domain2 = null_domain2d
+    361        Axes(diag_axis_init)%Domain = null_domain1d
+    362        Axes(diag_axis_init)%DomainUG = DomainU
+    363     ELSE
+    364        Axes(diag_axis_init)%Domain2 = null_domain2d
+    365        Axes(diag_axis_init)%Domain = null_domain1d
+    366        Axes(diag_axis_init)%DomainUG = null_domainUG
+    367     END IF
+    368 
+    369 !--- set up the shift value for x-y axis
+    370     IF ( Axes(diag_axis_init)%Domain .NE. null_domain1d ) THEN
+    371        CALL mpp_get_compute_domain(Axes(diag_axis_init)%Domain, isc, iec)
+    372        CALL mpp_get_global_domain(Axes(diag_axis_init)%Domain, isg, ieg)
+    373        IF ( Axes(diag_axis_init)%length == ieg - isg + 2 ) THEN
+    374           Axes(diag_axis_init)%shift = 1
+    375        END IF
+    376     END IF
+    377 
+    378 !---- have axis edges been defined ? ----
+    379     Axes(diag_axis_init)%edges = 0
+    380     IF (PRESENT(edges) ) THEN
+    381        IF ( edges > 0 .AND. edges < num_def_axes ) THEN
+    382           ierr=0
+    383           IF ( Axes(edges)%cart_name /= Axes(diag_axis_init)%cart_name) ierr=1
+    384           IF ( Axes(edges)%length    /= Axes(diag_axis_init)%length+1 ) ierr=ierr+2
+    385           IF ( Axes(edges)%set       /= Axes(diag_axis_init)%set      ) ierr=ierr+4
+    386           IF ( ierr > 0 )   THEN
+    387 ! <ERROR STATUS="FATAL">Edges axis does not match axis (code <CODE>).</ERROR>
+    388              WRITE (emsg,'("Edges axis does not match axis (code ",I1,").")') ierr
+    389              CALL error_mesg('diag_axis_mod::diag_axis_init', emsg, FATAL)
+    390           END IF
+    391           Axes(diag_axis_init)%edges = edges
+    392        ELSE
+    393 ! <ERROR STATUS="FATAL">Edges axis is not defined.</ERROR>
+    394           CALL error_mesg('diag_axis_mod::diag_axis_init', 'Edges axis is not defined', FATAL)
+    395        END IF
+    396     END IF
+    397 
+    398 ! Module is now initialized
+    399     module_is_initialized = .TRUE.
+
+Page 8           Source Listing                  DIAG_AXIS_INIT
+2021-06-01 08:54                                 diag_axis.F90
+
+    400 
+    401   END FUNCTION diag_axis_init
+
+
+ENTRY POINTS
+
+  Name                                        
+                                              
+ diag_axis_mod_mp_diag_axis_init_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ABS                        Func   317                                  scalar                    317                               
+ ALLOCATED                  Func   191                                  scalar                    191,192,193                       
+ AUX                        Dummy  156      CHAR                        scalar   ARG,IN           293,294                           
+ AXES                       Local  192      RECORD          11440 1     1        ALC,TGT,SAVE     192,225,229,237,260,267,272,275,27
+                                                                                                  6,277,278,279,281,282,283,284,285,
+                                                                                                  288,290,294,296,300,302,306,312,32
+                                                                                                  0,322,336,341,346,349,351,352,353,
+                                                                                                  356,357,358,360,361,362,364,365,36
+                                                                                                  6,370,371,372,373,374,379,383,384,
+                                                                                                  385,391,437,439,447,460,461,462,46
+                                                                                                  8,469,477,478,479,480,481,482,483,
+                                                                                                  485,510,511,512,513,514,515,516,51
+                                                                                                  7,518,519,523,526,529,532,537,542,
+                                                                                                  552,553,554,555,557,558,563,567,56
+                                                                                                  8,573,587,596,600,610,619,629,630,
+                                                                                                  632,634,644,653,662,682,683,686,69
+                                                                                                  8,699,722,725,737,738,774,775,777,
+                                                                                                  780,782,838,840,842,862,938,942,94
+                                                                                                  3,956,964,968,977,981,983,984,986,
+                                                                                                  999,1004,1010,1013,1014,1023,1028,
+                                                                                                  1034,1038,1039,1048,1051,1058,1259
+                                                                                                  ,1260,1261,1282                   
+ AXIS_SETS                  Local  191      CHAR            128   1     1        ALC,SAVE         191,215,469,485,878,1322,1325     
+ AXLEN                      Local  175      I(4)            4           scalar                    268,270,272,276,278               
+ CART_NAME                  Dummy  155      CHAR                        scalar   ARG,IN           231,233,236,254,255,256,257,258,25
+                                                                                                  9,260,263                         
+ CENTER                     Param  305      I(4)            4           scalar                    48,69,305,312                     
+ DATA                       Dummy  155      R(8)            8     1     1        ARG,IN           270,276                           
+ DIAG_AXIS_INIT             Func   155      I(4)            4           scalar                                                      
+ DIRECTION                  Dummy  155      I(4)            4           scalar   ARG,IN           316,317,320                       
+ DOMAIN                     Dummy  156      DOMAIN1D        176         scalar   ARG,IN           326,331,335,354,357               
+ DOMAIN1D                   Type   165                                  scalar                    46,165,174,497,694                
+ DOMAIN2                    Dummy  156      DOMAIN2D        752         scalar   ARG,IN           326,331,335,348,349,350           
+ DOMAIN2D                   Type   166                                  scalar                    46,166,414,707                    
+ DOMAINU                    Dummy  156      DOMAINUG        544         scalar   ARG,IN           326,341,359,362                   
+ DOMAINUG                   Type   167                                  scalar                    46,167,498,733                    
+ DOMAIN_POSITION            Dummy  156      I(4)            4           scalar   ARG,IN           304,305,306                       
+ DOMAIN_X                   Local  174      DOMAIN1D        176         scalar                    350,351                           
+ DOMAIN_Y                   Local  174      DOMAIN1D        176         scalar                    350,352                           
+ EAST                       Param  305      I(4)            4           scalar                    48,69,305                         
+ EDGES                      Dummy  156      I(4)            4           scalar   ARG,IN           380,381,383,384,385,391           
+ EMSG                       Local  178      CHAR            128         scalar                    205,212,388,389                   
+
+Page 9           Source Listing                  DIAG_AXIS_INIT
+2021-06-01 08:54 Symbol Table                    diag_axis.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ERROR_MESG                 Subr   211                                           PRIV             50,211,239,249,263,308,319,328,333
+                                                                                                  ,338,342,389,394,457,521,533,539,5
+                                                                                                  60,570,598,675,715,788,794,802,807
+                                                                                                  ,898,920,933,954,962,975,997,1009,
+                                                                                                  1021,1033,1046,1057,1283,1293,1296
+                                                                                                  ,1323                             
+ FATAL                      Param  212      I(4)            4           scalar   PRIV             51,212,240,250,263,309,319,329,334
+                                                                                                  ,339,343,389,394,457,521,533,539,5
+                                                                                                  60,570,598,675,715,792,797,805,810
+                                                                                                  ,899,921,934,956,979,1000,1010,102
+                                                                                                  4,1035,1049,1059,1284,1295,1298,13
+                                                                                                  25                                
+ GET_AXIS_SET_NUM@0         Local  200      I(4)            4           scalar                                                      
+ I                          Local  176      I(4)            4           scalar                    224,225,227,229,234,237           
+ IEC                        Local  177      I(4)            4           scalar                    371                               
+ IEG                        Local  177      I(4)            4           scalar                    372,373                           
+ IERR                       Local  175      I(4)            4           scalar                    382,383,384,385,386,388           
+ ISC                        Local  177      I(4)            4           scalar                    371                               
+ ISG                        Local  177      I(4)            4           scalar                    372,373                           
+ LONG_NAME                  Dummy  155      CHAR                        scalar   ARG,IN           287,288                           
+ LOWERCASE                  Func   230      CHAR                        scalar   TGT,PRIV         50,230,231,232,233,236            
+ MAX_AXES                   Local  192      I(4)            4           scalar                    52,64,192,194,249                 
+ MAX_NUM_AXIS_SETS          Local  191      I(4)            4           scalar   PRIV             53,191,204,206                    
+ MODULE_IS_INITIALIZED      Local  180      L(4)            4           scalar                    118,180,399                       
+ MPP_DOMAIN1D_NE            Func   370      L(4)            4           scalar   PRIV             370,629,698                       
+ MPP_GET_COMPUTE_DOMAIN     Local  371                                  scalar   PRIV             46,371,432,439,630                
+ MPP_GET_COMPUTE_DOMAIN1D   Subr   371                                           PRIV             371,630                           
+ MPP_GET_DOMAIN_COMPONENTS  Subr   350                                           PRIV             47,350                            
+ MPP_GET_GLOBAL_DOMAIN      Local  372                                  scalar   PRIV             49,372                            
+ MPP_GET_GLOBAL_DOMAIN1D    Subr   372                                           PRIV             372                               
+ NAME                       Dummy  155      CHAR                        scalar   ARG,IN           225,226,230,232,240,275,290       
+ NORTH                      Param  305      I(4)            4           scalar                    48,69,305                         
+ NULL_DOMAIN1D              Local  361      DOMAIN1D        176         scalar   PRIV,SAVE        47,361,365,370,629,698,701        
+ NULL_DOMAIN2D              Local  356      DOMAIN2D        752         scalar   PRIV,SAVE        47,356,360,364,717,725,780        
+ NULL_DOMAINUG              Local  353      DOMAINUG        544         scalar   PRIV,SAVE        47,353,358,366,737,740,782        
+ NUM_AXIS_SETS              Local  203      I(4)            4           scalar                    114,203,204,206,214,877           
+ NUM_DEF_AXES               Local  224      I(4)            4           scalar                    110,224,247,249,251,381,861,893,92
+                                                                                                  7                                 
+ NUM_SUBAXES                Local  193      I(4)            4     1     1        ALC              193,194,195,436,453,454,459       
+ PRESENT                    Func   184                                  scalar                    184,199,287,293,299,304,316,326,33
+                                                                                                  1,335,341,348,354,359,380         
+ REQ                        Dummy  156      CHAR                        scalar   ARG,IN           299,300                           
+ SET                        Local  176      I(4)            4           scalar                    200,202,214,215,218,229,279       
+ SET_NAME                   Dummy  156      CHAR                        scalar   ARG,IN           199,200,215                       
+ SIZE                       Func   270                                  scalar                    270                               
+ TILE                       Local  176      I(4)            4           scalar                    185,187,237,346                   
+ TILE_COUNT                 Dummy  156      I(4)            4           scalar   ARG,IN           184,185,350                       
+ TRIM                       Func   212                                  scalar                    212,225,226,230,231,232,233,240,25
+                                                                                                  4,255,256,257,258,259,260,263,275,
+                                                                                                  294,300                           
+ UNITS                      Dummy  155      CHAR                        scalar   ARG,IN           277                               
+ UPPERCASE                  Func   254      CHAR                        scalar   TGT,PRIV         50,254,255,256,257,258,259,260,263
+ VERSION                    Param  181      CHAR            7           scalar                    181                               
+ WRITE_VERSION_NUMBER       Subr   181                                           PRIV             50,181                            
+
+
+Page 10          Source Listing                  DIAG_AXIS_INIT
+2021-06-01 08:54 Symbol Table                    diag_axis.F90
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DIAG_AXIS_TYPE.AUX         CHAR            128   11096          scalar                    294,296,644                        
+ DIAG_AXIS_TYPE.CART_NAME   CHAR            1     640            scalar                    260,267,336,341,351,352,383,481,51 
+                                                                                           3,587,682,683,722,774,775,777,838  
+ DIAG_AXIS_TYPE.DATA        R(8)            8     648      1     1        PTR              272,276,523,600                    
+ DIAG_AXIS_TYPE.DIRECTION   I(4)            4     2084           scalar                    320,322,482,514                    
+ DIAG_AXIS_TYPE.DOMAIN      DOMAIN1D        176   2104           scalar                    351,352,357,361,365,370,371,372,51 
+                                                                                           6,629,630,698,699                  
+ DIAG_AXIS_TYPE.DOMAIN2     DOMAIN2D        752   2280           scalar                    349,356,360,364,619,725,780        
+ DIAG_AXIS_TYPE.DOMAINUG    DOMAINUG        544   10552          scalar                    353,358,362,366,517,737,738,782    
+ DIAG_AXIS_TYPE.DOMAIN_POSITION                                                                                            ...
+                            I(4)            4     11436          scalar                    306,312,518                        
+ DIAG_AXIS_TYPE.EDGES       I(4)            4     2088           scalar                    379,391,515                        
+ DIAG_AXIS_TYPE.END         I(4)            4     760      1     10                        282,437,461                        
+ DIAG_AXIS_TYPE.LENGTH      I(4)            4     2080           scalar                    278,373,384,519,523,596,600,634,66 
+                                                                                           2                                  
+ DIAG_AXIS_TYPE.LONG_NAME   CHAR            256   384            scalar                    288,290,479,512                    
+ DIAG_AXIS_TYPE.NAME        CHAR            128   0              scalar                    225,275,477,510,610,862,956,964,97 
+                                                                                           7,999,1010,1023,1034,1048,1058,128 
+                                                                                           4,1294,1297                        
+ DIAG_AXIS_TYPE.NUM_ATTRIBUTES                                                                                             ...
+                            I(4)            4     11432          scalar                    285,526,532,537,542,942,968,981,11 
+                                                                                           54,1184,1205,1218,1260,1287        
+ DIAG_AXIS_TYPE.REQ         CHAR            128   11224          scalar                    300,302,653                        
+ DIAG_AXIS_TYPE.SET         I(4)            4     2092           scalar                    229,279,385,468,469,483,485,862,13 
+                                                                                           22,1325                            
+ DIAG_AXIS_TYPE.SHIFT       I(4)            4     2096           scalar                    284,374,632,840,842                
+ DIAG_AXIS_TYPE.START       I(4)            4     720      1     10                        281,437,460                        
+ DIAG_AXIS_TYPE.SUBAXIS_NAME                                                                                               ...
+                            CHAR            128   800      1     10                        283,447,478                        
+ DIAG_AXIS_TYPE.TILE_COUNT  I(4)            4     11352          scalar                    237,346,686                        
+ DIAG_AXIS_TYPE.UNITS       CHAR            256   128            scalar                    277,480,511                        
+
+Page 11          Source Listing                  DIAG_AXIS_INIT
+2021-06-01 08:54                                 diag_axis.F90
+
+    402 !> @brief Create a subaxis on a parent axis.
+    403 !! @return Integer ID of the corresponding subaxis.
+    404 !! @description Given the ID of a parent axis, create a subaxis and fill it with data,
+    405 !!     and return the ID of the corresponding subaxis.
+    406 !!
+    407 !!     The subaxis is defined on the parent axis from <TT>start_indx</TT>
+    408 !!     to <TT>end_indx</TT>.
+    409   INTEGER FUNCTION diag_subaxes_init(axis, subdata, start_indx, end_indx, domain_2d)
+    410     INTEGER, INTENT(in) :: axis !< ID of the parent axis
+    411     REAL, DIMENSION(:), INTENT(in) :: subdata !< Data of the subaxis
+    412     INTEGER, INTENT(in) :: start_indx !< Start index of the subaxis
+    413     INTEGER, INTENT(in) :: end_indx !< End index of the subaxis
+    414     TYPE(domain2d), INTENT(in), OPTIONAL  :: domain_2d
+    415 
+    416     INTEGER :: i, nsub_axis, direction
+    417     INTEGER :: xbegin, xend, ybegin, yend
+    418     INTEGER :: ad_xbegin, ad_xend, ad_ybegin, ad_yend
+    419     CHARACTER(len=128) :: name, nsub_name
+    420     CHARACTER(len=128) :: units
+    421     CHARACTER(len=128) :: cart_name
+    422     CHARACTER(len=128) :: long_name
+    423     CHARACTER(len=128) :: emsg
+    424     LOGICAL :: subaxis_set, hasDomain
+    425 
+    426 ! there may be more than 1 subaxis on a parent axis, check for redundancy
+    427     nsub_axis = 0
+    428     subaxis_set = .FALSE.
+    429 
+    430     IF ( PRESENT(domain_2d) ) THEN
+    431        hasDomain = .TRUE.
+    432        CALL mpp_get_compute_domain(domain_2d, xbegin, xend, ybegin, yend)
+    433     ELSE
+    434        hasDomain = .FALSE.
+    435     END IF
+    436     sa_search: DO i = 1, num_subaxes(axis)
+    437        IF ( start_indx == Axes(axis)%start(i) .AND. end_indx == Axes(axis)%end(i) ) THEN
+    438           IF ( hasDomain ) THEN
+    439              CALL mpp_get_compute_domain(Axes(axis)%subaxis_domain2(i), ad_xbegin, ad_xend, ad_ybegin, ad_yend)
+    440              IF ( .NOT.((xbegin == ad_xbegin .AND. xend == ad_xend) .AND.&
+    441                   & (ybegin == ad_ybegin .AND. yend == ad_yend)) ) THEN
+    442                 CYCLE sa_search
+    443              END IF
+    444           END IF
+    445           nsub_axis = i
+    446           subaxis_set = .TRUE.    !subaxis already exists
+    447           name = TRIM(Axes(axis)%subaxis_name(nsub_axis))
+    448           EXIT sa_search
+    449        END IF
+    450     END DO sa_search
+    451 
+    452     IF ( nsub_axis == 0 ) THEN  ! create new subaxis
+    453        num_subaxes(axis) = num_subaxes(axis) + 1
+    454        IF (num_subaxes(axis) > max_subaxes) THEN
+    455 ! <ERROR STATUS="FATAL">max_subaxes (value <VALUE>) is too small.  Consider increasing max_subaxes.</ERROR>
+    456           WRITE (emsg,'("max_subaxes (value ",I4,") is too small.  Consider increasing max_subaxes.")') max_subaxes
+    457           CALL error_mesg('diag_axis_mod::diag_subaxes_init', emsg, FATAL)
+    458        END IF
+
+Page 12          Source Listing                  DIAG_SUBAXES_INIT
+2021-06-01 08:54                                 diag_axis.F90
+
+    459        nsub_axis = num_subaxes(axis)
+    460        Axes(axis)%start(nsub_axis) = start_indx
+    461        Axes(axis)%end(nsub_axis)   = end_indx
+    462        if ( hasDomain ) Axes(axis)%subaxis_domain2(nsub_axis) = domain_2d
+    463     END IF
+    464 
+    465 ! Create new name for the subaxis from name of parent axis
+    466 ! If subaxis already exists, get the index and return
+    467     IF(subaxis_set) THEN
+    468        IF ( Axes(axis)%set > 0 ) THEN
+    469           diag_subaxes_init = get_axis_num(name, set_name=TRIM(Axis_sets(Axes(axis)%set)))
+    470        ELSE
+    471           diag_subaxes_init = get_axis_num(name)
+    472        END IF
+    473     ELSE
+    474 ! get a new index for subaxis
+    475 !::sdu:: Need a check to allow larger numbers in the index number.
+    476        WRITE (nsub_name,'(I2.2)') nsub_axis
+    477        name = TRIM(Axes(axis)%name)//'_sub'//TRIM(nsub_name)
+    478        Axes(axis)%subaxis_name(nsub_axis) = name
+    479        long_name = TRIM(Axes(axis)%long_name)
+    480        units = TRIM(Axes(axis)%units)
+    481        cart_name = TRIM(Axes(axis)%cart_name)
+    482        direction = Axes(axis)%direction
+    483        IF (Axes(axis)%set > 0) THEN
+    484           diag_subaxes_init =  diag_axis_init (TRIM(name), subdata, TRIM(units), TRIM(cart_name), TRIM(long_name),&
+    485                & set_name=TRIM(Axis_sets(Axes(axis)%set)), direction=direction, Domain2=domain_2d)
+    486        ELSE
+    487           diag_subaxes_init =  diag_axis_init (TRIM(name), subdata, TRIM(units), TRIM(cart_name), TRIM(long_name),&
+    488                & direction=direction, Domain2=domain_2d)
+    489        END IF
+    490     END IF
+    491   END FUNCTION diag_subaxes_init
+
+Page 13          Source Listing                  DIAG_SUBAXES_INIT
+2021-06-01 08:54 Entry Points                    diag_axis.F90
+
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ diag_axis_mod_mp_diag_subaxes_init_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ AD_XBEGIN                  Local  418      I(4)            4           scalar                    439,440                           
+ AD_XEND                    Local  418      I(4)            4           scalar                    439,440                           
+ AD_YBEGIN                  Local  418      I(4)            4           scalar                    439,441                           
+ AD_YEND                    Local  418      I(4)            4           scalar                    439,441                           
+ AXIS                       Dummy  409      I(4)            4           scalar   ARG,IN           436,437,439,447,453,454,459,460,46
+                                                                                                  1,462,468,469,477,478,479,480,481,
+                                                                                                  482,483,485                       
+ CART_NAME                  Local  421      CHAR            128         scalar                    481,484,487                       
+ DIAG_AXIS_INIT             Func   484      I(4)            4           scalar                    62,227,234,251,260,267,272,275,276
+                                                                                                  ,277,278,279,281,282,283,284,285,2
+                                                                                                  88,290,294,296,300,302,306,312,320
+                                                                                                  ,322,336,341,346,349,351,352,353,3
+                                                                                                  56,357,358,360,361,362,364,365,366
+                                                                                                  ,370,371,372,373,374,379,383,384,3
+                                                                                                  85,391,484,487                    
+ DIAG_SUBAXES_INIT          Func   409      I(4)            4           scalar                                                      
+ DIRECTION                  Local  416      I(4)            4           scalar                    482,485,488                       
+ DOMAIN_2D                  Dummy  409      DOMAIN2D        752         scalar   ARG,IN           430,432,462,485,488               
+ EMSG                       Local  423      CHAR            128         scalar                    456,457                           
+ END_INDX                   Dummy  409      I(4)            4           scalar   ARG,IN           437,461                           
+ GET_AXIS_NUM               Func   469      I(4)            4           scalar                    66,469,471,860,863,1322           
+ GET_AXIS_NUM@0             Local  469      I(4)            4           scalar                                                      
+ HASDOMAIN                  Local  424      L(4)            4           scalar                    431,434,438,462                   
+ I                          Local  416      I(4)            4           scalar                    436,437,439,445                   
+ LONG_NAME                  Local  422      CHAR            128         scalar                    479,484,487                       
+ MAX_SUBAXES                Param  454      I(4)            4           scalar   PRIV             52,454,456                        
+ MPP_GET_COMPUTE_DOMAIN2D   Subr   432                                           PRIV             432,439                           
+ NAME                       Local  419      CHAR            128         scalar                    447,469,471,477,478,484,487       
+ NSUB_AXIS                  Local  416      I(4)            4           scalar                    427,445,447,452,459,460,461,462,47
+                                                                                                  6,478                             
+ NSUB_NAME                  Local  419      CHAR            128         scalar                    476,477                           
+ PRESENT                    Func   430                                  scalar                    430                               
+ SA_SEARCH                  Label  436                                  scalar                    442,448,450                       
+ START_INDX                 Dummy  409      I(4)            4           scalar   ARG,IN           437,460                           
+ SUBAXIS_SET                Local  424      L(4)            4           scalar                    428,446,467                       
+ SUBDATA                    Dummy  409      R(8)            8     1     1        ARG,IN           484,487                           
+ TRIM                       Func   447                                  scalar                    447,469,477,479,480,481,484,485,48
+                                                                                                  7                                 
+ UNITS                      Local  420      CHAR            128         scalar                    480,484,487                       
+ XBEGIN                     Local  417      I(4)            4           scalar                    432,440                           
+ XEND                       Local  417      I(4)            4           scalar                    432,440                           
+ YBEGIN                     Local  417      I(4)            4           scalar                    432,441                           
+ YEND                       Local  417      I(4)            4           scalar                    432,441                           
+
+
+Page 14          Source Listing                  DIAG_SUBAXES_INIT
+2021-06-01 08:54 Symbol Table                    diag_axis.F90
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DIAG_AXIS_TYPE.SUBAXIS_DOMAIN2                                                                                            ...
+                            RECORD          752   3032     1     10                        439,462                            
+
+Page 15          Source Listing                  DIAG_SUBAXES_INIT
+2021-06-01 08:54                                 diag_axis.F90
+
+    492 !> @brief Return information about the axis with index ID
+    493   SUBROUTINE get_diag_axis(id, name, units, long_name, cart_name,&
+    494        & direction, edges, Domain, DomainU, DATA, num_attributes, attributes, domain_position)
+    495     CHARACTER(len=*), INTENT(out) :: name, units, long_name, cart_name
+    496     INTEGER, INTENT(in) :: id !< Axis ID
+    497     TYPE(domain1d), INTENT(out) :: Domain
+    498     TYPE(domainUG), INTENT(out) :: DomainU
+    499     INTEGER, INTENT(out) :: direction !< Direction of data. (See <TT>diag_axis_init</TT> for a description of
+    500 !! allowed values)
+    501     INTEGER, INTENT(out) :: edges !< Axis ID for the previously defined "edges axis".
+    502     REAL, DIMENSION(:), INTENT(out) :: DATA !< Array of coordinate values for this axis.
+    503     INTEGER, INTENT(out), OPTIONAL :: num_attributes
+    504     TYPE(diag_atttype), ALLOCATABLE, DIMENSION(:), INTENT(out), OPTIONAL :: attributes
+    505     INTEGER, INTENT(out), OPTIONAL :: domain_position
+    506 
+    507     INTEGER :: i, j, istat
+    508 
+    509     CALL valid_id_check(id, 'get_diag_axis')
+    510     name      = Axes(id)%name
+    511     units     = Axes(id)%units
+    512     long_name = Axes(id)%long_name
+    513     cart_name = Axes(id)%cart_name
+    514     direction = Axes(id)%direction
+    515     edges     = Axes(id)%edges
+    516     Domain    = Axes(id)%Domain
+    517     DomainU   = Axes(id)%DomainUG
+    518     if (present(domain_position)) domain_position = Axes(id)%domain_position
+    519     IF ( Axes(id)%length > SIZE(DATA(:)) ) THEN
+    520 ! <ERROR STATUS="FATAL">array data is too small.</ERROR>
+    521        CALL error_mesg('diag_axis_mod::get_diag_axis', 'array data is too small', FATAL)
+    522     ELSE
+    523        DATA(1:Axes(id)%length) = Axes(id)%data(1:Axes(id)%length)
+    524     END IF
+    525     IF ( PRESENT(num_attributes) ) THEN
+    526        num_attributes = Axes(id)%num_attributes
+    527     END IF
+    528     IF ( PRESENT(attributes) ) THEN
+    529        IF ( allocated(Axes(id)%attributes) ) THEN
+    530           IF ( ALLOCATED(attributes) ) THEN
+    531 ! If allocate, make sure attributes is large enough to hold Axis(id)%attributes
+    532              IF ( Axes(id)%num_attributes .GT. SIZE(attributes(:)) ) THEN
+    533                 CALL error_mesg('diag_axis_mod::get_diag_axis', 'array attribute is too small', FATAL)
+    534              END IF
+    535           ELSE
+    536 ! Allocate attributes
+    537              ALLOCATE(attributes(Axes(id)%num_attributes), STAT=istat)
+    538              IF ( istat .NE. 0 ) THEN
+    539                 CALL error_mesg('diag_axis_mod::get_diag_axis', 'Unable to allocate memory for attribute', FATAL)
+    540              END IF
+    541           END IF
+    542           DO i=1, Axes(id)%num_attributes
+    543 ! Unallocate all att arrays in preparation for new data
+    544              IF ( allocated(attributes(i)%fatt) ) THEN
+    545                 DEALLOCATE(attributes(i)%fatt)
+    546              END IF
+    547              IF ( allocated(attributes(i)%iatt) ) THEN
+    548                 DEALLOCATE(attributes(i)%iatt)
+
+Page 16          Source Listing                  GET_DIAG_AXIS
+2021-06-01 08:54                                 diag_axis.F90
+
+    549              END IF
+    550 
+    551 ! Copy in attribute data
+    552              attributes(i)%type = Axes(id)%attributes(i)%type
+    553              attributes(i)%len = Axes(id)%attributes(i)%len
+    554              attributes(i)%name = Axes(id)%attributes(i)%name
+    555              attributes(i)%catt = Axes(id)%attributes(i)%catt
+    556 ! Allocate fatt arrays (if needed), and copy in data
+    557              IF ( allocated(Axes(id)%attributes(i)%fatt) ) THEN
+    558                 ALLOCATE(attributes(i)%fatt(SIZE(Axes(id)%attributes(i)%fatt(:))), STAT=istat)
+    559                 IF ( istat .NE. 0 ) THEN
+    560                    CALL error_mesg('diag_axis_mod::get_diag_axis', 'Unable to allocate memory for attribute%fatt', FATAL)
+    561                 END IF
+    562                 DO j=1, SIZE(attributes(i)%fatt(:))
+    563                    attributes(i)%fatt(j) = Axes(id)%attributes(i)%fatt(j)
+    564                 END DO
+    565              END IF
+    566 ! Allocate iatt arrays (if needed), and copy in data
+    567              IF ( allocated(Axes(id)%attributes(i)%iatt) ) THEN
+    568                 ALLOCATE(attributes(i)%iatt(SIZE(Axes(id)%attributes(i)%iatt(:))), STAT=istat)
+    569                 IF ( istat .NE. 0 ) THEN
+    570                    CALL error_mesg('diag_axis_mod::get_diag_axis', 'Unable to allocate memory for attribute%iatt', FATAL)
+    571                 END IF
+    572                 DO j=1, SIZE(attributes(i)%iatt(:))
+    573                    attributes(i)%iatt(j) = Axes(id)%attributes(i)%iatt(j)
+    574                 END DO
+    575              END IF
+    576           END DO
+    577        END IF
+    578     END IF
+    579   END SUBROUTINE get_diag_axis
+
+Page 17          Source Listing                  GET_DIAG_AXIS
+2021-06-01 08:54 Entry Points                    diag_axis.F90
+
+
+
+ENTRY POINTS
+
+  Name                                       
+                                             
+ diag_axis_mod_mp_get_diag_axis_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALLOCATED                  Func   529                                  scalar                    529,530,544,547,557,567           
+ ATTRIBUTES                 Dummy  494      RECORD          1560  1     1        ARG,ALC,OUT      528,530,532,537,544,545,547,548,55
+                                                                                                  2,553,554,555,558,562,563,568,572,
+                                                                                                  573                               
+ CART_NAME                  Dummy  493      CHAR                        scalar   ARG,OUT          513                               
+ DATA                       Dummy  494      R(8)            8     1     1        ARG,OUT          519,523                           
+ DIAG_ATTTYPE               Type   504                                  scalar   PRIV             54,504                            
+ DIRECTION                  Dummy  494      I(4)            4           scalar   ARG,OUT          514                               
+ DOMAIN                     Dummy  494      DOMAIN1D        176         scalar   ARG,OUT          516                               
+ DOMAINU                    Dummy  494      DOMAINUG        544         scalar   ARG,OUT          517                               
+ DOMAIN_POSITION            Dummy  494      I(4)            4           scalar   ARG,OUT          518                               
+ EDGES                      Dummy  494      I(4)            4           scalar   ARG,OUT          515                               
+ GET_DIAG_AXIS              Subr   493                                                                                              
+ I                          Local  507      I(4)            4           scalar                    542,544,545,547,548,552,553,554,55
+                                                                                                  5,557,558,562,563,567,568,572,573 
+ ID                         Dummy  493      I(4)            4           scalar   ARG,IN           509,510,511,512,513,514,515,516,51
+                                                                                                  7,518,519,523,526,529,532,537,542,
+                                                                                                  552,553,554,555,557,558,563,567,56
+                                                                                                  8,573                             
+ ISTAT                      Local  507      I(4)            4           scalar                    537,538,558,559,568,569           
+ J                          Local  507      I(4)            4           scalar                    562,563,572,573                   
+ LONG_NAME                  Dummy  493      CHAR                        scalar   ARG,OUT          512                               
+ NAME                       Dummy  493      CHAR                        scalar   ARG,OUT          510                               
+ NUM_ATTRIBUTES             Dummy  494      I(4)            4           scalar   ARG,OUT          525,526                           
+ PRESENT                    Func   518                                  scalar                    518,525,528                       
+ SIZE                       Func   519                                  scalar                    519,532,558,562,568,572           
+ UNITS                      Dummy  493      CHAR                        scalar   ARG,OUT          511                               
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DIAG_ATTTYPE.CATT          CHAR            1280  136            scalar                    555,986,1223,1228,1230,1231,1242,1 
+                                                                                           243,1303,1304,1307,1316,1317,1319, 
+                                                                                           1320,1322,1324                     
+ DIAG_ATTTYPE.FATT          R(8)            8     1416     1     1        ALC              544,545,557,558,562,563,1028,1039  
+ DIAG_ATTTYPE.IATT          I(4)            4     1488     1     1        ALC              547,548,567,568,572,573,1004,1014  
+ DIAG_ATTTYPE.LEN           I(4)            4     4              scalar                    553,1013,1038,1244                 
+ DIAG_ATTTYPE.NAME          CHAR            128   8              scalar                    554,943,983,1185,1220,1261,1288    
+ DIAG_ATTTYPE.TYPE          I(4)            4     0              scalar                    552,984,1192,1221,1296             
+ DIAG_AXIS_TYPE.ATTRIBUTES  RECORD          1560  11360    1     1        ALC              529,552,553,554,555,557,558,563,56 
+                                                                                           7,568,573,943,983,984,986,1004,101 
+                                                                                           3,1014,1028,1038,1039,1143,1144,11 
+
+Page 18          Source Listing                  GET_DIAG_AXIS
+2021-06-01 08:54 Symbol Table                    diag_axis.F90
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+                                                                                           85,1192,1220,1221,1223,1228,1230,1 
+                                                                                           231,1242,1243,1244,1259,1261,1283, 
+                                                                                           1288,1296,1303,1304,1307,1316,1317 
+                                                                                           ,1319,1320,1322,1324               
+
+Page 19          Source Listing                  GET_DIAG_AXIS
+2021-06-01 08:54                                 diag_axis.F90
+
+    580 
+    581 !> @brief Return the axis cartesian.
+    582   SUBROUTINE get_diag_axis_cart(id, cart_name)
+    583     INTEGER, INTENT(in)           :: id !< Axis ID
+    584     CHARACTER(len=*), INTENT(out) :: cart_name !< Cartesian axis
+    585 
+    586     CALL valid_id_check(id, 'get_diag_axis_cart')
+    587     cart_name = Axes(id)%cart_name
+    588   END SUBROUTINE get_diag_axis_cart
+
+
+ENTRY POINTS
+
+  Name                                            
+                                                  
+ diag_axis_mod_mp_get_diag_axis_cart_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CART_NAME                  Dummy  582      CHAR                        scalar   ARG,OUT          587                               
+ GET_DIAG_AXIS_CART         Subr   582                                                                                              
+ ID                         Dummy  582      I(4)            4           scalar   ARG,IN           586,587                           
+
+Page 20          Source Listing                  GET_DIAG_AXIS_CART
+2021-06-01 08:54                                 diag_axis.F90
+
+    589 
+    590 !> @brief Return the axis data.
+    591   SUBROUTINE get_diag_axis_data(id, DATA)
+    592     INTEGER, INTENT(in) :: id !< Axis ID
+    593     REAL, DIMENSION(:), INTENT(out) :: DATA !< Axis data
+    594 
+    595     CALL valid_id_check(id, 'get_diag_axis_data')
+    596     IF (Axes(id)%length > SIZE(DATA(:))) THEN
+    597 ! <ERROR STATUS="FATAL">array data is too small</ERROR>
+    598        CALL error_mesg('diag_axis_mod::get_diag_axis_data', 'array data is too small', FATAL)
+    599     ELSE
+    600        DATA(1:Axes(id)%length) = Axes(id)%data
+    601     END IF
+    602   END SUBROUTINE get_diag_axis_data
+
+
+ENTRY POINTS
+
+  Name                                            
+                                                  
+ diag_axis_mod_mp_get_diag_axis_data_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DATA                       Dummy  591      R(8)            8     1     1        ARG,OUT          596,600                           
+ GET_DIAG_AXIS_DATA         Subr   591                                                                                              
+ ID                         Dummy  591      I(4)            4           scalar   ARG,IN           595,596,600                       
+ SIZE                       Func   596                                  scalar                    596                               
+
+Page 21          Source Listing                  GET_DIAG_AXIS_DATA
+2021-06-01 08:54                                 diag_axis.F90
+
+    603 
+    604 !> @brief Return the short name of the axis.
+    605   SUBROUTINE get_diag_axis_name(id, name)
+    606     INTEGER         , INTENT(in)  :: id !< Axis ID
+    607     CHARACTER(len=*), INTENT(out) :: name !< Axis short name
+    608 
+    609     CALL valid_id_check(id, 'get_diag_axis_name')
+    610     name = Axes(id)%name
+    611   END SUBROUTINE get_diag_axis_name
+
+
+ENTRY POINTS
+
+  Name                                            
+                                                  
+ diag_axis_mod_mp_get_diag_axis_name_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_DIAG_AXIS_NAME         Subr   605                                                                                              
+ ID                         Dummy  605      I(4)            4           scalar   ARG,IN           609,610                           
+ NAME                       Dummy  605      CHAR                        scalar   ARG,OUT          610                               
+
+Page 22          Source Listing                  GET_DIAG_AXIS_NAME
+2021-06-01 08:54                                 diag_axis.F90
+
+    612 
+    613 !> @brief Return the name of the axis' domain
+    614   SUBROUTINE get_diag_axis_domain_name(id, name)
+    615     INTEGER, INTENT(in) :: id !< Axis ID
+    616     CHARACTER(len=*), INTENT(out) :: name !< Axis' domain name
+    617 
+    618     CALL valid_id_check(id, 'get_diag_axis_domain_name')
+    619     name = mpp_get_domain_name(Axes(id)%domain2)
+    620   END SUBROUTINE get_diag_axis_domain_name
+
+
+ENTRY POINTS
+
+  Name                                                   
+                                                         
+ diag_axis_mod_mp_get_diag_axis_domain_name_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_DIAG_AXIS_DOMAIN_NAME  Subr   614                                                                                              
+ ID                         Dummy  614      I(4)            4           scalar   ARG,IN           618,619                           
+ MPP_GET_DOMAIN_NAME        Func   619      CHAR            64          scalar   PRIV             49,619                            
+ NAME                       Dummy  614      CHAR                        scalar   ARG,OUT          619                               
+
+Page 23          Source Listing                  GET_DIAG_AXIS_DOMAIN_NAME
+2021-06-01 08:54                                 diag_axis.F90
+
+    621 
+    622 !> @brief Return the length of the axis.
+    623 !> @return length of axis as an integer
+    624   INTEGER FUNCTION get_axis_length(id)
+    625     INTEGER, INTENT(in) :: id !< Axis ID
+    626     INTEGER :: length
+    627 
+    628     CALL valid_id_check(id, 'get_axis_length')
+    629     IF ( Axes(id)%Domain .NE. null_domain1d ) THEN
+    630        CALL mpp_get_compute_domain(Axes(id)%Domain,size=length)
+    631 !---one extra point is needed for some case. ( like symmetry domain )
+    632        get_axis_length = length + Axes(id)%shift
+    633     ELSE
+    634        get_axis_length = Axes(id)%length
+    635     END IF
+    636   END FUNCTION get_axis_length
+
+
+ENTRY POINTS
+
+  Name                                         
+                                               
+ diag_axis_mod_mp_get_axis_length_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_AXIS_LENGTH            Func   624      I(4)            4           scalar                                                      
+ ID                         Dummy  624      I(4)            4           scalar   ARG,IN           628,629,630,632,634               
+ LENGTH                     Local  626      I(4)            4           scalar                    630,632                           
+
+Page 24          Source Listing                  GET_AXIS_LENGTH
+2021-06-01 08:54                                 diag_axis.F90
+
+    637 
+    638 !> @brief Return the auxiliary name for the axis.
+    639 !! @return auxiliary name for the axis
+    640   CHARACTER(len=128) FUNCTION get_axis_aux(id)
+    641     INTEGER, INTENT(in) :: id !< Axis ID
+    642 
+    643     CALL valid_id_check(id, 'get_axis_aux')
+    644     get_axis_aux =  Axes(id)%aux
+    645   END FUNCTION get_axis_aux
+
+
+ENTRY POINTS
+
+  Name                                      
+                                            
+ diag_axis_mod_mp_get_axis_aux_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_AXIS_AUX               Func   640      CHAR            128         scalar                                                      
+ ID                         Dummy  640      I(4)            4           scalar   ARG,IN           643,644                           
+
+Page 25          Source Listing                  GET_AXIS_AUX
+2021-06-01 08:54                                 diag_axis.F90
+
+    646 
+    647 !> @brief Return the required field names for the axis.
+    648 !! @return required field names for the axis
+    649   CHARACTER(len=128) FUNCTION get_axis_reqfld(id)
+    650     INTEGER, INTENT(in) :: id !< Axis ID
+    651 
+    652     CALL valid_id_check(id, 'get_axis_reqfld')
+    653     get_axis_reqfld =  Axes(id)%req
+    654   END FUNCTION get_axis_reqfld
+
+
+ENTRY POINTS
+
+  Name                                         
+                                               
+ diag_axis_mod_mp_get_axis_reqfld_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_AXIS_REQFLD            Func   649      CHAR            128         scalar                                                      
+ ID                         Dummy  649      I(4)            4           scalar   ARG,IN           652,653                           
+
+Page 26          Source Listing                  GET_AXIS_REQFLD
+2021-06-01 08:54                                 diag_axis.F90
+
+    655 
+    656 !> @brief Return the global length of the axis.
+    657 !! @return global length of the axis
+    658   INTEGER FUNCTION get_axis_global_length(id)
+    659     INTEGER, INTENT(in) :: id !< Axis ID
+    660 
+    661     CALL valid_id_check(id, 'get_axis_global_length')
+    662     get_axis_global_length = Axes(id)%length
+    663   END FUNCTION get_axis_global_length
+
+
+ENTRY POINTS
+
+  Name                                                
+                                                      
+ diag_axis_mod_mp_get_axis_global_length_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_AXIS_GLOBAL_LENGTH     Func   658      I(4)            4           scalar                                                      
+ ID                         Dummy  658      I(4)            4           scalar   ARG,IN           661,662                           
+
+Page 27          Source Listing                  GET_AXIS_GLOBAL_LENGTH
+2021-06-01 08:54                                 diag_axis.F90
+
+    664 
+    665 !> @brief Return the tile count for the axis.
+    666 !! @return tile count for the axis
+    667   INTEGER FUNCTION get_tile_count(ids)
+    668     INTEGER, DIMENSION(:), INTENT(in) :: ids !< Axis IDs.
+    669 !! Possible dimensions: 1 <= <TT>size(ids(:))</TT> <= 4.
+    670 
+    671     INTEGER :: i, id, flag
+    672 
+    673     IF ( SIZE(ids(:)) < 1 ) THEN
+    674 ! <ERROR STATUS="FATAL">input argument has incorrect size.</ERROR>
+    675        CALL error_mesg('diag_axis_mod::get_tile_count', 'input argument has incorrect size', FATAL)
+    676     END IF
+    677     get_tile_count = 1
+    678     flag = 0
+    679     DO i = 1, SIZE(ids(:))
+    680        id = ids(i)
+    681        CALL valid_id_check(id, 'get_tile_count')
+    682        IF ( Axes(id)%cart_name == 'X' .OR.  &
+    683             Axes(id)%cart_name == 'Y' ) flag = flag + 1
+    684 !     --- both x/y axes found ---
+    685        IF ( flag == 2 ) THEN
+    686           get_tile_count = Axes(id)%tile_count
+    687           EXIT
+    688        END IF
+    689     END DO
+    690   END FUNCTION get_tile_count
+
+
+ENTRY POINTS
+
+  Name                                        
+                                              
+ diag_axis_mod_mp_get_tile_count_             
+
+Page 28          Source Listing                  GET_TILE_COUNT
+2021-06-01 08:54 Symbol Table                    diag_axis.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FLAG                       Local  671      I(4)            4           scalar                    678,683,685                       
+ GET_TILE_COUNT             Func   667      I(4)            4           scalar                                                      
+ I                          Local  671      I(4)            4           scalar                    679,680                           
+ ID                         Local  671      I(4)            4           scalar                    680,681,682,683,686               
+ IDS                        Dummy  667      I(4)            4     1     1        ARG,IN           673,679,680                       
+ SIZE                       Func   673                                  scalar                    673,679                           
+
+Page 29          Source Listing                  GET_TILE_COUNT
+2021-06-01 08:54                                 diag_axis.F90
+
+    691 
+    692 !> @brief Retrun the 1D domain for the axis ID given.
+    693 !! @return 1D domain for the axis ID given
+    694   TYPE(domain1d) FUNCTION get_domain1d(id)
+    695     INTEGER, INTENT(in) :: id !< Axis ID
+    696 
+    697     CALL valid_id_check(id, 'get_domain1d')
+    698     IF (Axes(id)%Domain .NE. NULL_DOMAIN1D) THEN
+    699        get_domain1d = Axes(id)%Domain
+    700     ELSE
+    701        get_domain1d = NULL_DOMAIN1D
+    702     ENDIF
+    703   END FUNCTION get_domain1d
+
+
+ENTRY POINTS
+
+  Name                                      
+                                            
+ diag_axis_mod_mp_get_domain1d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_DOMAIN1D               Func   694      DOMAIN1D        176         scalar                                                      
+ ID                         Dummy  694      I(4)            4           scalar   ARG,IN           697,698,699                       
+
+Page 30          Source Listing                  GET_DOMAIN1D
+2021-06-01 08:54                                 diag_axis.F90
+
+    704 
+    705 !> @brief Return the 2D domain for the axis IDs given.
+    706 !! @return 2D domain for the axis IDs given
+    707   TYPE(domain2d) FUNCTION get_domain2d(ids)
+    708     INTEGER, DIMENSION(:), INTENT(in) :: ids !< Axis IDs.
+    709 !! Possible dimensions: 1 <= <TT>size(ids(:))</TT> <= 4.
+    710 
+    711     INTEGER :: i, id, flag
+    712 
+    713     IF ( SIZE(ids(:)) < 1 ) THEN
+    714 ! <ERROR STATUS="FATAL">input argument has incorrect size.</ERROR>
+    715        CALL error_mesg('diag_axis_mod::get_domain2d', 'input argument has incorrect size', FATAL)
+    716     END IF
+    717     get_domain2d = null_domain2d
+    718     flag = 0
+    719     DO i = 1, SIZE(ids(:))
+    720        id = ids(i)
+    721        CALL valid_id_check(id, 'get_domain2d')
+    722        IF ( Axes(id)%cart_name == 'X' .OR. Axes(id)%cart_name == 'Y' ) flag = flag + 1
+    723 !     --- both x/y axes found ---
+    724        IF ( flag == 2 ) THEN
+    725           IF (Axes(id)%Domain2 .NE. NULL_DOMAIN2D) get_domain2d = Axes(id)%Domain2
+    726           EXIT
+    727        END IF
+    728     END DO
+    729   END FUNCTION get_domain2d
+
+
+ENTRY POINTS
+
+  Name                                      
+                                            
+ diag_axis_mod_mp_get_domain2d_             
+
+Page 31          Source Listing                  GET_DOMAIN2D
+2021-06-01 08:54 Symbol Table                    diag_axis.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FLAG                       Local  711      I(4)            4           scalar                    718,722,724                       
+ GET_DOMAIN2D               Func   707      DOMAIN2D        752         scalar                                                      
+ I                          Local  711      I(4)            4           scalar                    719,720                           
+ ID                         Local  711      I(4)            4           scalar                    720,721,722,725                   
+ IDS                        Dummy  707      I(4)            4     1     1        ARG,IN           713,719,720                       
+ MPP_DOMAIN2D_NE            Func   725      L(4)            4           scalar   PRIV             725,780                           
+ SIZE                       Func   713                                  scalar                    713,719                           
+
+Page 32          Source Listing                  GET_DOMAIN2D
+2021-06-01 08:54                                 diag_axis.F90
+
+    730 
+    731 !> @brief Retrun the 1D domain for the axis ID given.
+    732 !! @return 1D domain for the axis ID given
+    733   TYPE(domainUG) FUNCTION get_domainUG(id)
+    734     INTEGER, INTENT(in) :: id !< Axis ID
+    735 
+    736     CALL valid_id_check(id, 'get_domainUG')
+    737     IF (Axes(id)%DomainUG .NE. NULL_DOMAINUG) THEN
+    738        get_domainUG = Axes(id)%DomainUG
+    739     ELSE
+    740        get_domainUG = NULL_DOMAINUG
+    741     ENDIF
+    742   END FUNCTION get_domainUG
+
+
+ENTRY POINTS
+
+  Name                                      
+                                            
+ diag_axis_mod_mp_get_domainug_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_DOMAINUG               Func   733      DOMAINUG        544         scalar                                                      
+ ID                         Dummy  733      I(4)            4           scalar   ARG,IN           736,737,738                       
+ MPP_DOMAINUG_NE            Func   737      L(4)            4           scalar   PRIV             737,782                           
+
+Page 33          Source Listing                  GET_DOMAINUG
+2021-06-01 08:54                                 diag_axis.F90
+
+    743 
+    744 !ug support
+    745 !> @brief Checks if the axes are compatible
+    746 !! @return integer domain_type
+    747   function axis_compatible_check(id,varname) result(domain_type)
+    748 
+    749 !Inputs/Outputs
+    750     integer,dimension(:),intent(in)  :: id          !<The array of axis IDs
+    751     character(*),intent(in),optional :: varname     !<The name of the variable
+    752     integer(I4_KIND)                :: domain_type !<DIAG_AXIS_NODOMAIN = no domain.
+    753 !<DIAG_AXIS_2DDOMAIN = structured domain.
+    754 !<DIAG_AXIS_UGDOMAIN = unstructured domain.
+    755 
+    756 !Local variables
+    757     logical :: XorY          !<XorY set to true if X or Y is found as a cart_name.
+    758     logical :: UG            !<UG set to true if U is found as a cart_name.
+    759     integer :: n             !<Looping index.
+    760     logical :: uses_domain2D !<True if an axis is associated with a 2D domain.
+    761     logical :: uses_domainUG !<True if an axis is associated with an unstructured domain.
+    762 
+    763 !Initialize flags.
+    764     XorY = .false.
+    765     UG = .false.
+    766     uses_domain2D = .false.
+    767     uses_domainUG = .false.
+    768 
+    769 !Make sure that valid set of axes was passed, and determine the domain-type
+    770 !associated with the axes.
+    771     do n = 1,size(id)
+    772         call valid_id_check(id(n), &
+    773                             "axis_compatible_check")
+    774         if (Axes(id(n))%cart_name .eq. "X" .or. &
+    775             Axes(id(n))%cart_name .eq. "Y") then
+    776             XorY = .true.
+    777         elseif (Axes(id(n))%cart_name .eq. "U") then
+    778             UG = .true.
+    779         endif
+    780         if (Axes(id(n))%Domain2 .ne. null_domain2d) then
+    781             uses_domain2D = .true.
+    782         elseif (Axes(id(n))%DomainUG .ne. null_domainUG) then
+    783             uses_domainUG = .true.
+    784         endif
+    785     enddo
+    786     if (UG .and. XorY) then
+    787         if (present(varname)) then
+    788             call error_mesg("axis_compatible_check", &
+    789                             "Can not use an unstructured grid with a "// &
+    790                             "horizontal cartesian coordinate for the field " &
+    791                             //trim(varname), &
+    792                             FATAL)
+    793         else
+    794             call error_mesg("axis_compatible_check", &
+    795                             "Can not use an unstructured grid with a horizontal "// &
+    796                             "cartesian coordinate", &
+    797                             FATAL)
+    798         endif
+    799     endif
+
+Page 34          Source Listing                  AXIS_COMPATIBLE_CHECK
+2021-06-01 08:54                                 diag_axis.F90
+
+    800     if (uses_domain2D .and. uses_domainUG) then
+    801         if (present(varname)) then
+    802             call error_mesg("axis_compatible_check", &
+    803                             "Can not use an unstructured grid with a"// &
+    804                             "structured grid for the field "//trim(varname), &
+    805                             FATAL)
+    806         else
+    807             call error_mesg("axis_compatible_check", &
+    808                             "Can not use an unstructured grid with a"// &
+    809                             "structured grid.", &
+    810                             FATAL)
+    811         endif
+    812     endif
+    813     if (uses_domain2D) then
+    814         domain_type = DIAG_AXIS_2DDOMAIN
+    815     elseif (uses_domainUG) then
+    816         domain_type = DIAG_AXIS_UGDOMAIN
+    817     else
+    818         domain_type = DIAG_AXIS_NODOMAIN
+    819     endif
+    820 
+    821     return
+    822   end function axis_compatible_check
+
+
+ENTRY POINTS
+
+  Name                                               
+                                                     
+ diag_axis_mod_mp_axis_compatible_check_             
+
+Page 35          Source Listing                  AXIS_COMPATIBLE_CHECK
+2021-06-01 08:54 Symbol Table                    diag_axis.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ AXIS_COMPATIBLE_CHECK      Func   747      I(4)            4           scalar                                                      
+ DIAG_AXIS_2DDOMAIN         Param  814      I(4)            4           scalar                    104,814                           
+ DIAG_AXIS_NODOMAIN         Param  818      I(4)            4           scalar                    103,818                           
+ DIAG_AXIS_UGDOMAIN         Param  816      I(4)            4           scalar                    105,816                           
+ DOMAIN_TYPE                Local  752      I(4)            4           scalar                    814,816,818                       
+ I4_KIND                    Param  752      I(4)            4           scalar   PRIV             103,104,105,752                   
+ ID                         Dummy  747      I(4)            4     1     1        ARG,IN           771,772,774,775,777,780,782       
+ N                          Local  759      I(4)            4           scalar                    771,772,774,775,777,780,782       
+ PRESENT                    Func   787                                  scalar                    787,801                           
+ SIZE                       Func   771                                  scalar                    771                               
+ TRIM                       Func   791                                  scalar                    791,804                           
+ UG                         Local  758      L(4)            4           scalar                    765,778,786                       
+ USES_DOMAIN2D              Local  760      L(4)            4           scalar                    766,781,800,813                   
+ USES_DOMAINUG              Local  761      L(4)            4           scalar                    767,783,800,815                   
+ VARNAME                    Dummy  747      CHAR                        scalar   ARG,IN           787,791,801,804                   
+ XORY                       Local  757      L(4)            4           scalar                    764,776,786                       
+
+Page 36          Source Listing                  AXIS_COMPATIBLE_CHECK
+2021-06-01 08:54                                 diag_axis.F90
+
+    823 
+    824 !> @brief Return the value of the shift for the axis IDs given.
+    825   SUBROUTINE get_axes_shift(ids, ishift, jshift)
+    826     INTEGER, DIMENSION(:), INTENT(in) :: ids
+    827     INTEGER, INTENT(out) :: ishift !< X shift value.
+    828     INTEGER, INTENT(out) :: jshift !< Y shift value.
+    829 
+    830     INTEGER :: i, id
+    831 
+    832 !-- get the value of the shift.
+    833     ishift = 0
+    834     jshift = 0
+    835     DO i = 1, SIZE(ids(:))
+    836        id = ids(i)
+    837        CALL valid_id_check(id, 'get_axes_shift')
+    838        SELECT CASE (Axes(id)%cart_name)
+    839        CASE ( 'X' )
+    840           ishift = Axes(id)%shift
+    841        CASE ( 'Y' )
+    842           jshift = Axes(id)%shift
+    843        END SELECT
+    844     END DO
+    845   END SUBROUTINE get_axes_shift
+
+
+ENTRY POINTS
+
+  Name                                        
+                                              
+ diag_axis_mod_mp_get_axes_shift_             
+
+Page 37          Source Listing                  GET_AXES_SHIFT
+2021-06-01 08:54 Symbol Table                    diag_axis.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_AXES_SHIFT             Subr   825                                                                                              
+ I                          Local  830      I(4)            4           scalar                    835,836                           
+ ID                         Local  830      I(4)            4           scalar                    836,837,838,840,842               
+ IDS                        Dummy  825      I(4)            4     1     1        ARG,IN           835,836                           
+ ISHIFT                     Dummy  825      I(4)            4           scalar   ARG,OUT          833,840                           
+ JSHIFT                     Dummy  825      I(4)            4           scalar   ARG,OUT          834,842                           
+ SIZE                       Func   835                                  scalar                    835                               
+
+Page 38          Source Listing                  GET_AXES_SHIFT
+2021-06-01 08:54                                 diag_axis.F90
+
+    846 
+    847 !> @brief Returns index into axis table corresponding to a given axis name.
+    848 !! @return Returns index into axis table corresponding to a given axis name.
+    849   INTEGER FUNCTION get_axis_num(axis_name, set_name)
+    850     CHARACTER(len=*), INTENT(in) :: axis_name !< Axis name
+    851     CHARACTER(len=*), INTENT(in), OPTIONAL :: set_name !< Set name
+    852 
+    853     INTEGER :: set, n
+    854 
+    855     IF ( PRESENT(set_name) ) THEN
+    856        set = get_axis_set_num (TRIM(set_name))
+    857     ELSE
+    858        set = 0
+    859     END IF
+    860     get_axis_num = 0
+    861     DO n = 1, num_def_axes
+    862        IF ( TRIM(axis_name) == TRIM(Axes(n)%name) .AND. Axes(n)%set == set ) THEN
+    863           get_axis_num = n
+    864           RETURN
+    865        END IF
+    866     END DO
+    867   END FUNCTION get_axis_num
+
+
+ENTRY POINTS
+
+  Name                                      
+                                            
+ diag_axis_mod_mp_get_axis_num_             
+
+Page 39          Source Listing                  GET_AXIS_NUM
+2021-06-01 08:54 Symbol Table                    diag_axis.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ AXIS_NAME                  Dummy  849      CHAR                        scalar   ARG,IN           862                               
+ GET_AXIS_NUM               Func   849      I(4)            4           scalar                                                      
+ N                          Local  853      I(4)            4           scalar                    861,862,863                       
+ PRESENT                    Func   855                                  scalar                    855                               
+ SET                        Local  853      I(4)            4           scalar                    856,858,862                       
+ SET_NAME                   Dummy  849      CHAR                        scalar   ARG,IN           855,856                           
+ TRIM                       Func   856                                  scalar                    856,862                           
+
+Page 40          Source Listing                  GET_AXIS_NUM
+2021-06-01 08:54                                 diag_axis.F90
+
+    868 
+    869 !> @brief Returns index in axis set table corresponding to a given axis set name
+    870 !! @return Returns index in axis set table corresponding to a given axis set name
+    871   INTEGER FUNCTION get_axis_set_num (set_name)
+    872     CHARACTER(len=*), INTENT(in) :: set_name !< Set name
+    873 
+    874     INTEGER :: iset
+    875 
+    876     get_axis_set_num = 0
+    877     DO iset = 1, num_axis_sets
+    878        IF ( set_name == Axis_sets(iset) ) THEN
+    879           get_axis_set_num = iset
+    880           RETURN
+    881        END IF
+    882     END DO
+    883   END FUNCTION get_axis_set_num
+
+
+ENTRY POINTS
+
+  Name                                          
+                                                
+ diag_axis_mod_mp_get_axis_set_num_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_AXIS_SET_NUM           Func   871      I(4)            4           scalar                    200,856,876,879                   
+ ISET                       Local  874      I(4)            4           scalar                    877,878,879                       
+ SET_NAME                   Dummy  871      CHAR                        scalar   ARG,IN           878                               
+
+Page 41          Source Listing                  GET_AXIS_SET_NUM
+2021-06-01 08:54                                 diag_axis.F90
+
+    884 
+    885 !> @brief Check to see if the given axis id is a valid id.  If the axis id is invalid,
+    886 !!     call a FATAL error.  If the ID is valid, just return.
+    887   SUBROUTINE valid_id_check(id, routine_name)
+    888     INTEGER, INTENT(in) :: id !< Axis is to check for validity
+    889     CHARACTER(len=*), INTENT(in) :: routine_name !< Name of the subroutine checking for a valid axis id
+    890 
+    891     CHARACTER(len=5) :: emsg
+    892 
+    893     IF ( id < 1 .OR. id > num_def_axes) THEN
+    894 ! <ERROR STATUS="FATAL">
+    895 !   Illegal value for axis used (value <VALUE>).
+    896 ! </ERROR>
+    897        WRITE (emsg, '(I2)') id
+    898        CALL error_mesg('diag_axis_mod::'//TRIM(routine_name),&
+    899             & 'Illegal value for axis_id used (value '//TRIM(emsg)//').', FATAL)
+    900     END IF
+    901   END SUBROUTINE valid_id_check
+
+
+ENTRY POINTS
+
+  Name                                        
+                                              
+ diag_axis_mod_mp_valid_id_check_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ EMSG                       Local  891      CHAR            5           scalar                    897,899                           
+ ID                         Dummy  887      I(4)            4           scalar   ARG,IN           893,897                           
+ ROUTINE_NAME               Dummy  887      CHAR                        scalar   ARG,IN           898                               
+ TRIM                       Func   898                                  scalar                    898,899                           
+ VALID_ID_CHECK             Subr   887                                                            509,586,595,609,618,628,643,652,66
+                                                                                                  1,681,697,721,736,772,837,1256,128
+                                                                                                  0                                 
+
+Page 42          Source Listing                  VALID_ID_CHECK
+2021-06-01 08:54                                 diag_axis.F90
+
+    902 
+    903   SUBROUTINE diag_axis_attribute_init(diag_axis_id, name, type, cval, ival, rval)
+    904     INTEGER, INTENT(in) :: diag_axis_id !< input field ID, obtained from diag_axis_mod::diag_axis_init.
+    905     CHARACTER(len=*) :: name !< Name of the attribute
+    906     INTEGER, INTENT(in) :: type !< NetCDF type (NF_FLOAT, NF_INT, NF_CHAR)
+    907     CHARACTER(len=*), INTENT(in), OPTIONAL :: cval !< Character string attribute value
+    908     INTEGER, DIMENSION(:), INTENT(in), OPTIONAL :: ival !< Integer attribute value(s)
+    909     REAL, DIMENSION(:), INTENT(in), OPTIONAL :: rval !< Real attribute value(s)
+    910 
+    911     INTEGER :: istat, length, i, j, this_attribute, out_field
+    912     CHARACTER(len=1024) :: err_msg
+    913 
+    914     IF ( .NOT.first_send_data_call ) THEN
+    915 ! Call error due to unable to add attribute after send_data called
+    916 ! <ERROR STATUS="FATAL">
+    917 !   Attempting to add attribute <name> to axis <axis_name>
+    918 !   after first send_data call.  Too late.
+    919 ! </ERROR>
+    920        CALL error_mesg('diag_manager_mod::diag_axis_add_attribute', 'Attempting to add attribute "'&
+    921             &//TRIM(name)//'" to axis after first send_data call.  Too late.', FATAL)
+    922     END IF
+    923 
+    924 ! Simply return if diag_axis_id <= 0 --- not registered
+    925     IF ( diag_axis_id .LE. 0 ) THEN
+    926        RETURN
+    927     ELSE IF ( diag_axis_id .GT. num_def_axes ) THEN
+    928 ! Call error axis_id greater than num_def_axes.  Axis is unknown
+    929 ! <ERROR STATUS="FATAL">
+    930 !   Attempting to add attribute <name> to axis ID <axis_ID>, however ID unknown.
+    931 ! </ERROR>
+    932        WRITE(err_msg, '(I5)') diag_axis_id
+    933        CALL error_mesg('diag_manager_mod::diag_axis_add_attribute', 'Attempting to add attribute "'&
+    934             &//TRIM(name)//'" to axis ID "'//TRIM(err_msg)//'", however ID unknown.', FATAL)
+    935 
+    936     ELSE
+    937 ! Allocate memory for the attributes
+    938        CALL attribute_init_axis(Axes(diag_axis_id))
+    939 
+    940 ! Check if attribute already exists
+    941        this_attribute = 0
+    942        DO i=1, Axes(diag_axis_id)%num_attributes
+    943           IF ( TRIM(Axes(diag_axis_id)%attributes(i)%name) .EQ. TRIM(name) ) THEN
+    944              this_attribute = i
+    945              EXIT
+    946           END IF
+    947        END DO
+    948 
+    949        IF ( this_attribute.NE.0 .AND. (type.EQ.NF90_INT .OR. type.EQ.NF90_FLOAT) ) THEN
+    950 ! <ERROR STATUS="FATAL">
+    951 !   Attribute <name> already defined for axis <axis_name>.
+    952 !   Contact the developers
+    953 ! </ERROR>
+    954           CALL error_mesg('diag_manager_mod::diag_axis_add_attribute',&
+    955                & 'Attribute "'//TRIM(name)//'" already defined for axis "'&
+    956                &//TRIM(Axes(diag_axis_id)%name)//'".  Contact the developers.', FATAL)
+    957        ELSE IF ( this_attribute.NE.0 .AND. type.EQ.NF90_CHAR .AND. debug_diag_manager ) THEN
+    958 ! <ERROR STATUS="NOTE">
+
+Page 43          Source Listing                  DIAG_AXIS_ATTRIBUTE_INIT
+2021-06-01 08:54                                 diag_axis.F90
+
+    959 !   Attribute <name> already defined for axis <axis_name>.
+    960 !   Prepending.
+    961 ! </ERROR>
+    962           CALL error_mesg('diag_manager_mod::diag_axis_add_attribute',&
+    963                & 'Attribute "'//TRIM(name)//'" already defined for axis"'&
+    964                &//TRIM(Axes(diag_axis_id)%name)//'".  Prepending.', NOTE)
+    965        ELSE
+    966 ! Defining a new attribute
+    967 ! Increase the number of field attributes
+    968           this_attribute = Axes(diag_axis_id)%num_attributes + 1
+    969 ! Checking to see if num_attributes == max_axis_attributes, and return error message
+    970           IF ( this_attribute .GT. max_axis_attributes ) THEN
+    971 ! <ERROR STATUS="FATAL">
+    972 !   Number of attributes exceeds max_axis_attributes for attribute <name> for axis <axis_name>.
+    973 !   Increase diag_manager_nml:max_axis_attributes.
+    974 ! </ERROR>
+    975              CALL error_mesg('diag_manager_mod::diag_axis_add_attribute',&
+    976                   & 'Number of attributes exceeds max_axis_attributes for attribute "'&
+    977                   & //TRIM(name)//'" for axis "'//TRIM(Axes(diag_axis_id)%name)&
+    978                   & //'".  Increase diag_manager_nml:max_axis_attributes.',&
+    979                   & FATAL)
+    980           ELSE
+    981              Axes(diag_axis_id)%num_attributes = this_attribute
+    982 ! Set name and type
+    983              Axes(diag_axis_id)%attributes(this_attribute)%name = name
+    984              Axes(diag_axis_id)%attributes(this_attribute)%type = type
+    985 ! Initialize catt to a blank string, as len_trim doesn't always work on an uninitialized string
+    986              Axes(diag_axis_id)%attributes(this_attribute)%catt = ''
+    987           END IF
+    988        END IF
+    989 
+    990        SELECT CASE (type)
+    991        CASE (NF90_INT)
+    992           IF ( .NOT.PRESENT(ival) ) THEN
+    993 ! <ERROR STATUS="FATAL">
+    994 !   Number type claims INTEGER, but ival not present for attribute <name> for axis <axis_name>.
+    995 !   Contact the developers.
+    996 ! </ERROR>
+    997              CALL error_mesg('diag_manager_mod::diag_axis_add_attribute',&
+    998                   & 'Attribute type claims INTEGER, but ival not present for attribute "'&
+    999                   & //TRIM(name)//'" for axis "'//TRIM(Axes(diag_axis_id)%name)&
+   1000                   & //'". Contact the developers.', FATAL)
+   1001           END IF
+   1002           length = SIZE(ival)
+   1003 ! Allocate iatt(:) to size of ival
+   1004           ALLOCATE(Axes(diag_axis_id)%attributes(this_attribute)%iatt(length), STAT=istat)
+   1005           IF ( istat.NE.0 ) THEN
+   1006 ! <ERROR STATUS="FATAL">
+   1007 !   Unable to allocate iatt for attribute <name> for axis <axis_name>
+   1008 ! </ERROR>
+   1009              CALL error_mesg('diag_manager_mod::diag_axis_add_attribute', 'Unable to allocate iatt for attribute "'&
+   1010                   & //TRIM(name)//'" for axis "'//TRIM(Axes(diag_axis_id)%name)//'"', FATAL)
+   1011           END IF
+   1012 ! Set remaining fields
+   1013           Axes(diag_axis_id)%attributes(this_attribute)%len = length
+   1014           Axes(diag_axis_id)%attributes(this_attribute)%iatt = ival
+   1015        CASE (NF90_FLOAT)
+
+Page 44          Source Listing                  DIAG_AXIS_ATTRIBUTE_INIT
+2021-06-01 08:54                                 diag_axis.F90
+
+   1016           IF ( .NOT.PRESENT(rval) ) THEN
+   1017 ! <ERROR STATUS="FATAL">
+   1018 !   Attribute type claims REAL, but rval not present for attribute <name> for axis <axis_name>.
+   1019 !   Contact the developers.
+   1020 ! </ERROR>
+   1021              CALL error_mesg('diag_manager_mod::diag_axis_add_attribute',&
+   1022                   & 'Attribute type claims REAL, but rval not present for attribute "'&
+   1023                   & //TRIM(name)//'" for axis "'//TRIM(Axes(diag_axis_id)%name)&
+   1024                   & //'". Contact the developers.', FATAL)
+   1025           END IF
+   1026           length = SIZE(rval)
+   1027 ! Allocate iatt(:) to size of rval
+   1028           ALLOCATE(Axes(diag_axis_id)%attributes(this_attribute)%fatt(length), STAT=istat)
+   1029           IF ( istat.NE.0 ) THEN
+   1030 ! <ERROR STATUS="FATAL">
+   1031 !   Unable to allocate fatt for attribute <name> for axis <axis_name>
+   1032 ! </ERROR>
+   1033              CALL error_mesg('diag_manager_mod::diag_axis_add_attribute', 'Unable to allocate fatt for attribute "'&
+   1034                   & //TRIM(name)//'" for axis "'//TRIM(Axes(diag_axis_id)%name)&
+   1035                   & //'"', FATAL)
+   1036           END IF
+   1037 ! Set remaining fields
+   1038           Axes(diag_axis_id)%attributes(this_attribute)%len = length
+   1039           Axes(diag_axis_id)%attributes(this_attribute)%fatt = rval
+   1040        CASE (NF90_CHAR)
+   1041           IF ( .NOT.PRESENT(cval) ) THEN
+   1042 ! <ERROR STATUS="FATAL">
+   1043 !   Attribute type claims CHARACTER, but cval not present for attribute <name> for axis <axis_name>.
+   1044 !   Contact the developers.
+   1045 ! </ERROR>
+   1046              CALL error_mesg('diag_manager_mod::diag_axis_add_attribute',&
+   1047                   & 'Attribute type claims CHARACTER, but cval not present for attribute "'&
+   1048                   & //TRIM(name)//'" for axis "'//TRIM(Axes(diag_axis_id)%name)&
+   1049                   & //'". Contact the developers.', FATAL)
+   1050           END IF
+   1051           CALL prepend_attribute_axis(Axes(diag_axis_id), TRIM(name), TRIM(cval))
+   1052        CASE default
+   1053 ! <ERROR STATUS="FATAL">
+   1054 !   Unknown attribute type for attribute <name> for axis <axis_name>.
+   1055 !   Contact the developers.
+   1056 ! </ERROR>
+   1057           CALL error_mesg('diag_manager_mod::diag_axis_add_attribute', 'Unknown attribute type for attribute "'&
+   1058                & //TRIM(name)//'" for axis "'//TRIM(Axes(diag_axis_id)%name)&
+   1059                & //'". Contact the developers.', FATAL)
+   1060        END SELECT
+   1061     END IF
+   1062   END SUBROUTINE diag_axis_attribute_init
+
+Page 45          Source Listing                  DIAG_AXIS_ATTRIBUTE_INIT
+2021-06-01 08:54 Entry Points                    diag_axis.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ diag_axis_mod_mp_diag_axis_attribute_init_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CVAL                       Dummy  903      CHAR                        scalar   ARG,IN           1041,1051                         
+ DEBUG_DIAG_MANAGER         Local  957      L(4)            4           scalar   PRIV             53,957                            
+ DIAG_AXIS_ATTRIBUTE_INIT   Subr   903                                                            1099,1115,1128                    
+ DIAG_AXIS_ID               Dummy  903      I(4)            4           scalar   ARG,IN           925,927,932,938,942,943,956,964,96
+                                                                                                  8,977,981,983,984,986,999,1004,101
+                                                                                                  0,1013,1014,1023,1028,1034,1038,10
+                                                                                                  39,1048,1051,1058                 
+ ERR_MSG                    Local  912      CHAR            1024        scalar                    932,934                           
+ FIRST_SEND_DATA_CALL       Local  914      L(4)            4           scalar   PRIV             54,914                            
+ I                          Local  911      I(4)            4           scalar                    942,943,944                       
+ ISTAT                      Local  911      I(4)            4           scalar                    1004,1005,1028,1029               
+ IVAL                       Dummy  903      I(4)            4     1     1        ARG,IN           992,1002,1014                     
+ J                          Local  911      I(4)            4           scalar                                                      
+ LENGTH                     Local  911      I(4)            4           scalar                    1002,1004,1013,1026,1028,1038     
+ MAX_AXIS_ATTRIBUTES        Local  970      I(4)            4           scalar   PRIV             53,970,1144,1206                  
+ NAME                       Dummy  903      CHAR                        scalar   ARG,INOUT        921,934,943,955,963,977,983,999,10
+                                                                                                  10,1023,1034,1048,1051,1058       
+ NF90_CHAR                  Param  957      I(4)            4           scalar   PRIV             56,957,1040,1099,1192,1221,1296   
+ NF90_FLOAT                 Param  949      I(4)            4           scalar   PRIV             56,949,1015,1115                  
+ NF90_INT                   Param  949      I(4)            4           scalar   PRIV             56,949,991,1128                   
+ NOTE                       Param  964      I(4)            4           scalar   PRIV             51,964                            
+ OUT_FIELD                  Local  911      I(4)            4           scalar                                                      
+ PRESENT                    Func   992                                  scalar                    992,1016,1041                     
+ RVAL                       Dummy  903      R(8)            8     1     1        ARG,IN           1016,1026,1039                    
+ SIZE                       Func   1002                                 scalar                    1002,1026                         
+ THIS_ATTRIBUTE             Local  911      I(4)            4           scalar                    941,944,949,957,968,970,981,983,98
+                                                                                                  4,986,1004,1013,1014,1028,1038,103
+                                                                                                  9                                 
+ TRIM                       Func   921                                  scalar                    921,934,943,955,956,963,964,977,99
+                                                                                                  9,1010,1023,1034,1048,1051,1058   
+ TYPE                       Dummy  903      I(4)            4           scalar   ARG,IN           949,957,984,990                   
+
+Page 46          Source Listing                  DIAG_AXIS_ATTRIBUTE_INIT
+2021-06-01 08:54                                 diag_axis.F90
+
+   1063 
+   1064 ! <SUBROUTINE NAME="diag_axis_add_attribute_scalar_r" INTERFACE="diag_axis_add_attribute">
+   1065 !   <IN NAME="diag_axis_id" TYPE="INTEGER" />
+   1066 !   <IN NAME="att_name" TYPE="CHARACTER(len=*)" />
+   1067 !   <IN NAME="att_value" TYPE="REAL" />
+   1068   SUBROUTINE diag_axis_add_attribute_scalar_r(diag_axis_id, att_name, att_value)
+   1069     INTEGER, INTENT(in) :: diag_axis_id
+   1070     CHARACTER(len=*), INTENT(in) :: att_name
+   1071     REAL, INTENT(in) :: att_value
+   1072 
+   1073     CALL diag_axis_add_attribute_r1d(diag_axis_id, att_name, (/ att_value /))
+   1074   END SUBROUTINE diag_axis_add_attribute_scalar_r
+
+
+ENTRY POINTS
+
+  Name                                                          
+                                                                
+ diag_axis_mod_mp_diag_axis_add_attribute_scalar_r_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ATT_NAME                   Dummy  1068     CHAR                        scalar   ARG,IN           1073                              
+ ATT_VALUE                  Dummy  1068     R(8)            8           scalar   ARG,IN           1073                              
+ DIAG_AXIS_ADD_ATTRIBUTE_SC                                                                                                         
+ ALAR_R                     Subr   1068                                          PRIV                                               
+ DIAG_AXIS_ID               Dummy  1068     I(4)            4           scalar   ARG,IN           1073                              
+
+Page 47          Source Listing                  DIAG_AXIS_ADD_ATTRIBUTE_SCALAR_R
+2021-06-01 08:54                                 diag_axis.F90
+
+   1075 ! </SUBROUTINE>
+   1076 
+   1077 ! <SUBROUTINE NAME="diag_axis_add_attribute_scalar_i" INTERFACE="diag_axis_add_attribute">
+   1078 !   <IN NAME="diag_axis_id" TYPE="INTEGER" />
+   1079 !   <IN NAME="att_name" TYPE="CHARACTER(len=*)" />
+   1080 !   <IN NAME="att_value" TYPE="INTEGER" />
+   1081   SUBROUTINE diag_axis_add_attribute_scalar_i(diag_axis_id, att_name, att_value)
+   1082     INTEGER, INTENT(in) :: diag_axis_id
+   1083     CHARACTER(len=*), INTENT(in) :: att_name
+   1084     INTEGER, INTENT(in) :: att_value
+   1085 
+   1086     CALL diag_axis_add_attribute_i1d(diag_axis_id, att_name, (/ att_value /))
+   1087   END SUBROUTINE diag_axis_add_attribute_scalar_i
+
+
+ENTRY POINTS
+
+  Name                                                          
+                                                                
+ diag_axis_mod_mp_diag_axis_add_attribute_scalar_i_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ATT_NAME                   Dummy  1081     CHAR                        scalar   ARG,IN           1086                              
+ ATT_VALUE                  Dummy  1081     I(4)            4           scalar   ARG,IN           1086                              
+ DIAG_AXIS_ADD_ATTRIBUTE_SC                                                                                                         
+ ALAR_I                     Subr   1081                                          PRIV                                               
+ DIAG_AXIS_ID               Dummy  1081     I(4)            4           scalar   ARG,IN           1086                              
+
+Page 48          Source Listing                  DIAG_AXIS_ADD_ATTRIBUTE_SCALAR_I
+2021-06-01 08:54                                 diag_axis.F90
+
+   1088 ! </SUBROUTINE>
+   1089 
+   1090 ! <SUBROUTINE NAME="diag_axis_add_attribute_scalar_c" INTERFACE="diag_axis_add_attribute">
+   1091 !   <IN NAME="diag_axis_id" TYPE="INTEGER" />
+   1092 !   <IN NAME="att_name" TYPE="CHARACTER(len=*)" />
+   1093 !   <IN NAME="att_value" TYPE="CHARACTER(len=*)" />
+   1094   SUBROUTINE diag_axis_add_attribute_scalar_c(diag_axis_id, att_name, att_value)
+   1095     INTEGER, INTENT(in) :: diag_axis_id
+   1096     CHARACTER(len=*), INTENT(in) :: att_name
+   1097     CHARACTER(len=*), INTENT(in) :: att_value
+   1098 
+   1099     CALL diag_axis_attribute_init(diag_axis_id, att_name, NF90_CHAR, cval=att_value)
+   1100   END SUBROUTINE diag_axis_add_attribute_scalar_c
+
+
+ENTRY POINTS
+
+  Name                                                          
+                                                                
+ diag_axis_mod_mp_diag_axis_add_attribute_scalar_c_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ATT_NAME                   Dummy  1094     CHAR                        scalar   ARG,IN           1099                              
+ ATT_VALUE                  Dummy  1094     CHAR                        scalar   ARG,IN           1099                              
+ DIAG_AXIS_ADD_ATTRIBUTE_SC                                                                                                         
+ ALAR_C                     Subr   1094                                          PRIV                                               
+ DIAG_AXIS_ID               Dummy  1094     I(4)            4           scalar   ARG,IN           1099                              
+
+Page 49          Source Listing                  DIAG_AXIS_ADD_ATTRIBUTE_SCALAR_C
+2021-06-01 08:54                                 diag_axis.F90
+
+   1101 ! </SUBROUTINE>
+   1102 
+   1103 ! <SUBROUTINE NAME="diag_axis_add_attribute_r1d" INTERFACE="diag_axis_add_attribute">
+   1104 !   <IN NAME="diag_axis_id" TYPE="INTEGER" />
+   1105 !   <IN NAME="att_name" TYPE="CHARACTER(len=*)" />
+   1106 !   <IN NAME="att_value" TYPE="REAL, DIMENSION(:)" />
+   1107   SUBROUTINE diag_axis_add_attribute_r1d(diag_axis_id, att_name, att_value)
+   1108     INTEGER, INTENT(in) :: diag_axis_id
+   1109     CHARACTER(len=*), INTENT(in) :: att_name
+   1110     REAL, DIMENSION(:), INTENT(in) :: att_value
+   1111 
+   1112     INTEGER :: num_attributes, len
+   1113     CHARACTER(len=512) :: err_msg
+   1114 
+   1115     CALL diag_axis_attribute_init(diag_axis_id, att_name, NF90_FLOAT, rval=att_value)
+   1116   END SUBROUTINE diag_axis_add_attribute_r1d
+
+
+ENTRY POINTS
+
+  Name                                                     
+                                                           
+ diag_axis_mod_mp_diag_axis_add_attribute_r1d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ATT_NAME                   Dummy  1107     CHAR                        scalar   ARG,IN           1115                              
+ ATT_VALUE                  Dummy  1107     R(8)            8     1     1        ARG,IN           1115                              
+ DIAG_AXIS_ADD_ATTRIBUTE_R1                                                                                                         
+ D                          Subr   1107                                          PRIV             1073                              
+ DIAG_AXIS_ID               Dummy  1107     I(4)            4           scalar   ARG,IN           1115                              
+ ERR_MSG                    Local  1113     CHAR            512         scalar                                                      
+ LEN                        Local  1112     I(4)            4           scalar                                                      
+ NUM_ATTRIBUTES             Local  1112     I(4)            4           scalar                                                      
+
+Page 50          Source Listing                  DIAG_AXIS_ADD_ATTRIBUTE_R1D
+2021-06-01 08:54                                 diag_axis.F90
+
+   1117 ! </SUBROUTINE>
+   1118 
+   1119 ! <SUBROUTINE NAME="diag_axis_add_attribute_i1d" INTERFACE="diag_axis_add_attribute">
+   1120 !   <IN NAME="diag_axis_id" TYPE="INTEGER" />
+   1121 !   <IN NAME="att_name" TYPE="CHARACTER(len=*)" />
+   1122 !   <IN NAME="att_value" TYPE="INTEGER, DIMENSION(:)" />
+   1123   SUBROUTINE diag_axis_add_attribute_i1d(diag_axis_id, att_name, att_value)
+   1124     INTEGER, INTENT(in) :: diag_axis_id
+   1125     CHARACTER(len=*), INTENT(in) :: att_name
+   1126     INTEGER, DIMENSION(:), INTENT(in) :: att_value
+   1127 
+   1128     CALL diag_axis_attribute_init(diag_axis_id, att_name, NF90_INT, ival=att_value)
+   1129   END SUBROUTINE diag_axis_add_attribute_i1d
+
+
+ENTRY POINTS
+
+  Name                                                     
+                                                           
+ diag_axis_mod_mp_diag_axis_add_attribute_i1d_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ATT_NAME                   Dummy  1123     CHAR                        scalar   ARG,IN           1128                              
+ ATT_VALUE                  Dummy  1123     I(4)            4     1     1        ARG,IN           1128                              
+ DIAG_AXIS_ADD_ATTRIBUTE_I1                                                                                                         
+ D                          Subr   1123                                          PRIV             1086                              
+ DIAG_AXIS_ID               Dummy  1123     I(4)            4           scalar   ARG,IN           1128                              
+
+Page 51          Source Listing                  DIAG_AXIS_ADD_ATTRIBUTE_I1D
+2021-06-01 08:54                                 diag_axis.F90
+
+   1130 
+   1131 !> @brief Allocates memory in out_file for the attributes.  Will <TT>FATAL</TT> if err_msg is not included
+   1132 !!   in the subroutine call.
+   1133   SUBROUTINE attribute_init_axis(out_axis, err_msg)
+   1134     TYPE(diag_axis_type), INTENT(inout) :: out_axis !< output file to allocate memory for attribute
+   1135     CHARACTER(LEN=*), INTENT(out), OPTIONAL :: err_msg !< Error message, passed back to calling function
+   1136 
+   1137     INTEGER :: istat
+   1138 
+   1139 ! Initialize err_msg
+   1140     IF ( PRESENT(err_msg) ) err_msg = ''
+   1141 
+   1142 ! Allocate memory for the attributes
+   1143     IF ( .NOT.allocated(out_axis%attributes) ) THEN
+   1144        ALLOCATE(out_axis%attributes(max_axis_attributes), STAT=istat)
+   1145        IF ( istat.NE.0 ) THEN
+   1146 ! <ERROR STATUS="FATAL">
+   1147 !   Unable to allocate memory for diag axis attributes
+   1148 ! </ERROR>
+   1149           IF ( fms_error_handler('diag_util_mod::attribute_init_axis', 'Unable to allocate memory for diag axis attributes',
+   1149  err_msg) ) THEN
+   1150              RETURN
+   1151           END IF
+   1152        ELSE
+   1153 ! Set equal to 0.  It will be increased when attributes added
+   1154           out_axis%num_attributes = 0
+   1155        END IF
+   1156     END IF
+   1157   END SUBROUTINE attribute_init_axis
+
+Page 52          Source Listing                  ATTRIBUTE_INIT_AXIS
+2021-06-01 08:54 Entry Points                    diag_axis.F90
+
+
+
+ENTRY POINTS
+
+  Name                                             
+                                                   
+ diag_axis_mod_mp_attribute_init_axis_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALLOCATED                  Func   1143                                 scalar                    1143                              
+ ATTRIBUTE_INIT_AXIS        Subr   1133                                                           938,1175                          
+ DIAG_AXIS_TYPE             Type   1134                                 scalar   PRIV             52,117,1134,1162                  
+ ERR_MSG                    Dummy  1133     CHAR                        scalar   ARG,OUT          1140,1149                         
+ FMS_ERROR_HANDLER          Func   1149     L(4)            4           scalar   PRIV             51,1149,1177,1196,1211,1235       
+ ISTAT                      Local  1137     I(4)            4           scalar                    1144,1145                         
+ OUT_AXIS                   Dummy  1133     DIAG_AXIS_TYPE  11440       scalar   ARG,INOUT        1143,1144,1154                    
+ PRESENT                    Func   1140                                 scalar                    1140                              
+
+Page 53          Source Listing                  ATTRIBUTE_INIT_AXIS
+2021-06-01 08:54                                 diag_axis.F90
+
+   1158 
+   1159 !> @brief Prepends the attribute value to an already existing attribute.  If the
+   1160 !!    attribute isn't yet defined, then creates a new attribute
+   1161   SUBROUTINE prepend_attribute_axis(out_axis, att_name, prepend_value, err_msg)
+   1162     TYPE(diag_axis_type), INTENT(inout) :: out_axis !< diagnostic axis that will get the attribute
+   1163     CHARACTER(len=*), INTENT(in) :: att_name !< Name of the attribute
+   1164     CHARACTER(len=*), INTENT(in) :: prepend_value !< Value to prepend
+   1165     CHARACTER(len=*), INTENT(out) , OPTIONAL :: err_msg !< Error message, passed back to calling routine
+   1166 
+   1167     INTEGER :: length, i, this_attribute
+   1168     CHARACTER(len=512) :: err_msg_local
+   1169 
+   1170 ! Initialize string variables
+   1171     err_msg_local = ''
+   1172     IF ( PRESENT(err_msg) ) err_msg = ''
+   1173 
+   1174 ! Make sure the attributes for this out file have been initialized
+   1175     CALL attribute_init_axis(out_axis, err_msg_local)
+   1176     IF ( TRIM(err_msg_local) .NE. '' ) THEN
+   1177        IF ( fms_error_handler('diag_util_mod::prepend_attribute_axis', TRIM(err_msg_local), err_msg) ) THEN
+   1178           RETURN
+   1179        END IF
+   1180     END IF
+   1181 
+   1182 ! Find if attribute exists
+   1183     this_attribute = 0
+   1184     DO i=1, out_axis%num_attributes
+   1185        IF ( TRIM(out_axis%attributes(i)%name) .EQ. TRIM(att_name) ) THEN
+   1186           this_attribute = i
+   1187           EXIT
+   1188        END IF
+   1189     END DO
+   1190 
+   1191     IF ( this_attribute > 0 ) THEN
+   1192        IF ( out_axis%attributes(this_attribute)%type .NE. NF90_CHAR ) THEN
+   1193 ! <ERROR STATUS="FATAL">
+   1194 !   Attribute <name> is not a character attribute.
+   1195 ! </ERROR>
+   1196           IF ( fms_error_handler('diag_util_mod::prepend_attribute_axis',&
+   1197                & 'Attribute "'//TRIM(att_name)//'" is not a character attribute.',&
+   1198                & err_msg) ) THEN
+   1199              RETURN
+   1200           END IF
+   1201        END IF
+   1202     ELSE
+   1203 ! Defining a new attribute
+   1204 ! Increase the number of file attributes
+   1205        this_attribute = out_axis%num_attributes + 1
+   1206        IF ( this_attribute .GT. max_axis_attributes ) THEN
+   1207 ! <ERROR STATUS="FATAL">
+   1208 !   Number of attributes exceeds max_axis_attributes for attribute <name>.
+   1209 !   Increase diag_manager_nml:max_axis_attributes.
+   1210 ! </ERROR>
+   1211           IF ( fms_error_handler('diag_util_mod::prepend_attribute_axis',&
+   1212                & 'Number of attributes exceeds max_axis_attributes for attribute "'&
+   1213                &//TRIM(att_name)//'".  Increase diag_manager_nml:max_axis_attributes.',&
+   1214                & err_msg) ) THEN
+
+Page 54          Source Listing                  PREPEND_ATTRIBUTE_AXIS
+2021-06-01 08:54                                 diag_axis.F90
+
+   1215              RETURN
+   1216           END IF
+   1217        ELSE
+   1218           out_axis%num_attributes = this_attribute
+   1219 ! Set name and type
+   1220           out_axis%attributes(this_attribute)%name = att_name
+   1221           out_axis%attributes(this_attribute)%type = NF90_CHAR
+   1222 ! Initialize catt to a blank string, as len_trim doesn't always work on an uninitialized string
+   1223           out_axis%attributes(this_attribute)%catt = ''
+   1224        END IF
+   1225     END IF
+   1226 
+   1227 ! Only add string only if not already defined
+   1228     IF ( INDEX(TRIM(out_axis%attributes(this_attribute)%catt), TRIM(prepend_value)).EQ.0 ) THEN
+   1229 ! Check if new string length goes beyond the length of catt
+   1230        length = LEN_TRIM(TRIM(prepend_value)//" "//TRIM(out_axis%attributes(this_attribute)%catt))
+   1231        IF ( length.GT.LEN(out_axis%attributes(this_attribute)%catt) ) THEN
+   1232 ! <ERROR STATUS="FATAL">
+   1233 !   Prepend length for attribute <name> is longer than allowed.
+   1234 ! </ERROR>
+   1235           IF ( fms_error_handler('diag_util_mod::prepend_attribute_file',&
+   1236                & 'Prepend length for attribute "'//TRIM(att_name)//'" is longer than allowed.',&
+   1237                & err_msg) ) THEN
+   1238              RETURN
+   1239           END IF
+   1240        END IF
+   1241 ! Set files
+   1242        out_axis%attributes(this_attribute)%catt =&
+   1243             & TRIM(prepend_value)//' '//TRIM(out_axis%attributes(this_attribute)%catt)
+   1244        out_axis%attributes(this_attribute)%len = length
+   1245     END IF
+   1246   END SUBROUTINE prepend_attribute_axis
+
+Page 55          Source Listing                  PREPEND_ATTRIBUTE_AXIS
+2021-06-01 08:54 Entry Points                    diag_axis.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                
+                                                      
+ diag_axis_mod_mp_prepend_attribute_axis_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ATT_NAME                   Dummy  1161     CHAR                        scalar   ARG,IN           1185,1197,1213,1220,1236          
+ ERR_MSG                    Dummy  1161     CHAR                        scalar   ARG,OUT          1172,1177,1198,1214,1237          
+ ERR_MSG_LOCAL              Local  1168     CHAR            512         scalar                    1171,1175,1176,1177               
+ I                          Local  1167     I(4)            4           scalar                    1184,1185,1186                    
+ INDEX                      Func   1228                                 scalar                    1228                              
+ LEN                        Func   1231                                 scalar                    1231                              
+ LENGTH                     Local  1167     I(4)            4           scalar                    1230,1231,1244                    
+ LEN_TRIM                   Func   1230                                 scalar                    1230                              
+ OUT_AXIS                   Dummy  1161     DIAG_AXIS_TYPE  11440       scalar   ARG,INOUT        1175,1184,1185,1192,1205,1218,1220
+                                                                                                  ,1221,1223,1228,1230,1231,1242,124
+                                                                                                  3,1244                            
+ PREPEND_ATTRIBUTE_AXIS     Subr   1161                                                           1051                              
+ PREPEND_VALUE              Dummy  1161     CHAR                        scalar   ARG,IN           1228,1230,1243                    
+ PRESENT                    Func   1172                                 scalar                    1172                              
+ THIS_ATTRIBUTE             Local  1167     I(4)            4           scalar                    1183,1186,1191,1192,1205,1206,1218
+                                                                                                  ,1220,1221,1223,1228,1230,1231,124
+                                                                                                  2,1243,1244                       
+ TRIM                       Func   1176                                 scalar                    1176,1177,1185,1197,1213,1228,1230
+                                                                                                  ,1236,1243                        
+
+Page 56          Source Listing                  PREPEND_ATTRIBUTE_AXIS
+2021-06-01 08:54                                 diag_axis.F90
+
+   1247 
+   1248 !> @brief given an axis, returns TRUE if the axis uses compression-by-gathering: that is, if
+   1249 !!   this is an axis for fields on unstructured grid
+   1250 !! @return logical whether or not the axis uses compression-by-gathering
+   1251   logical function axis_is_compressed(id)
+   1252     integer, intent(in) :: id
+   1253 
+   1254     integer :: i
+   1255 
+   1256     CALL valid_id_check(id, 'axis_is_compressed')
+   1257 
+   1258     axis_is_compressed = .FALSE.
+   1259     if (.not.allocated(Axes(id)%attributes)) return
+   1260     do i = 1, Axes(id)%num_attributes
+   1261        if (trim(Axes(id)%attributes(i)%name)=='compress') then
+   1262           axis_is_compressed = .TRUE.
+   1263           return
+   1264        endif
+   1265     enddo
+   1266   end function axis_is_compressed
+
+
+ENTRY POINTS
+
+  Name                                            
+                                                  
+ diag_axis_mod_mp_axis_is_compressed_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALLOCATED                  Func   1259                                 scalar                    1259                              
+ AXIS_IS_COMPRESSED         Func   1251     L(4)            4           scalar                                                      
+ I                          Local  1254     I(4)            4           scalar                    1260,1261                         
+ ID                         Dummy  1251     I(4)            4           scalar   ARG,IN           1256,1259,1260,1261               
+ TRIM                       Func   1261                                 scalar                    1261                              
+
+Page 57          Source Listing                  AXIS_IS_COMPRESSED
+2021-06-01 08:54                                 diag_axis.F90
+
+   1267 
+   1268 
+   1269 !> @brief given an index of compressed-by-gathering axis, return an array of axes used in
+   1270 !!   compression. It is a fatal error to call it on axis that is not compressed
+   1271   subroutine get_compressed_axes_ids(id, r)
+   1272     integer, intent(in)  :: id
+   1273     integer, intent(out), allocatable :: r(:)
+   1274 
+   1275     integer iatt, k, k1, k2, n
+   1276     logical :: space
+   1277 
+   1278     character(*), parameter :: tag = 'get_compressed_axes_ids'
+   1279 
+   1280     CALL valid_id_check(id, tag)
+   1281 
+   1282     associate (axis=>Axes(id))
+   1283     if (.not.allocated(axis%attributes)) call error_mesg(tag, &
+   1284        'attempt to get compression dimensions from axis "'//trim(axis%name)//'" which is not compressed (does not have any a
+   1284 ttributes)', FATAL)
+   1285 
+   1286     iatt = 0
+   1287     do k = 1,axis%num_attributes
+   1288        if (trim(axis%attributes(k)%name)=='compress') then
+   1289           iatt = k; exit ! from loop
+   1290        endif
+   1291     enddo
+   1292 
+   1293     if (iatt == 0) call error_mesg(tag, &
+   1294        'attempt to get compression dimensions from axis "'//trim(axis%name)//&
+   1295        '" which is not compressed (does not have "compress" attributes).', FATAL)
+   1296     if (axis%attributes(iatt)%type/=NF90_CHAR) call error_mesg(tag, &
+   1297        'attempt to get compression dimensions from axis "'//trim(axis%name)//&
+   1298        '" but the axis attribute "compress" has incorrect type.', FATAL)
+   1299 
+   1300 ! parse the "compress" attribute
+   1301 ! calculate the number of compression axes
+   1302     space = .TRUE.; n=0
+   1303     do k = 1, len(axis%attributes(iatt)%catt)
+   1304        if (space.and.(axis%attributes(iatt)%catt(k:k)/=' ')) then
+   1305           n = n+1
+   1306        endif
+   1307        space = (axis%attributes(iatt)%catt(k:k)==' ')
+   1308     enddo
+   1309 
+   1310     allocate(r(n))
+   1311 ! make array of compression axes indices. Go from the last to the first to get the
+   1312 ! array in FORTRAN order: they are listed in "compress" attribute  C order (fastest
+   1313 ! dimension last)
+   1314     k2 = 0
+   1315     do k = n, 1, -1
+   1316        do k1 = k2+1, len(axis%attributes(iatt)%catt)
+   1317           if (axis%attributes(iatt)%catt(k1:k1)/=' ') exit
+   1318        enddo
+   1319        do k2 = k1+1, len(axis%attributes(iatt)%catt)
+   1320           if (axis%attributes(iatt)%catt(k2:k2)==' ') exit
+   1321        enddo
+   1322        r(k) = get_axis_num(axis%attributes(iatt)%catt(k1:k2),Axis_sets(axis%set))
+
+Page 58          Source Listing                  GET_COMPRESSED_AXES_IDS
+2021-06-01 08:54                                 diag_axis.F90
+
+   1323        if (r(k)<=0) call error_mesg(tag, &
+   1324            'compression dimension "'//trim(axis%attributes(iatt)%catt(k1:k2))//&
+   1325            '" not found among the axes of set "'//trim(Axis_sets(axis%set))//'".', FATAL)
+   1326     enddo
+   1327     end associate ! axis
+   1328   end subroutine get_compressed_axes_ids
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ diag_axis_mod_mp_get_compressed_axes_ids_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALLOCATED                  Func   1283                                 scalar                    1283                              
+ AXIS                       Local  1282     DIAG_AXIS_TYPE  11440       scalar                    1283,1284,1287,1288,1294,1296,1297
+                                                                                                  ,1303,1304,1307,1316,1317,1319,132
+                                                                                                  0,1322,1324,1325                  
+ GET_COMPRESSED_AXES_IDS    Subr   1271                                                                                             
+ IATT                       Local  1275     I(4)            4           scalar                    1286,1289,1293,1296,1303,1304,1307
+                                                                                                  ,1316,1317,1319,1320,1322,1324    
+ ID                         Dummy  1271     I(4)            4           scalar   ARG,IN           1280,1282                         
+ K                          Local  1275     I(4)            4           scalar                    1287,1288,1289,1303,1304,1307,1315
+                                                                                                  ,1322,1323                        
+ K1                         Local  1275     I(4)            4           scalar                    1316,1317,1319,1322,1324          
+ K2                         Local  1275     I(4)            4           scalar                    1314,1316,1319,1320,1322,1324     
+ LEN                        Func   1303                                 scalar                    1303,1316,1319                    
+ N                          Local  1275     I(4)            4           scalar                    1302,1305,1310,1315               
+ R                          Dummy  1271     I(4)            4     1     1        ARG,ALC,OUT      1310,1322,1323                    
+ SPACE                      Local  1276     L(4)            4           scalar                    1302,1304,1307                    
+ TAG                        Param  1278     CHAR            23          scalar                    1280,1283,1293,1296,1323          
+ TRIM                       Func   1284                                 scalar                    1284,1288,1294,1297,1324,1325     
+
+Page 59          Source Listing                  GET_COMPRESSED_AXES_IDS
+2021-06-01 08:54                                 diag_axis.F90
+
+   1329 END MODULE diag_axis_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ AXIS_IS_COMPRESSED@0       Local  1251     L(4)            4           scalar                                                      
+ DIAG_AXIS_ADD_ATTRIBUTE    Local  139                                  scalar                    66                                
+ DIAG_AXIS_INIT@0           Local  155      I(4)            4           scalar                                                      
+ DIAG_AXIS_MOD              Module 30                                                                                               
+ DIAG_DATA_MOD              Module 52                                                             52                                
+ DIAG_SUBAXES_INIT@0        Local  409      I(4)            4           scalar                                                      
+ FMS_MOD                    Module 50                                                             50                                
+ GET_AXES_SHIFT             Subr   65                                                             65                                
+ GET_AXIS_AUX@0             Local  640      CHAR            128         scalar                                                      
+ GET_AXIS_GLOBAL_LENGTH@0   Local  658      I(4)            4           scalar                                                      
+ GET_AXIS_LENGTH@0          Local  624      I(4)            4           scalar                                                      
+ GET_AXIS_REQFLD@0          Local  649      CHAR            128         scalar                                                      
+ GET_COMPRESSED_AXES_IDS    Subr   68                                                             68                                
+ GET_DIAG_AXIS              Subr   62                                                             62                                
+ GET_DIAG_AXIS_CART         Subr   64                                                             64                                
+ GET_DIAG_AXIS_DATA         Subr   64                                                             64                                
+ GET_DIAG_AXIS_DOMAIN_NAME  Subr   66                                                             66                                
+ GET_DIAG_AXIS_NAME         Subr   65                                                             65                                
+ GET_DOMAIN1D@0             Local  694      DOMAIN1D        176         scalar                                                      
+ GET_DOMAIN2D@0             Local  707      DOMAIN2D        752         scalar                                                      
+ GET_DOMAINUG@0             Local  733      DOMAINUG        544         scalar                                                      
+ GET_TILE_COUNT@0           Local  667      I(4)            4           scalar                                                      
+ MPP_DOMAINS_MOD            Module 46                                                             46                                
+ NETCDF                     Module 56                                                             56                                
+ Operator (/=)                     49                                                                                               
+ PLATFORM_MOD               Module 31                                                             31                                
+
+Page 60          Source Listing                  GET_COMPRESSED_AXES_IDS
+2021-06-01 08:54 Subprograms/Common Blocks       diag_axis.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ATTRIBUTE_INIT_AXIS        Subr   1133                                                           938,1175                          
+ AXIS_COMPATIBLE_CHECK      Func   747      I(4)            4           scalar                                                      
+ AXIS_IS_COMPRESSED         Func   1251     L(4)            4           scalar                                                      
+ DIAG_AXIS_ADD_ATTRIBUTE_I1                                                                                                         
+ D                          Subr   1123                                          PRIV             1086                              
+ DIAG_AXIS_ADD_ATTRIBUTE_R1                                                                                                         
+ D                          Subr   1107                                          PRIV             1073                              
+ DIAG_AXIS_ADD_ATTRIBUTE_SC                                                                                                         
+ ALAR_C                     Subr   1094                                          PRIV                                               
+ DIAG_AXIS_ADD_ATTRIBUTE_SC                                                                                                         
+ ALAR_I                     Subr   1081                                          PRIV                                               
+ DIAG_AXIS_ADD_ATTRIBUTE_SC                                                                                                         
+ ALAR_R                     Subr   1068                                          PRIV                                               
+ DIAG_AXIS_ATTRIBUTE_INIT   Subr   903                                                            1099,1115,1128                    
+ DIAG_AXIS_INIT             Func   155      I(4)            4           scalar                                                      
+ DIAG_AXIS_MOD              Module 30                                                                                               
+ DIAG_SUBAXES_INIT          Func   409      I(4)            4           scalar                                                      
+ GET_AXES_SHIFT             Subr   825                                                                                              
+ GET_AXIS_AUX               Func   640      CHAR            128         scalar                                                      
+ GET_AXIS_GLOBAL_LENGTH     Func   658      I(4)            4           scalar                                                      
+ GET_AXIS_LENGTH            Func   624      I(4)            4           scalar                                                      
+ GET_AXIS_NUM               Func   849      I(4)            4           scalar                                                      
+ GET_AXIS_REQFLD            Func   649      CHAR            128         scalar                                                      
+ GET_AXIS_SET_NUM           Func   871      I(4)            4           scalar                    200,856,876,879                   
+ GET_COMPRESSED_AXES_IDS    Subr   1271                                                                                             
+ GET_DIAG_AXIS              Subr   493                                                                                              
+ GET_DIAG_AXIS_CART         Subr   582                                                                                              
+ GET_DIAG_AXIS_DATA         Subr   591                                                                                              
+ GET_DIAG_AXIS_DOMAIN_NAME  Subr   614                                                                                              
+ GET_DIAG_AXIS_NAME         Subr   605                                                                                              
+ GET_DOMAIN1D               Func   694      DOMAIN1D        176         scalar                                                      
+ GET_DOMAIN2D               Func   707      DOMAIN2D        752         scalar                                                      
+ GET_DOMAINUG               Func   733      DOMAINUG        544         scalar                                                      
+ GET_TILE_COUNT             Func   667      I(4)            4           scalar                                                      
+ PREPEND_ATTRIBUTE_AXIS     Subr   1161                                                           1051                              
+ VALID_ID_CHECK             Subr   887                                                            509,586,595,609,618,628,643,652,66
+                                                                                                  1,681,697,721,736,772,837,1256,128
+                                                                                                  0                                 
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+
+Page 61          Source Listing                  GET_COMPRESSED_AXES_IDS
+2021-06-01 08:54                                 diag_axis.F90
+
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+
+Page 62          Source Listing                  GET_COMPRESSED_AXES_IDS
+2021-06-01 08:54                                 diag_axis.F90
+
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+
+Page 63          Source Listing                  GET_COMPRESSED_AXES_IDS
+2021-06-01 08:54                                 diag_axis.F90
+
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : diag_axis.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

@@ -1,0 +1,320 @@
+Page 1           Source Listing                  MEMUTILS_INIT
+2021-06-01 08:53                                 /tmp/ifortUmgirQ.i90
+
+      1 # 1 "memutils.F90"
+      2 !> \file
+      3 !! \brief Module to expose the memory printing API
+      4 !! \author V. Balaji
+      5 !! \email gfdl.climate.model.info@noaa.gov
+      6 !!
+      7 !! \section LICENSE
+      8 !!
+      9 !***********************************************************************
+     10 !!                   GNU Lesser General Public License
+     11 !!
+     12 !! This file is part of the GFDL Flexible Modeling System (FMS).
+     13 !!
+     14 !! FMS is free software: you can redistribute it and/or modify it under
+     15 !! the terms of the GNU Lesser General Public License as published by
+     16 !! the Free Software Foundation, either version 3 of the License, or (at
+     17 !! your option) any later version.
+     18 !!
+     19 !! FMS is distributed in the hope that it will be useful, but WITHOUT
+     20 !! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     21 !! FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     22 !! for more details.
+     23 !!
+     24 !! You should have received a copy of the GNU Lesser General Public
+     25 !! License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     26 !***********************************************************************
+     27 !!
+     28 !! \section DESCRIPTION
+     29 !!
+     30 !! Module to expose the memory printing API
+     31 !!
+     32 !! Model components at times desire to print the memory statics to stderr,
+     33 !! or another file (e.g. the log file).  This can be useful in debugging.
+     34 !! This module exposes the print_memuse_stat and memutils_init calls for
+     35 !! use in external user code.
+     36 module memutils_mod
+     37 !Author: Balaji (V.Balaji@noaa.gov)
+     38   use mpp_mod, only: mpp_pe, mpp_root_pe, mpp_npes, mpp_min, mpp_max, mpp_sum, stderr
+     39   use mpp_memutils_mod, only: mpp_print_memuse_stats
+     40 
+     41   implicit none
+     42 
+     43   logical :: memutils_initialized=.FALSE. !< Indicate if module has been initialized.
+     44   logical, private :: print_memory_usage=.FALSE. !< Default behavior of print_memuse_stats()
+     45 
+     46   public :: memutils_init
+     47   public :: print_memuse_stats
+     48 
+     49 contains
+     50 
+     51 !> \brief Initialize the memutils module
+     52 !!
+     53 !! memutils_init initializes the print_memory_usage and memutils_initialized
+     54 !! module variables when called.  This configures if print_memuse_stats() should
+     55 !! print the memory statistics when called.  memutils_init, at present, can
+     56 !! be called multiple times, and potentially change the behavior of print_memuse_stats().
+     57   subroutine memutils_init(print_flag)
+
+Page 2           Source Listing                  MEMUTILS_INIT
+2021-06-01 08:53                                 memutils.F90
+
+     58     logical, optional :: print_flag !< Indicate if memory statistics should be printed by default
+     59 
+     60     if ( PRESENT(print_flag) ) print_memory_usage = print_flag
+     61     memutils_initialized = .TRUE.
+     62     return
+     63   end subroutine memutils_init
+
+
+ENTRY POINTS
+
+  Name                                      
+                                            
+ memutils_mod_mp_memutils_init_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ MEMUTILS_INIT              Subr   57                                                                                               
+ MEMUTILS_INITIALIZED       Local  61       L(4)            4           scalar                    43,61                             
+ PRESENT                    Func   60                                   scalar                    60                                
+ PRINT_FLAG                 Dummy  57       L(4)            4           scalar   ARG,INOUT        60                                
+ PRINT_MEMORY_USAGE         Local  60       L(4)            4           scalar   PRIV             44,60,81                          
+
+Page 3           Source Listing                  MEMUTILS_INIT
+2021-06-01 08:53                                 memutils.F90
+
+     64 
+     65 !> \brief Print memory usage stats to stdout, or a particular file
+     66 !!
+     67 !! API to allow external user code to print memory statistics to stderr, or an
+     68 !! optional file (Fortran file unit).  The module variable `print_memory_usage`
+     69 !! will control the default behavior (set when memutils_init is called).  The
+     70 !! default behavior can be modified passing in the optional `always` (logical)
+     71 !! parameter.  If `always.eqv..TRUE.`, print_memuse_stats() will print the memory
+     72 !! statistics.
+     73   subroutine print_memuse_stats( text, unit, always )
+     74     character(len=*), intent(in) :: text !< Text to be printed before the memory statistics
+     75     integer, intent(in), optional :: unit !< Fortran file unit to where memory statistics should be recorded
+     76     logical, intent(in), optional :: always !< If `.TRUE.`, force memory statistics to be printed
+     77 
+     78     if( PRESENT(always) )then
+     79       if( .NOT.always )return
+     80     else
+     81       if( .NOT.print_memory_usage )return
+     82     end if
+     83     call mpp_print_memuse_stats(text, unit)
+     84     return
+     85   end subroutine print_memuse_stats
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ memutils_mod_mp_print_memuse_stats_             
+
+Page 4           Source Listing                  PRINT_MEMUSE_STATS
+2021-06-01 08:53 Symbol Table                    memutils.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALWAYS                     Dummy  73       L(4)            4           scalar   ARG,IN           78,79                             
+ MPP_PRINT_MEMUSE_STATS     Subr   83                                                             39,83                             
+ PRESENT                    Func   78                                   scalar                    78                                
+ PRINT_MEMUSE_STATS         Subr   73                                                                                               
+ TEXT                       Dummy  73       CHAR                        scalar   ARG,IN           83                                
+ UNIT                       Dummy  73       I(4)            4           scalar   ARG,IN           83                                
+
+Page 5           Source Listing                  PRINT_MEMUSE_STATS
+2021-06-01 08:53                                 memutils.F90
+
+     86 end module memutils_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ MEMUTILS_INIT              Subr   46                                                             46                                
+ MEMUTILS_MOD               Module 36                                                                                               
+ MPP_MAX                    Local  38                                   scalar                    38                                
+ MPP_MEMUTILS_MOD           Module 39                                                             39                                
+ MPP_MIN                    Local  38                                   scalar                    38                                
+ MPP_MOD                    Module 38                                                             38                                
+ MPP_NPES                   Func   38       I(4)            4           scalar                    38                                
+ MPP_PE                     Func   38       I(4)            4           scalar                    38                                
+ MPP_ROOT_PE                Func   38       I(4)            4           scalar                    38                                
+ MPP_SUM                    Local  38                                   scalar                    38                                
+ PRINT_MEMUSE_STATS         Subr   47                                                             47                                
+ STDERR                     Func   38       I(4)            4           scalar                    38                                
+
+Page 6           Source Listing                  PRINT_MEMUSE_STATS
+2021-06-01 08:53 Subprograms/Common Blocks       memutils.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ MEMUTILS_INIT              Subr   57                                                                                               
+ MEMUTILS_MOD               Module 36                                                                                               
+ PRINT_MEMUSE_STATS         Subr   73                                                                                               
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+
+Page 7           Source Listing                  PRINT_MEMUSE_STATS
+2021-06-01 08:53                                 memutils.F90
+
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+
+Page 8           Source Listing                  PRINT_MEMUSE_STATS
+2021-06-01 08:53                                 memutils.F90
+
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : memutils.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

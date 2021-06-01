@@ -1,0 +1,749 @@
+Page 1           Source Listing                  GET_CAL_TIME
+2021-06-01 08:54                                 /tmp/ifortk3Dk7G.i90
+
+      1 # 1 "get_cal_time.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 module get_cal_time_mod
+     21 
+     22 !   <CONTACT EMAIL="fms@gfdl.noaa.gov">
+     23 !     fms
+     24 !   </CONTACT>
+     25 !   <OVERVIEW>
+     26 !      Given a time increment as a real number, and base time and calendar
+     27 !      as a character strings, returns time as a time_type variable.
+     28 !   </OVERVIEW>
+     29 
+     30 use          fms_mod, only: error_mesg, FATAL, write_version_number, lowercase, &
+     31                             open_namelist_file, check_nml_error, stdlog, close_file, &
+     32                             mpp_pe, mpp_root_pe
+     33 
+     34 use time_manager_mod, only: time_type, operator(+), operator(-), set_time, get_time, &
+     35                             NO_CALENDAR, THIRTY_DAY_MONTHS, NOLEAP, JULIAN, GREGORIAN, &
+     36                             set_calendar_type, get_calendar_type, set_date, &
+     37                             get_date, days_in_month, valid_calendar_types
+     38 use mpp_mod,          only: input_nml_file
+     39 
+     40 implicit none
+     41 private
+     42 
+     43 public :: get_cal_time
+     44 
+     45 logical :: module_is_initialized=.false. ! This module is initialized on
+     46 ! the first call to get_cal_time
+     47 ! because there is no constructor.
+     48 ! <NAMELIST NAME="get_cal_time_nml">
+     49 ! <DATA NAME="allow_calendar_conversion" TYPE="logical"  DEFAULT=".true.">
+     50 !   This sets the default value of the optional argument named "permit_calendar_conversion" of get_cal_time.
+     51 !   This namelist is deprecated as of the memphis release.
+     52 !   If calendar conversion is not desired, then it is recommended that permit_calendar_conversion
+     53 !   be present in the call to get_cal_time and that it be set to .false.
+     54 ! </DATA>
+     55 
+     56 logical :: allow_calendar_conversion=.true.
+     57 
+
+Page 2           Source Listing                  GET_CAL_TIME
+2021-06-01 08:54                                 get_cal_time.F90
+
+     58 namelist / get_cal_time_nml / allow_calendar_conversion
+     59 ! </NAMELIST>
+     60 
+     61 ! Include variable "version" to be written to log file.
+     62 # 1 "../include/file_version.h" 1 
+     63 ! -*-f90-*-
+     64 !***********************************************************************
+     65 !*                   GNU Lesser General Public License
+     66 !*
+     67 !* This file is part of the GFDL Flexible Modeling System (FMS).
+     68 !*
+     69 !* FMS is free software: you can redistribute it and/or modify it under
+     70 !* the terms of the GNU Lesser General Public License as published by
+     71 !* the Free Software Foundation, either version 3 of the License, or (at
+     72 !* your option) any later version.
+     73 !*
+     74 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     75 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     76 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     77 !* for more details.
+     78 !*
+     79 !* You should have received a copy of the GNU Lesser General Public
+     80 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     81 !***********************************************************************
+     82 
+     83 # 23
+     84 
+     85   character(len=*), parameter :: version = 'unknown'
+     86 
+     87 # 62 "get_cal_time.F90" 2 
+     88 
+     89 contains
+     90 !------------------------------------------------------------------------
+     91 ! <FUNCTION NAME="get_cal_time">
+     92 !   <TEMPLATE>
+     93 !     get_cal_time(time_increment, units, calendar, permit_calendar_conversion)
+     94 !   </TEMPLATE>
+     95 !   <IN NAME="time_increment" TYPE="real"> A time interval.</IN>
+     96 !   <IN NAME="units" TYPE="character">
+     97 !
+     98 ! Examples of acceptable values of units:
+     99 !
+    100 ! 'days since 1980-01-01 00:00:00',
+    101 ! 'hours since 1980-1-1 0:0:0',
+    102 ! 'minutes since 0001-4-12'
+    103 !
+    104 ! The first word in the string must be
+    105 ! 'years', 'months', 'days', 'hours', 'minutes' or 'seconds'.
+    106 ! The second word must be 'since'
+    107 !
+    108 ! year number must occupy 4 spaces.
+    109 ! Number of months, days, hours, minutes, seconds may occupy 1 or 2 spaces
+    110 ! year, month and day must be separated by a '-'
+    111 ! hour, minute, second must be separated by a ':'
+    112 ! hour, minute, second are optional. If not present then zero is assumed.
+    113 !
+    114 ! Because months are not equal increments of time, and, for julian calendar,
+
+Page 3           Source Listing                  GET_CAL_TIME
+2021-06-01 08:54                                 get_cal_time.F90
+
+    115 ! neither are years, the 'years since' and 'month since' cases deserve
+    116 ! further explaination.
+    117 !
+    118 ! When 'years since' is used:
+    119 ! The year number is increased by floor(time_increment)   to obtain a time T1.
+    120 ! The year number is increased by floor(time_increment)+1 to obtain a time T2.
+    121 ! The time returned is T1 + (time_increment-floor(time_increment))*(T2-T1).
+    122 !
+    123 ! When 'months since' is used:
+    124 ! The month number is increased by floor(time_increment). If it falls outside
+    125 ! to range 1 to 12 then it is adjusted along with the year number to convert
+    126 ! to a valid date. The number of days in the month of this date is used to
+    127 ! compute the time interval of the fraction.
+    128 ! That is:
+    129 ! The month number is increased by floor(time_increment) to obtain a time T1.
+    130 ! delt = the number of days in the month in which T1 falls.
+    131 ! The time returned is T1 + ((time_increment-floor(time_increment))*delt.
+    132 ! Two of the consequences of this scheme should be kept in mind.
+    133 ! -- The time since should not be from the 29'th to 31'st of a month,
+    134 !    since an invalid date is likely to result, triggering an error stop.
+    135 ! -- When time since is from the begining of a month, the fraction of a month
+    136 !    will never advance into the month after that which results from only
+    137 !    the whole number.
+    138 !
+    139 ! When NO_CALENDAR is in effect, units attribute must specify a starting
+    140 ! day and second, with day number appearing first
+    141 !
+    142 ! Example: 'days since 100 0' Indicates 100 days 0 seconds
+    143 ! </IN>
+    144 !
+    145 ! <IN NAME="calendar" TYPE="character">
+    146 ! Acceptable values of calendar are:
+    147 ! 'noleap'
+    148 ! '365_day'
+    149 ! '360_day'
+    150 ! 'julian'
+    151 ! 'thirty_day_months'
+    152 ! 'no_calendar'
+    153 ! </IN>
+    154 !
+    155 ! <IN NAME="permit_calendar_conversion" TYPE="logical, optional" DEFAULT="allow_calendar_conversion">
+    156 ! It is sometimes desirable to allow the value of the intent(in) argument
+    157 ! "calendar" to be different than the calendar in use by time_manager_mod.
+    158 ! If this is not desirable, then the optional variable "permit_calendar_conversion"
+    159 ! should be set to .false. so as to allow an error check.
+    160 ! When calendar conversion is done, the time returned is the time in the
+    161 ! time_manager's calendar, but corresponds to the date computed using the input calendar.
+    162 ! For example, suppose the time_manager is using the julian calendar and
+    163 ! the values of the input arguments of get_cal_time are:
+    164 ! time_increment = 59.0
+    165 ! units = 'days since 1980-1-1 00:00:00'
+    166 ! calendar = 'noleap'
+    167 ! Because it will use the noleap calendar to calculate the date, get_cal_time will return
+    168 ! value of time for midnight March 1 1980, but it will be time in the julian calendar
+    169 ! rather than the noleap calendar. It will never return a value of time corresponding
+    170 ! to anytime during the day Feb 29.
+    171 !
+
+Page 4           Source Listing                  GET_CAL_TIME
+2021-06-01 08:54                                 get_cal_time.F90
+
+    172 ! Another example:
+    173 ! Suppose the time_manager is using either the noleap or julian calendars,
+    174 ! and the values of the input arguments are:
+    175 ! time_increment = 30.0
+    176 ! units = 'days since 1980-1-1'
+    177 ! calendar = 'thirty_day_months'
+    178 ! In this case get_cal_time will return the value of time for Feb 1 1980 00:00:00,
+    179 ! but in the time_manager's calendar.
+    180 
+    181 ! Calendar conversion may result in a fatal error when the input calendar type is
+    182 ! a calendar that has more days per year than that of the time_manager's calendar.
+    183 ! For example, if the input calendar type is julian and the time_manager's calendar
+    184 ! is thirty_day_months, then get_cal_time will try to convert Jan 31 to a time in
+    185 ! the thirty_day_months calendar, resulting in a fatal error.
+    186 
+    187 ! Note: this option was originally coded to allow noleap calendar as input when
+    188 ! the julian calendar was in effect by the time_manager.
+    189 ! </IN>
+    190 !
+    191 !---------------------------------------------------------------------------------------------
+    192 
+    193 function get_cal_time(time_increment, units, calendar, permit_calendar_conversion)
+    194 real, intent(in) :: time_increment
+    195 character(len=*), intent(in) :: units
+    196 character(len=*), intent(in) :: calendar
+    197 logical, intent(in), optional :: permit_calendar_conversion
+    198 type(time_type) :: get_cal_time
+    199 integer :: year, month, day, hour, minute, second
+    200 integer :: i1, i2, i3, i4, i5, i6, increment_seconds, increment_days, increment_years, increment_months
+    201 real    :: month_fraction
+    202 integer :: calendar_tm_i, calendar_in_i, namelist_unit, ierr, io, logunit
+    203 logical :: correct_form
+    204 character(len=32) :: calendar_in_c
+    205 character(len=64) :: err_msg
+    206 character(len=4) :: formt='(i )'
+    207 type(time_type) :: base_time, base_time_plus_one_yr, base_time_plus_one_mo
+    208 real :: dt
+    209 logical :: permit_conversion_local
+    210 
+    211 if(.not.module_is_initialized) then
+    212 
+    213     read (input_nml_file, get_cal_time_nml, iostat=io)
+    214     ierr = check_nml_error (io, 'get_cal_time_nml')
+    215 # 197
+    216 
+    217 
+    218   call write_version_number("GET_CAL_TIME_MOD", version)
+    219   logunit = stdlog()
+    220   if(mpp_pe() == mpp_root_pe()) write (logunit, nml=get_cal_time_nml)
+    221   module_is_initialized = .true.
+    222 endif
+    223 
+    224 if(present(permit_calendar_conversion)) then
+    225   permit_conversion_local = permit_calendar_conversion
+    226 else
+    227   permit_conversion_local = allow_calendar_conversion
+    228 endif
+
+Page 5           Source Listing                  GET_CAL_TIME
+2021-06-01 08:54                                 get_cal_time.F90
+
+    229 
+    230 calendar_in_c = lowercase(trim(cut0(calendar)))
+    231 
+    232 correct_form = (trim(calendar_in_c)) == 'noleap'     .or. (trim(calendar_in_c)) == '365_day' .or. &
+    233                (trim(calendar_in_c)) == '365_days' .or. &
+    234                (trim(calendar_in_c)) == '360_day'    .or. (trim(calendar_in_c)) == 'julian'  .or. &
+    235                (trim(calendar_in_c)) == 'no_calendar'.or. (trim(calendar_in_c)) == 'thirty_day_months' .or. &
+    236                (trim(calendar_in_c)) == 'gregorian'
+    237 
+    238 if(.not.correct_form) then
+    239   call error_mesg('get_cal_time','"'//trim(calendar_in_c)//'"'// &
+    240    ' is not an acceptable calendar attribute. acceptable calendars are: '// &
+    241    ' noleap, 365_day, 365_days, 360_day, julian, no_calendar, thirty_day_months, gregorian',FATAL)
+    242 endif
+    243 
+    244 calendar_tm_i = get_calendar_type()
+    245 
+    246 if(.not.permit_conversion_local) then
+    247   correct_form = (trim(calendar_in_c) == 'noleap'            .and. calendar_tm_i == NOLEAP)            .or. &
+    248                  (trim(calendar_in_c) == '365_day'           .and. calendar_tm_i == NOLEAP)            .or. &
+    249                  (trim(calendar_in_c) == '365_days'          .and. calendar_tm_i == NOLEAP)            .or. &
+    250                  (trim(calendar_in_c) == '360_day'           .and. calendar_tm_i == THIRTY_DAY_MONTHS) .or. &
+    251                  (trim(calendar_in_c) == 'thirty_day_months' .and. calendar_tm_i == THIRTY_DAY_MONTHS) .or. &
+    252                  (trim(calendar_in_c) == 'julian'            .and. calendar_tm_i == JULIAN)            .or. &
+    253                  (trim(calendar_in_c) == 'no_calendar'       .and. calendar_tm_i == NO_CALENDAR)       .or. &
+    254                  (trim(calendar_in_c) == 'gregorian'         .and. calendar_tm_i == GREGORIAN)
+    255   if(.not.correct_form) then
+    256     call error_mesg('get_cal_time','calendar not consistent with calendar type in use by time_manager.'// &
+    257          ' calendar='//trim(calendar_in_c)//'. Type in use by time_manager='//valid_calendar_types(calendar_tm_i),FATAL)
+    258   endif
+    259 endif
+    260 
+    261 if (permit_conversion_local) then
+    262     select case (trim(calendar_in_c))
+    263     case ('noleap')
+    264         calendar_in_i = NOLEAP
+    265     case ('365_day')
+    266         calendar_in_i = NOLEAP
+    267     case ('365_days')
+    268         calendar_in_i = NOLEAP
+    269     case ('360_day')
+    270         calendar_in_i = THIRTY_DAY_MONTHS
+    271     case ('thirty_day_months')
+    272         calendar_in_i = THIRTY_DAY_MONTHS
+    273     case ('julian')
+    274         calendar_in_i = JULIAN
+    275     case ('no_calendar')
+    276         calendar_in_i = NO_CALENDAR
+    277     case ('gregorian')
+    278         calendar_in_i = GREGORIAN
+    279     case default
+    280         call error_mesg('get_cal_time', &
+    281                  trim(calendar_in_c)//' is an invalid calendar type (specified in call to get_cal_time)',FATAL)
+    282     end select
+    283 else
+    284     calendar_in_i = calendar_tm_i
+    285 end if
+
+Page 6           Source Listing                  GET_CAL_TIME
+2021-06-01 08:54                                 get_cal_time.F90
+
+    286 
+    287 correct_form = lowercase(units(1:10)) == 'days since'    .or. &
+    288                lowercase(units(1:11)) == 'hours since'   .or. &
+    289                lowercase(units(1:13)) == 'minutes since' .or. &
+    290                lowercase(units(1:13)) == 'seconds since'
+    291 
+    292 if(calendar_in_i /= NO_CALENDAR) then
+    293   correct_form = correct_form .or. &
+    294                lowercase(units(1:11)) == 'years since'   .or. &
+    295                lowercase(units(1:12)) == 'months since'
+    296 endif
+    297 
+    298 if(.not.correct_form) then
+    299   call error_mesg('get_cal_time',trim(units)//' is an invalid string for units.' // &
+    300         ' units must begin with a time unit then the word "since"' // &
+    301         ' Valid time units are: "seconds" "minutes", "hours", "days", and, ' // &
+    302         ' except when NO_CALENDAR is in effect, "months" and "years"',FATAL)
+    303 endif
+    304 
+    305 if(calendar_in_i /= calendar_tm_i) then
+    306 ! switch to calendar type specified as input argument,
+    307 ! will switch back before returning.
+    308   call set_calendar_type(calendar_in_i)
+    309 endif
+    310 
+    311 ! index(string, substring[,back])
+    312 ! Returns the starting position of substring as a substring of string,
+    313 ! or zero if it does not occur as a substring. Default value of back is
+    314 ! .false. If back is .false., the starting position of the first such
+    315 ! substring is returned. If back is .true., the starting position of the
+    316 ! last such substring is returned.
+    317 ! Returns zero if substring is not a substring of string (regardless of value of back)
+    318 
+    319 i1 = index(units,'since') + 5
+    320 if(calendar_in_i == NO_CALENDAR) then
+    321   base_time = set_time(units(i1:len_trim(units)))
+    322 else
+    323   base_time = set_date(units(i1:len_trim(units)))
+    324 endif
+    325 
+    326 if(lowercase(units(1:10)) == 'days since') then
+    327   increment_days = floor(time_increment)
+    328   increment_seconds = 86400*(time_increment - increment_days)
+    329 else if(lowercase(units(1:11)) == 'hours since') then
+    330   increment_days = floor(time_increment/24)
+    331   increment_seconds = 86400*(time_increment/24 - increment_days)
+    332 else if(lowercase(units(1:13)) == 'minutes since') then
+    333   increment_days = floor(time_increment/1440)
+    334   increment_seconds = 86400*(time_increment/1440 - increment_days)
+    335 else if(lowercase(units(1:13)) == 'seconds since') then
+    336   increment_days = floor(time_increment/86400)
+    337   increment_seconds = 86400*(time_increment/86400 - increment_days)
+    338 else if(lowercase(units(1:11)) == 'years since') then
+    339 ! The time period between between (base_time + time_increment) and
+    340 ! (base_time + time_increment + 1 year) may be 360, 365, or 366 days.
+    341 ! This must be determined to handle time increments with year fractions.
+    342   call get_date(base_time, year,month,day,hour,minute,second)
+
+Page 7           Source Listing                  GET_CAL_TIME
+2021-06-01 08:54                                 get_cal_time.F90
+
+    343   base_time             = set_date(year+floor(time_increment)  ,month,day,hour,minute,second)
+    344   base_time_plus_one_yr = set_date(year+floor(time_increment)+1,month,day,hour,minute,second)
+    345   call get_time(base_time_plus_one_yr - base_time, second, day)
+    346   dt = (day*86400+second)*(time_increment-floor(time_increment))
+    347   increment_days = floor(dt/86400)
+    348   increment_seconds = dt - increment_days*86400
+    349 else if(lowercase(units(1:12)) == 'months since') then
+    350   month_fraction = time_increment - floor(time_increment)
+    351   increment_years  = floor(time_increment/12)
+    352   increment_months = floor(time_increment) - 12*increment_years
+    353   call get_date(base_time, year,month,day,hour,minute,second)
+    354   base_time = set_date(year+increment_years,month+increment_months  ,day,hour,minute,second)
+    355   dt = 86400*days_in_month(base_time) * month_fraction
+    356   increment_days = floor(dt/86400)
+    357   increment_seconds = dt - increment_days*86400
+    358 else
+    359   call error_mesg('get_cal_time','"'//trim(units)//'"'//' is not an acceptable units attribute of time.'// &
+    360     ' It must begin with: "years since", "months since", "days since", "hours since", "minutes since", or "seconds since"',F
+    360 ATAL)
+    361 endif
+    362 
+    363 if (calendar_in_i /= calendar_tm_i) then
+    364     if(calendar_in_i == NO_CALENDAR .or. calendar_tm_i == NO_CALENDAR) then
+    365       call error_mesg('get_cal_time','Cannot do calendar conversion because input calendar is '// &
+    366        trim(valid_calendar_types(calendar_in_i))//' and time_manager is using '//trim(valid_calendar_types(calendar_tm_i))//
+    366  &
+    367        ' Conversion cannot be done if either is NO_CALENDAR',FATAL)
+    368     endif
+    369     call get_date(base_time,year, month, day, hour, minute, second)
+    370     get_cal_time = set_date(year,month,day,hour,minute,second) + set_time(increment_seconds, increment_days)
+    371     call get_date(get_cal_time,year,month,day,hour,minute,second)
+    372     call set_calendar_type(calendar_tm_i)
+    373     get_cal_time = set_date(year,month,day,hour,minute,second, err_msg=err_msg)
+    374     if(err_msg /= '') then
+    375       call error_mesg('get_cal_time','Error in function get_cal_time: '//trim(err_msg)// &
+    376                       ' Note that the time_manager is using the '//trim(valid_calendar_types(calendar_tm_i))//' calendar '//
+    376  &
+    377                       'while the calendar type passed to function get_cal_time is '//calendar_in_c,FATAL)
+    378     endif
+    379 else
+    380     get_cal_time = base_time + set_time(increment_seconds, increment_days)
+    381 endif
+    382 
+    383 end function get_cal_time
+
+Page 8           Source Listing                  GET_CAL_TIME
+2021-06-01 08:54 Entry Points                    get_cal_time.F90
+
+
+
+ENTRY POINTS
+
+  Name                                         
+                                               
+ get_cal_time_mod_mp_get_cal_time_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALLOW_CALENDAR_CONVERSION  Local  227      L(4)            4           scalar                    56,58,227                         
+ BASE_TIME                  Local  207      TIME_TYPE       16          scalar                    321,323,342,343,345,353,354,355,36
+                                                                                                  9,380                             
+ BASE_TIME_PLUS_ONE_MO      Local  207      TIME_TYPE       16          scalar                                                      
+ BASE_TIME_PLUS_ONE_YR      Local  207      TIME_TYPE       16          scalar                    344,345                           
+ CALENDAR                   Dummy  193      CHAR                        scalar   ARG,IN           230                               
+ CALENDAR_IN_C              Local  204      CHAR            32          scalar                    230,232,233,234,235,236,239,247,24
+                                                                                                  8,249,250,251,252,253,254,257,262,
+                                                                                                  281,377                           
+ CALENDAR_IN_I              Local  202      I(4)            4           scalar                    264,266,268,270,272,274,276,278,28
+                                                                                                  4,292,305,308,320,363,364,366     
+ CALENDAR_TM_I              Local  202      I(4)            4           scalar                    244,247,248,249,250,251,252,253,25
+                                                                                                  4,257,284,305,363,364,366,372,376 
+ CHECK_NML_ERROR            Func   214      I(4)            4           scalar   PRIV             31,214                            
+ CORRECT_FORM               Local  203      L(4)            4           scalar                    232,238,247,255,287,293,298       
+ CUT0@0                     Local  230      CHAR            256         scalar                                                      
+ DAY                        Local  199      I(4)            4           scalar                    342,343,344,345,346,353,354,369,37
+                                                                                                  0,371,373                         
+ DAYS_IN_MONTH              Func   355      I(4)            4           scalar   PRIV             37,355                            
+ DT                         Local  208      R(8)            8           scalar                    346,347,348,355,356,357           
+ ERROR_MESG                 Subr   239                                           PRIV             30,239,256,280,299,359,365,375    
+ ERR_MSG                    Local  205      CHAR            64          scalar                    373,374,375                       
+ FATAL                      Param  241      I(4)            4           scalar   PRIV             30,241,257,281,302,360,367,377    
+ FLOOR                      Func   327                                  scalar                    327,330,333,336,343,344,346,347,35
+                                                                                                  0,351,352,356                     
+ FORMT                      Local  206      CHAR            4           scalar                    206                               
+ GET_CALENDAR_TYPE          Func   244      I(4)            4           scalar   PRIV             36,244                            
+ GET_CAL_TIME               Func   193      TIME_TYPE       16          scalar                                                      
+ GET_CAL_TIME_NML           Local  213                                  scalar                    213,220                           
+ GET_DATE                   Subr   342                                           PRIV             37,342,353,369,371                
+ GET_TIME                   Subr   345                                           PRIV             34,345                            
+ GREGORIAN                  Param  254      I(4)            4           scalar   PRIV             35,254,278                        
+ HOUR                       Local  199      I(4)            4           scalar                    342,343,344,353,354,369,370,371,37
+                                                                                                  3                                 
+ I1                         Local  200      I(4)            4           scalar                    319,321,323                       
+ I2                         Local  200      I(4)            4           scalar                                                      
+ I3                         Local  200      I(4)            4           scalar                                                      
+ I4                         Local  200      I(4)            4           scalar                                                      
+ I5                         Local  200      I(4)            4           scalar                                                      
+ I6                         Local  200      I(4)            4           scalar                                                      
+ IERR                       Local  202      I(4)            4           scalar                    214                               
+ INCREMENT_DAYS             Local  200      I(4)            4           scalar                    327,328,330,331,333,334,336,337,34
+                                                                                                  7,348,356,357,370,380             
+ INCREMENT_MONTHS           Local  200      I(4)            4           scalar                    352,354                           
+
+Page 9           Source Listing                  GET_CAL_TIME
+2021-06-01 08:54 Symbol Table                    get_cal_time.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ INCREMENT_SECONDS          Local  200      I(4)            4           scalar                    328,331,334,337,348,357,370,380   
+ INCREMENT_YEARS            Local  200      I(4)            4           scalar                    351,352,354                       
+ INDEX                      Func   319                                  scalar                    319                               
+ INPUT_NML_FILE             Local  213      CHAR                  1     1        ALC,TGT,PRIV     38,213                            
+ IO                         Local  202      I(4)            4           scalar                    213,214                           
+ JULIAN                     Param  252      I(4)            4           scalar   PRIV             35,252,274                        
+ LEN_TRIM                   Func   321                                  scalar                    321,323                           
+ LOGUNIT                    Local  202      I(4)            4           scalar                    219,220                           
+ LOWERCASE                  Func   230      CHAR                        scalar   TGT,PRIV         30,230,287,288,289,290,294,295,326
+                                                                                                  ,329,332,335,338,349              
+ MINUTE                     Local  199      I(4)            4           scalar                    342,343,344,353,354,369,370,371,37
+                                                                                                  3                                 
+ MODULE_IS_INITIALIZED      Local  211      L(4)            4           scalar                    45,211,221                        
+ MONTH                      Local  199      I(4)            4           scalar                    342,343,344,353,354,369,370,371,37
+                                                                                                  3                                 
+ MONTH_FRACTION             Local  201      R(8)            8           scalar                    350,355                           
+ MPP_PE                     Func   220      I(4)            4           scalar   PRIV             32,220                            
+ MPP_ROOT_PE                Func   220      I(4)            4           scalar   PRIV             32,220                            
+ NAMELIST_UNIT              Local  202      I(4)            4           scalar                                                      
+ NOLEAP                     Param  247      I(4)            4           scalar   PRIV             35,247,248,249,264,266,268        
+ NO_CALENDAR                Param  253      I(4)            4           scalar   PRIV             35,253,276,292,320,364            
+ PERMIT_CALENDAR_CONVERSION Dummy  193      L(4)            4           scalar   ARG,IN           224,225                           
+ PERMIT_CONVERSION_LOCAL    Local  209      L(4)            4           scalar                    225,227,246,261                   
+ PRESENT                    Func   224                                  scalar                    224                               
+ SECOND                     Local  199      I(4)            4           scalar                    342,343,344,345,346,353,354,369,37
+                                                                                                  0,371,373                         
+ SET_CALENDAR_TYPE          Subr   308                                           PRIV             36,308,372                        
+ SET_DATE                   Local  323                                  scalar   PRIV             36,323,343,344,354,370,373        
+ SET_DATE_C                 Func   323      RECORD          16          scalar   PRIV             323                               
+ SET_DATE_I                 Func   343      RECORD          16          scalar   PRIV             343,344,354,370,373               
+ SET_TIME                   Local  321                                  scalar   PRIV             34,321,370,380                    
+ SET_TIME_C                 Func   321      RECORD          16          scalar   PRIV             321                               
+ SET_TIME_I                 Func   370      RECORD          16          scalar   PRIV             370,380                           
+ STDLOG                     Func   219      I(4)            4           scalar   PRIV             31,219                            
+ THIRTY_DAY_MONTHS          Param  250      I(4)            4           scalar   PRIV             35,250,251,270,272                
+ TIME_INCREMENT             Dummy  193      R(8)            8           scalar   ARG,IN           327,328,330,331,333,334,336,337,34
+                                                                                                  3,344,346,350,351,352             
+ TIME_MINUS                 Func   345      RECORD          16          scalar   PRIV             345                               
+ TIME_PLUS                  Func   370      RECORD          16          scalar   PRIV             370,380                           
+ TIME_TYPE                  Type   198                                  scalar                    34,198,207                        
+ TRIM                       Func   230                                  scalar                    230,232,233,234,235,236,239,247,24
+                                                                                                  8,249,250,251,252,253,254,257,262,
+                                                                                                  281,299,359,366,375,376           
+ UNITS                      Dummy  193      CHAR                        scalar   ARG,IN           287,288,289,290,294,295,299,319,32
+                                                                                                  1,323,326,329,332,335,338,349,359 
+ VALID_CALENDAR_TYPES       Func   257      CHAR            24          scalar   PRIV             37,257,366,376                    
+ VERSION                    Param  218      CHAR            7           scalar                    218                               
+ WRITE_VERSION_NUMBER       Subr   218                                           PRIV             30,218                            
+ YEAR                       Local  199      I(4)            4           scalar                    342,343,344,353,354,369,370,371,37
+                                                                                                  3                                 
+
+Page 10          Source Listing                  GET_CAL_TIME
+2021-06-01 08:54                                 get_cal_time.F90
+
+    384 ! </FUNCTION>
+    385 !------------------------------------------------------------------------
+    386 function cut0(string)
+    387 character(len=256) :: cut0
+    388 character(len=*), intent(in) :: string
+    389 integer :: i
+    390 
+    391 cut0 = string
+    392 
+    393 do i=1,len(string)
+    394   if(ichar(string(i:i)) == 0 ) then
+    395     cut0(i:i) = ' '
+    396   endif
+    397 enddo
+    398 
+    399 return
+    400 end function cut0
+
+
+ENTRY POINTS
+
+  Name                                 
+                                       
+ get_cal_time_mod_mp_cut0_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CUT0                       Func   386      CHAR            256         scalar                    230,391,395                       
+ I                          Local  389      I(4)            4           scalar                    393,394,395                       
+ ICHAR                      Func   394                                  scalar                    394                               
+ LEN                        Func   393                                  scalar                    393                               
+ STRING                     Dummy  386      CHAR                        scalar   ARG,IN           391,393,394                       
+
+Page 11          Source Listing                  CUT0
+2021-06-01 08:54                                 get_cal_time.F90
+
+    401 !------------------------------------------------------------------------
+    402 end module get_cal_time_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CLOSE_FILE                 Subr   31                                            PRIV             31                                
+ FMS_MOD                    Module 30                                                             30                                
+ GET_CAL_TIME@0             Local  193      TIME_TYPE       16          scalar                                                      
+ GET_CAL_TIME_MOD           Module 20                                                                                               
+ MPP_MOD                    Module 38                                                             38                                
+ OPEN_NAMELIST_FILE         Func   31       I(4)            4           scalar   PRIV             31                                
+ Operator (+)                      34                                                                                               
+ TIME_MANAGER_MOD           Module 34                                                             34                                
+
+Page 12          Source Listing                  CUT0
+2021-06-01 08:54 Subprograms/Common Blocks       get_cal_time.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CUT0                       Func   386      CHAR            256         scalar                    230,391,395                       
+ GET_CAL_TIME               Func   193      TIME_TYPE       16          scalar                                                      
+ GET_CAL_TIME_MOD           Module 20                                                                                               
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+
+Page 13          Source Listing                  CUT0
+2021-06-01 08:54                                 get_cal_time.F90
+
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+
+Page 14          Source Listing                  CUT0
+2021-06-01 08:54                                 get_cal_time.F90
+
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : get_cal_time.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

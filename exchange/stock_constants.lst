@@ -1,0 +1,744 @@
+Page 1           Source Listing                  STOCKS_REPORT_INIT
+2021-06-01 08:56                                 /tmp/ifortW4MMlu.i90
+
+      1 # 1 "stock_constants.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 !> @file
+     22 !! @email gfdl.climate.model.info@noaa.gov
+     23 module stock_constants_mod
+     24 
+     25   use mpp_mod, only : mpp_pe, mpp_root_pe, mpp_sum
+     26   use fms_mod, only : write_version_number
+     27   use time_manager_mod, only : time_type, get_time
+     28   use time_manager_mod, only : operator(+), operator(-)
+     29   use diag_manager_mod, only : register_diag_field,send_data
+     30 
+     31   implicit none
+     32 
+     33 ! Include variable "version" to be written to log file.
+     34 # 1 "../include/file_version.h" 1 
+     35 ! -*-f90-*-
+     36 !***********************************************************************
+     37 !*                   GNU Lesser General Public License
+     38 !*
+     39 !* This file is part of the GFDL Flexible Modeling System (FMS).
+     40 !*
+     41 !* FMS is free software: you can redistribute it and/or modify it under
+     42 !* the terms of the GNU Lesser General Public License as published by
+     43 !* the Free Software Foundation, either version 3 of the License, or (at
+     44 !* your option) any later version.
+     45 !*
+     46 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     47 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     48 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     49 !* for more details.
+     50 !*
+     51 !* You should have received a copy of the GNU Lesser General Public
+     52 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     53 !***********************************************************************
+     54 
+     55 # 23
+     56 
+     57   character(len=*), parameter :: version = 'unknown'
+
+Page 2           Source Listing                  STOCKS_REPORT_INIT
+2021-06-01 08:56                                 ../include/file_version.h
+
+     58 
+     59 # 34 "stock_constants.F90" 2 
+     60 
+     61   integer,public,    parameter                :: NELEMS=3
+     62   integer,           parameter                :: NELEMS_report=3
+     63   integer,public,    parameter                :: ISTOCK_WATER=1, ISTOCK_HEAT=2, ISTOCK_SALT=3
+     64   integer,public,    parameter                :: ISTOCK_TOP=1, ISTOCK_BOTTOM=2, ISTOCK_SIDE=3
+     65   integer,public                              :: stocks_file
+     66 ! Stock related stuff
+     67 ! Shallow (no constructor) data structures holding the starting stock values (per PE) and
+     68 ! flux integrated increments at present time.
+     69 
+     70   integer, parameter :: NSIDES  = 3         !< top, bottom, side
+     71 
+     72 !> @brief per PE values
+     73   type stock_type ! per PE values
+     74      real  :: q_start = 0.0    !< total stocks at start time
+     75      real  :: q_now   = 0.0    !< total stocks at time t
+     76 
+     77 ! The dq's below are the stocks increments at the present time
+     78 ! delta_t * surf integr of flux
+     79 ! one for each side (ISTOCK_TOP, ISTOCK_BOTTOM, ISTOCK_SIDE)
+     80      real  :: dq(NSIDES)    = 0.0    !< stock increments at present time on the Ice   grid
+     81      real  :: dq_IN(NSIDES) = 0.0    !< stock increments at present time on the Ocean grid
+     82   end type stock_type
+     83 
+     84   type(stock_type), save, public, dimension(NELEMS) :: Atm_stock, Ocn_stock, Lnd_stock, Ice_stock
+     85   type(time_type), save :: init_time
+     86 
+     87   public stocks_report
+     88   public stocks_report_init
+     89   public stocks_set_init_time
+     90 
+     91   integer,private,   parameter                :: NCOMPS=4
+     92   integer,private,   parameter                :: ISTOCK_ATM=1,ISTOCK_LND=2,ISTOCK_ICE=3,ISTOCK_OCN=4
+     93   character(len=3) , parameter, dimension(NCOMPS)  :: COMP_NAMES=(/'ATM', 'LND', 'ICE', 'OCN'/)
+     94 
+     95 
+     96   character(len=5) , parameter, dimension(NELEMS)  :: STOCK_NAMES=(/'water', 'heat ', 'salt '/)
+     97   character(len=12), parameter, dimension(NELEMS)  :: STOCK_UNITS=(/'[Kg]    ','[Joules]','[Kg]    '/)
+     98 
+     99 
+    100 contains
+    101 
+    102 
+    103     subroutine stocks_report_init(Time)
+    104     type(time_type)               , intent(in) :: Time
+    105 
+    106     character(len=80) :: formatString,space
+    107     integer :: i,s
+    108     real, dimension(NELEMS) :: val_atm, val_lnd, val_ice, val_ocn
+    109 
+    110 ! Write the version of this file to the log file
+    111     call write_version_number('STOCK_CONSTANTS_MOD', version)
+    112 
+    113     do i = 1, NELEMS_report
+    114        val_atm(i) = Atm_stock(i)%q_start
+
+Page 3           Source Listing                  STOCKS_REPORT_INIT
+2021-06-01 08:56                                 stock_constants.F90
+
+    115        val_lnd(i) = Lnd_stock(i)%q_start
+    116        val_ice(i) = Ice_stock(i)%q_start
+    117        val_ocn(i) = Ocn_stock(i)%q_start
+    118        call mpp_sum(val_atm(i))
+    119        call mpp_sum(val_lnd(i))
+    120        call mpp_sum(val_ice(i))
+    121        call mpp_sum(val_ocn(i))
+    122     enddo
+    123 
+    124 
+    125 
+    126     if(mpp_pe() == mpp_root_pe()) then
+    127 !       earth_area = 4.*PI*Radius**2
+    128 
+    129        write(stocks_file,*) '================Stocks Report Guide====================================='
+    130        write(stocks_file,*) ' '
+    131        write(stocks_file,*) 'S(t) = Total amount     of a tracer in the component model at time t.'
+    132        write(stocks_file,*) '       Calculated via the component model itself.'
+    133        write(stocks_file,*) ' '
+    134        write(stocks_file,*) 'F(t) = Cumulative input of a tracer to the component model at time t.'
+    135        write(stocks_file,*) '       Calculated via interchange of fluxes with other component models.'
+    136        write(stocks_file,*) ' '
+    137        write(stocks_file,*) 'S(t) - S(0) = Cumulative increase of the component stocks at time t'
+    138        write(stocks_file,*) '              Calculated by the component itself.'
+    139        write(stocks_file,*) ' '
+    140        write(stocks_file,*) 'In a conserving component F(t)=S(t)-S(0) to within numerical accuracy.'
+    141        write(stocks_file,*) ' '
+    142        write(stocks_file,*) 'Component Model refers to one of OCN, ATM, LND or ICE'
+    143        write(stocks_file,*) ''
+    144        write(stocks_file,*) 'NOTE: When use_lag_fluxes=.true. is used in coupler, the ocean stocks '
+    145        write(stocks_file,*) '      calculations are in error by an order which scales as the inverse'
+    146        write(stocks_file,*) '      of the number of time steps.'
+    147        write(stocks_file,*) ' '
+    148        write(stocks_file,*) '======================================================================='
+    149 
+    150 
+    151        write(stocks_file,*) '======================Initial Stock S(0)==============================='
+    152 !The following produces  formatString='(5x,a,a,12x,a,a, 9x)' but is general to handle more elements
+    153        formatString= '(5x'
+    154        do i=1,NELEMS_report
+    155           s = 25-len_trim(STOCK_NAMES(i))-len_trim(STOCK_UNITS(i))
+    156           write(space,'(i2)') s
+    157           formatString= trim(formatString)//',a,a,'//trim(space)
+    158           formatString= trim(formatString)//trim('x')
+    159        enddo
+    160        formatString= trim(formatString)//')'
+    161 
+    162        write(stocks_file,formatString) (trim(STOCK_NAMES(i)),trim(STOCK_UNITS(i)), i=1,NELEMS_report)
+    163 
+    164 !The following produces  formatString=' (a,x,es22.15,3x,es22.15,3x)' but is general to handle more elements
+    165        formatString= '(a,x'
+    166        do i=1,NELEMS_report
+    167           write(space,'(i2)') s
+    168           formatString= trim(formatString)//',es22.15,3x'
+    169        enddo
+    170        formatString= trim(formatString)//')'
+    171 
+
+Page 4           Source Listing                  STOCKS_REPORT_INIT
+2021-06-01 08:56                                 stock_constants.F90
+
+    172 
+    173        write(stocks_file,formatString) 'ATM', (val_atm(i), i=1,NELEMS_report)
+    174        write(stocks_file,formatString) 'LND', (val_lnd(i), i=1,NELEMS_report)
+    175        write(stocks_file,formatString) 'ICE', (val_ice(i), i=1,NELEMS_report)
+    176        write(stocks_file,formatString) 'OCN', (val_ocn(i), i=1,NELEMS_report)
+    177 
+    178        write(stocks_file,*) '========================================================================'
+    179        write(stocks_file,'(a)'  ) ' '!blank line
+    180 
+    181     end if
+    182 
+    183     call stocks_set_init_time(Time)
+    184 
+    185   end subroutine stocks_report_init
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ stock_constants_mod_mp_stocks_report_init_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ATM_STOCK                  Local  114      RECORD          64    1     3        SAVE             84,114,226                        
+ FORMATSTRING               Local  106      CHAR            80          scalar                    153,157,158,160,162,165,168,170,17
+                                                                                                  3,174,175,176                     
+ I                          Local  107      I(4)            4           scalar                    113,114,115,116,117,118,119,120,12
+                                                                                                  1,154,155,162,166,173,174,175,176 
+ ICE_STOCK                  Local  116      RECORD          64    1     3        SAVE             84,116,228                        
+ LEN_TRIM                   Func   155                                  scalar                    155                               
+ LND_STOCK                  Local  115      RECORD          64    1     3        SAVE             84,115,227                        
+ MPP_PE                     Func   126      I(4)            4           scalar                    25,126,211,247,315                
+ MPP_ROOT_PE                Func   126      I(4)            4           scalar                    25,126,211,247,315                
+ MPP_SUM                    Local  118                                  scalar                    25,118,119,120,121,239,240,241,242
+                                                                                                  ,243                              
+ MPP_SUM_REAL8_SCALAR       Subr   118                                           PRIV             118,119,120,121,239,240,241,242,24
+                                                                                                  3                                 
+ NELEMS                     Param  108      I(4)            4           scalar                    61,84,96,97,108,202,203,204,205   
+ NELEMS_REPORT              Param  113      I(4)            4           scalar                    113,154,162,166,173,174,175,176,22
+                                                                                                  2                                 
+ OCN_STOCK                  Local  117      RECORD          64    1     3        SAVE             84,117,229                        
+ S                          Local  107      I(4)            4           scalar                    155,156,167                       
+ SPACE                      Local  106      CHAR            80          scalar                    156,157,167                       
+ STOCKS_FILE                Local  129      I(4)            4           scalar                    65,129,130,131,132,133,134,135,136
+                                                                                                  ,137,138,139,140,141,142,143,144,1
+                                                                                                  45,146,147,148,151,162,173,174,175
+                                                                                                  ,176,178,179,217,218,219,323,326,3
+                                                                                                  28,330,332,334,337,339,342,343    
+ STOCKS_REPORT_INIT         Subr   103                                                                                              
+ STOCKS_SET_INIT_TIME       Subr   183                                                            89,183                            
+ STOCK_NAMES                Param  155      CHAR            5     1     3                         155,162,250,258,266,280,323,339   
+ STOCK_UNITS                Param  155      CHAR            12    1     3                         155,162,252,260,268,282,326,328,33
+                                                                                                  0,332,339                         
+
+Page 5           Source Listing                  STOCKS_REPORT_INIT
+2021-06-01 08:56 Symbol Table                    stock_constants.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ TIME                       Dummy  103      TIME_TYPE       16          scalar   ARG,IN           183                               
+ TIME_TYPE                  Type   104                                  scalar                    27,85,104,189,191,351             
+ TRIM                       Func   157                                  scalar                    157,158,160,162,168,170           
+ VAL_ATM                    Local  108      R(8)            8     1     3                         114,118,173                       
+ VAL_ICE                    Local  108      R(8)            8     1     3                         116,120,175                       
+ VAL_LND                    Local  108      R(8)            8     1     3                         115,119,174                       
+ VAL_OCN                    Local  108      R(8)            8     1     3                         117,121,176                       
+ VERSION                    Param  111      CHAR            7           scalar                    111                               
+ WRITE_VERSION_NUMBER       Subr   111                                                            26,111                            
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ STOCK_TYPE.Q_START         R(8)            8     0              scalar                    114,115,116,117,236                
+
+Page 6           Source Listing                  STOCKS_REPORT_INIT
+2021-06-01 08:56                                 stock_constants.F90
+
+    186 
+    187 
+    188   subroutine stocks_report(Time)
+    189     type(time_type)               , intent(in) :: Time
+    190 
+    191     type(time_type) :: timeSinceStart
+    192     type(stock_type) :: stck
+    193     real, dimension(NCOMPS) :: f_value, f_ice_grid, f_ocn_grid, f_ocn_btf, q_start, q_now,c_value
+    194     character(len=80) :: formatString
+    195     integer :: iday0, isec0, iday, isec, hours
+    196     real    :: days
+    197     integer :: diagID , comp,elem,i
+    198     integer, parameter :: initID = -2 !< initial value for diag IDs. Must not be equal to the value
+    199 !! that register_diag_field returns when it can't register the filed -- otherwise the registration
+    200 !! is attempted every time this subroutine is called
+    201 
+    202     integer, dimension(NCOMPS,NELEMS), save :: f_valueDiagID = initID
+    203     integer, dimension(NCOMPS,NELEMS), save :: c_valueDiagID = initID
+    204     integer, dimension(NCOMPS,NELEMS), save :: fmc_valueDiagID = initID
+    205     integer, dimension(NCOMPS,NELEMS), save :: f_lostDiagID = initID
+    206 
+    207     real :: diagField
+    208     logical :: used
+    209     character(len=30) :: field_name, units
+    210 
+    211     if(mpp_pe()==mpp_root_pe()) then
+    212        call get_time(init_time, isec0, iday0)
+    213        call get_time(Time, isec, iday)
+    214 
+    215        hours = iday*24 + isec/3600 - iday0*24 - isec0/3600
+    216        days  = hours/24.
+    217        write(stocks_file,*) '==============================================='
+    218        write(stocks_file,'(a,f12.3)') 't = TimeSinceStart[days]= ',days
+    219        write(stocks_file,*) '==============================================='
+    220     endif
+    221 
+    222     do elem = 1,NELEMS_report
+    223 
+    224        do comp = 1,NCOMPS
+    225 
+    226           if(comp == ISTOCK_ATM) stck = Atm_stock(elem)
+    227           if(comp == ISTOCK_LND) stck = Lnd_stock(elem)
+    228           if(comp == ISTOCK_ICE) stck = Ice_stock(elem)
+    229           if(comp == ISTOCK_OCN) stck = Ocn_stock(elem)
+    230 
+    231 
+    232           f_ice_grid(comp) = sum(stck%dq)
+    233           f_ocn_grid(comp) = sum(stck%dq_IN)
+    234           f_ocn_btf(comp)  = stck%dq_IN( ISTOCK_BOTTOM )
+    235 
+    236           q_start(comp) = stck%q_start
+    237           q_now(comp)   = stck%q_now
+    238 
+    239           call mpp_sum(f_ice_grid(comp))
+    240           call mpp_sum(f_ocn_grid(comp))
+    241           call mpp_sum(f_ocn_btf(comp))
+    242           call mpp_sum(q_start(comp))
+
+Page 7           Source Listing                  STOCKS_REPORT
+2021-06-01 08:56                                 stock_constants.F90
+
+    243           call mpp_sum(q_now(comp))
+    244 
+    245           c_value(comp) = q_now(comp) - q_start(comp)
+    246 
+    247           if(mpp_pe() == mpp_root_pe()) then
+    248 
+    249              if(f_valueDiagID(comp,elem) == initID) then
+    250                 field_name = trim(COMP_NAMES(comp)) // trim(STOCK_NAMES(elem))
+    251                 field_name  = trim(field_name) // 'StocksChange_Flux'
+    252                 units = trim(STOCK_UNITS(elem))
+    253                 f_valueDiagID(comp,elem) = register_diag_field('stock_print', field_name, Time, &
+    254                      units=units)
+    255              endif
+    256 
+    257              if(c_valueDiagID(comp,elem) == initID) then
+    258                 field_name = trim(COMP_NAMES(comp)) // trim(STOCK_NAMES(elem))
+    259                 field_name = trim(field_name) // 'StocksChange_Comp'
+    260                 units = trim(STOCK_UNITS(elem))
+    261                 c_valueDiagID(comp,elem) = register_diag_field('stock_print', field_name, Time, &
+    262                      units=units)
+    263              endif
+    264 
+    265              if(fmc_valueDiagID(comp,elem) == initID) then
+    266                 field_name = trim(COMP_NAMES(comp)) // trim(STOCK_NAMES(elem))
+    267                 field_name = trim(field_name) // 'StocksChange_Diff'
+    268                 units = trim(STOCK_UNITS(elem))
+    269                 fmc_valueDiagID(comp,elem) = register_diag_field('stock_print', field_name, Time, &
+    270                      units=units)
+    271              endif
+    272 
+    273              f_value(comp) = f_ice_grid(comp)
+    274 
+    275              if(comp == ISTOCK_OCN) then
+    276 
+    277                 f_value(comp) = f_ocn_grid(comp)
+    278 
+    279                 if(f_lostDiagID(comp,elem) == initID) then
+    280                    field_name = trim(COMP_NAMES(comp)) // trim(STOCK_NAMES(elem))
+    281                    field_name = trim(field_name) // 'StocksExchangeLost'
+    282                    units = trim(STOCK_UNITS(elem))
+    283                    f_lostDiagID(comp,elem) = register_diag_field('stock_print', field_name, Time, &
+    284                         units=units)
+    285                 endif
+    286 
+    287                 DiagID=f_lostDiagID(comp,elem)
+    288                 diagField = f_ice_grid(comp) - f_ocn_grid(comp)
+    289                 if (DiagID > 0)  used = send_data(DiagID, diagField, Time)
+    290 
+    291              endif
+    292 
+    293 
+    294              DiagID=f_valueDiagID(comp,elem)
+    295              diagField = f_value(comp)
+    296              if (DiagID > 0)  used = send_data(DiagID, diagField, Time)
+    297              DiagID=c_valueDiagID(comp,elem)
+    298              diagField = c_value(comp)
+    299              if (DiagID > 0)  used = send_data(DiagID, diagField, Time)
+
+Page 8           Source Listing                  STOCKS_REPORT
+2021-06-01 08:56                                 stock_constants.F90
+
+    300              DiagID=fmc_valueDiagID(comp,elem)
+    301              diagField = f_value(comp)-c_value(comp)
+    302              if (DiagID > 0)  used = send_data(DiagID, diagField, Time)
+    303 
+    304 
+    305 !             formatString = '(a,a,a,i16,2x,es22.15,2x,es22.15,2x,es22.15,2x,es22.15,2x,es22.15,2x,es22.15)'
+    306 !
+    307 !             write(stocks_file,formatString) trim(COMP_NAMES(comp)),STOCK_NAMES(elem),STOCK_UNITS(elem) &
+    308 !                  ,hours, q_now, q_now-q_start, f_value, f_value - (q_now - q_start), (f_value - (q_now - q_start))/q_start
+    309 
+    310 
+    311           endif
+    312        enddo
+    313 
+    314 
+    315        if(mpp_pe()==mpp_root_pe()) then
+    316 !          write(stocks_file,'(a)'  ) ' '!blank line
+    317 !          write(stocks_file,'(a,f12.3)') 't = TimeSinceStart[days]= ',days
+    318 !          write(stocks_file,'(a)'  )   ' '!blank line
+    319 !          write(stocks_file,'(a,30x,a,20x,a,20x,a,20x,a)') 'Component ','ATM','LND','ICE','OCN'
+    320 !          write(stocks_file,'(55x,a,20x,a,20x,a,20x,a)')  'ATM','LND','ICE','OCN'
+    321 !          write(stocks_file,'(a,f12.3,12x,a,20x,a,20x,a,20x,a)') 't = TimeSinceStart[days]= ',days,'ATM','LND','ICE','OCN'
+    322 
+    323           write(stocks_file,'(a,a,40x,a,20x,a,20x,a,20x,a)') 'Stocks of ',trim(STOCK_NAMES(elem)),'ATM','LND','ICE','OCN'
+    324           formatString = '(a,a,2x,es22.15,2x,es22.15,2x,es22.15,2x,es22.15)'
+    325 
+    326           write(stocks_file,formatString) 'Total =S(t)               ',STOCK_UNITS(elem),&
+    327                ( q_now(i), i=1,NCOMPS)
+    328           write(stocks_file,formatString) 'Change=S(t)-S(0)          ',STOCK_UNITS(elem),&
+    329                ( q_now(i)-q_start(i), i=1,NCOMPS)
+    330           write(stocks_file,formatString) 'Input =F(t)               ',STOCK_UNITS(elem),&
+    331                ( f_value(i), i=1,NCOMPS)
+    332           write(stocks_file,formatString) 'Diff  =F(t) - (S(t)-S(0)) ',STOCK_UNITS(elem),&
+    333                ( f_value(i) - c_value(i), i=1,NCOMPS)
+    334           write(stocks_file,formatString) 'Error =Diff/S(0)          ','[NonDim]    ', &
+    335                ((f_value(i) - c_value(i))/(1+q_start(i)), i=1,NCOMPS)  !added 1 to avoid div by zero. Assuming q_start large
+    336 
+    337           write(stocks_file,'(a)'  ) ' '!blank line
+    338           formatString = '(a,a,a,6x,es22.15)'
+    339           write(stocks_file,formatString) 'Lost Stocks in the exchange between Ice and Ocean ',trim(STOCK_NAMES(elem)),trim(
+    339 STOCK_UNITS(elem)),  &
+    340                f_ice_grid(ISTOCK_OCN) - f_ocn_grid(ISTOCK_OCN) + f_ocn_btf(ISTOCK_OCN)
+    341 
+    342           write(stocks_file,'(a)') ' ' !blank line
+    343           write(stocks_file,'(a)') ' ' !blank line
+    344 
+    345        endif
+    346     enddo
+    347 
+    348   end subroutine stocks_report
+
+Page 9           Source Listing                  STOCKS_REPORT
+2021-06-01 08:56 Entry Points                    stock_constants.F90
+
+
+
+ENTRY POINTS
+
+  Name                                             
+                                                   
+ stock_constants_mod_mp_stocks_report_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ COMP                       Local  197      I(4)            4           scalar                    224,226,227,228,229,232,233,234,23
+                                                                                                  6,237,239,240,241,242,243,245,249,
+                                                                                                  250,253,257,258,261,265,266,269,27
+                                                                                                  3,275,277,279,280,283,287,288,294,
+                                                                                                  295,297,298,300,301               
+ COMP_NAMES                 Param  250      CHAR            3     1     4                         250,258,266,280                   
+ C_VALUE                    Local  193      R(8)            8     1     4                         245,298,301,333,335               
+ C_VALUEDIAGID              Local  203      I(4)            4     2     12       SAVE             203,257,261,297                   
+ DAYS                       Local  196      R(8)            8           scalar                    216,218                           
+ DIAGFIELD                  Local  207      R(8)            8           scalar                    288,289,295,296,298,299,301,302   
+ DIAGID                     Local  197      I(4)            4           scalar                    287,289,294,296,297,299,300,302   
+ ELEM                       Local  197      I(4)            4           scalar                    222,226,227,228,229,249,250,252,25
+                                                                                                  3,257,258,260,261,265,266,268,269,
+                                                                                                  279,280,282,283,287,294,297,300,32
+                                                                                                  3,326,328,330,332,339             
+ FIELD_NAME                 Local  209      CHAR            30          scalar                    250,251,253,258,259,261,266,267,26
+                                                                                                  9,280,281,283                     
+ FMC_VALUEDIAGID            Local  204      I(4)            4     2     12       SAVE             204,265,269,300                   
+ FORMATSTRING               Local  194      CHAR            80          scalar                    324,326,328,330,332,334,338,339   
+ F_ICE_GRID                 Local  193      R(8)            8     1     4                         232,239,273,288,340               
+ F_LOSTDIAGID               Local  205      I(4)            4     2     12       SAVE             205,279,283,287                   
+ F_OCN_BTF                  Local  193      R(8)            8     1     4                         234,241,340                       
+ F_OCN_GRID                 Local  193      R(8)            8     1     4                         233,240,277,288,340               
+ F_VALUE                    Local  193      R(8)            8     1     4                         273,277,295,301,331,333,335       
+ F_VALUEDIAGID              Local  202      I(4)            4     2     12       SAVE             202,249,253,294                   
+ GET_TIME                   Subr   212                                                            27,212,213                        
+ HOURS                      Local  195      I(4)            4           scalar                    215,216                           
+ I                          Local  197      I(4)            4           scalar                    327,329,331,333,335               
+ IDAY                       Local  195      I(4)            4           scalar                    213,215                           
+ IDAY0                      Local  195      I(4)            4           scalar                    212,215                           
+ INITID                     Param  198      I(4)            4           scalar                    202,203,204,205,249,257,265,279   
+ INIT_TIME                  Local  212      TIME_TYPE       16          scalar   SAVE             212,352                           
+ ISEC                       Local  195      I(4)            4           scalar                    213,215                           
+ ISEC0                      Local  195      I(4)            4           scalar                    212,215                           
+ ISTOCK_ATM                 Param  226      I(4)            4           scalar   PRIV             92,226                            
+ ISTOCK_BOTTOM              Param  234      I(4)            4           scalar                    64,234                            
+ ISTOCK_ICE                 Param  228      I(4)            4           scalar   PRIV             92,228                            
+ ISTOCK_LND                 Param  227      I(4)            4           scalar   PRIV             92,227                            
+ ISTOCK_OCN                 Param  229      I(4)            4           scalar   PRIV             92,229,275,340                    
+ NCOMPS                     Param  193      I(4)            4           scalar   PRIV             91,93,193,202,203,204,205,224,327,
+                                                                                                  329,331,333,335                   
+ Q_NOW                      Local  193      R(8)            8     1     4                         237,243,245,327,329               
+ Q_START                    Local  193      R(8)            8     1     4                         236,242,245,329,335               
+ REGISTER_DIAG_FIELD        Local  253                                  scalar                    29,253,261,269,283                
+
+Page 10          Source Listing                  STOCKS_REPORT
+2021-06-01 08:56 Symbol Table                    stock_constants.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ REGISTER_DIAG_FIELD_SCALAR Func   253      I(4)            4           scalar   PRIV             253,261,269,283                   
+ SEND_DATA                  Local  289                                  scalar                    29,289,296,299,302                
+ SEND_DATA_0D               Func   289      L(4)            4           scalar   PRIV             289,296,299,302                   
+ STCK                       Local  192      STOCK_TYPE      64          scalar                    226,227,228,229,232,233,234,236,23
+                                                                                                  7                                 
+ STOCKS_REPORT              Subr   188                                                                                              
+ STOCK_TYPE                 Type   192                      64          scalar                    82,84,192                         
+ SUM                        Func   232                                  scalar                    232,233                           
+ TIME                       Dummy  188      TIME_TYPE       16          scalar   ARG,IN           213,253,261,269,283,289,296,299,30
+                                                                                                  2                                 
+ TIMESINCESTART             Local  191      TIME_TYPE       16          scalar                                                      
+ TRIM                       Func   250                                  scalar                    250,251,252,258,259,260,266,267,26
+                                                                                                  8,280,281,282,323,339             
+ UNITS                      Local  209      CHAR            30          scalar                    252,254,260,262,268,270,282,284   
+ USED                       Local  208      L(4)            4           scalar                    289,296,299,302                   
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ STOCK_TYPE.DQ              R(8)            8     16       1     3                         232                                
+ STOCK_TYPE.DQ_IN           R(8)            8     40       1     3                         233,234                            
+ STOCK_TYPE.Q_NOW           R(8)            8     8              scalar                    237                                
+
+Page 11          Source Listing                  STOCKS_REPORT
+2021-06-01 08:56                                 stock_constants.F90
+
+    349 
+    350   subroutine stocks_set_init_time(Time)
+    351     type(time_type)     , intent(in) :: Time
+    352     init_time = Time
+    353 
+    354   end subroutine stocks_set_init_time
+
+
+ENTRY POINTS
+
+  Name                                                    
+                                                          
+ stock_constants_mod_mp_stocks_set_init_time_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ STOCKS_SET_INIT_TIME       Subr   350                                                                                              
+ TIME                       Dummy  350      TIME_TYPE       16          scalar   ARG,IN           352                               
+
+Page 12          Source Listing                  STOCKS_SET_INIT_TIME
+2021-06-01 08:56                                 stock_constants.F90
+
+    355 
+    356 end module stock_constants_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DIAG_MANAGER_MOD           Module 29                                                             29                                
+ FMS_MOD                    Module 26                                                             26                                
+ ISTOCK_HEAT                Param  63       I(4)            4           scalar                    63                                
+ ISTOCK_SALT                Param  63       I(4)            4           scalar                    63                                
+ ISTOCK_SIDE                Param  64       I(4)            4           scalar                    64                                
+ ISTOCK_TOP                 Param  64       I(4)            4           scalar                    64                                
+ ISTOCK_WATER               Param  63       I(4)            4           scalar                    63                                
+ MPP_MOD                    Module 25                                                             25                                
+ NSIDES                     Param  70       I(4)            4           scalar                    80,81                             
+ Operator (+)                      28                                                                                               
+ STOCKS_REPORT              Subr   87                                                             87                                
+ STOCKS_REPORT_INIT         Subr   88                                                             88                                
+ STOCK_CONSTANTS_MOD        Module 23                                                                                               
+ TIME_MANAGER_MOD           Module 27                                                             27,28                             
+
+Page 13          Source Listing                  STOCKS_SET_INIT_TIME
+2021-06-01 08:56 Subprograms/Common Blocks       stock_constants.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ STOCKS_REPORT              Subr   188                                                                                              
+ STOCKS_REPORT_INIT         Subr   103                                                                                              
+ STOCKS_SET_INIT_TIME       Subr   350                                                                                              
+ STOCK_CONSTANTS_MOD        Module 23                                                                                               
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+
+Page 14          Source Listing                  STOCKS_SET_INIT_TIME
+2021-06-01 08:56                                 stock_constants.F90
+
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+
+Page 15          Source Listing                  STOCKS_SET_INIT_TIME
+2021-06-01 08:56                                 stock_constants.F90
+
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : stock_constants.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

@@ -222,8 +222,17 @@ if(APPLE)
   list(APPEND fms_defs __APPLE__)
 endif()
 
-# Obtain compiler-specific flags
-include(fms_compiler_flags)
+# sets the compiler flag to user-defined FCFLAGS and CCFLAGS
+if( NOT CMAKE_Fortran_FLAGS STREQUAL "" )
+  message(STATUS "Using user-defined Fortran and C compiler flags")
+  set( CMAKE_Fortran_FLAGS_RELEASE ${CMAKE_Fortran_FLAGS} )
+  set( CMAKE_Fortran_FLAGS_DEBUG ${CMAKE_Fortran_FLAGS} )
+  set( CMAKE_C_FLAGS_RELEASE ${CMAKE_C_FLAGS} )
+  set( CMAKE_C_FLAGS_DEBUG ${CMAKE_C_FLAGS} )
+else()
+  # Obtain default compiler flags
+  include(fms_compiler_flags)
+endif()
 
 foreach(kind ${kinds})
 

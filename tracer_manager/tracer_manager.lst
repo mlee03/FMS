@@ -1,0 +1,2669 @@
+Page 1           Source Listing                  TRACER_MANAGER_INIT
+2021-06-01 08:56                                 /tmp/ifortc5O8lv.i90
+
+      1 # 1 "tracer_manager.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 module tracer_manager_mod
+     22 ! <CONTACT EMAIL="William.Cooke@noaa.gov">
+     23 !   William Cooke
+     24 ! </CONTACT>
+     25 
+     26 ! <REVIEWER EMAIL="Matthew.Harrison@noaa.gov">
+     27 !   Matt Harrison
+     28 ! </REVIEWER>
+     29 
+     30 ! <REVIEWER EMAIL="Bruce.Wyman@noaa.gov">
+     31 !   Bruce Wyman
+     32 ! </REVIEWER>
+     33 
+     34 ! <REVIEWER EMAIL="Peter.Phillipps@noaa.gov">
+     35 !   Peter Phillipps
+     36 ! </REVIEWER>
+     37 
+     38 ! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
+     39 
+     40 ! <OVERVIEW>
+     41 !   Code to manage the simple addition of tracers to the FMS code.
+     42 !     This code keeps track of the numbers and names of tracers included
+     43 !     in a tracer table.
+     44 ! </OVERVIEW>
+     45 
+     46 ! <DESCRIPTION>
+     47 !     This code is a grouping of calls which will allow the simple
+     48 !     introduction of tracers into the FMS framework. It is designed to
+     49 !     allow users of a variety of component models interact easily with
+     50 !     the dynamical core of the model.
+     51 !
+     52 !     In calling the tracer manager routines the user must provide a
+     53 !     parameter identifying the model that the user is working with. This
+     54 !     parameter is defined within field_manager as MODEL_X
+     55 !     where X is one of [ATMOS, OCEAN, LAND, ICE].
+     56 !
+     57 !     In many of these calls the argument list includes model and tracer_index. These
+
+Page 2           Source Listing                  TRACER_MANAGER_INIT
+2021-06-01 08:56                                 tracer_manager.F90
+
+     58 !     are the parameter corresponding to the component model and the tracer_index N is
+     59 !     the Nth tracer within the component model. Therefore a call with MODEL_ATMOS and 5
+     60 !     is different from a call with MODEL_OCEAN and 5.
+     61 !
+     62 ! </DESCRIPTION>
+     63 
+     64 
+     65 !----------------------------------------------------------------------
+     66 
+     67 use           mpp_mod, only : mpp_error,          &
+     68                               mpp_pe,             &
+     69                               mpp_root_pe,        &
+     70                               FATAL,              &
+     71                               WARNING,            &
+     72                               NOTE,               &
+     73                               stdlog
+     74 use           fms_mod, only : lowercase,          &
+     75                               write_version_number
+     76 
+     77 use field_manager_mod, only : field_manager_init, &
+     78                               get_field_info,     &
+     79                               get_field_methods,  &
+     80                               MODEL_ATMOS,        &
+     81                               MODEL_LAND,         &
+     82                               MODEL_OCEAN,        &
+     83                               MODEL_ICE,          &
+     84                               MODEL_COUPLER,      &
+     85                               NUM_MODELS,         &
+     86                               method_type,        &
+     87                               default_method,     &
+     88                               parse,              &
+     89                               fm_copy_list,       &
+     90                               fm_change_list,     &
+     91                               fm_modify_name,     &
+     92                               fm_query_method,    &
+     93                               fm_new_value,       &
+     94                               fm_exists,          &
+     95                               MODEL_NAMES
+     96 
+     97 implicit none
+     98 private
+     99 
+    100 !-----------------------------------------------------------------------
+    101 
+    102 public  tracer_manager_init, &
+    103         tracer_manager_end,  &
+    104         check_if_prognostic, &
+    105         get_tracer_indices,  &
+    106         get_tracer_index,    &
+    107         get_tracer_names,    &
+    108         get_tracer_name,     &
+    109         query_method,        &
+    110         set_tracer_atts,     &
+    111         set_tracer_profile,  &
+    112         register_tracers,    &
+    113         get_number_tracers,  &
+    114         adjust_mass,         &
+
+Page 3           Source Listing                  TRACER_MANAGER_INIT
+2021-06-01 08:56                                 tracer_manager.F90
+
+    115         adjust_positive_def, &
+    116         NO_TRACER,           &
+    117         MAX_TRACER_FIELDS
+    118 
+    119 !-----------------------------------------------------------------------
+    120 interface get_tracer_index
+    121   module procedure get_tracer_index_integer, get_tracer_index_logical
+    122 end interface
+    123 !-----------------------------------------------------------------------
+    124 
+    125 integer            :: num_tracer_fields = 0
+    126 integer, parameter :: MAX_TRACER_FIELDS = 150
+    127 integer, parameter :: MAX_TRACER_METHOD = 20
+    128 integer, parameter :: NO_TRACER         = 1-HUGE(1)
+    129 integer, parameter :: NOTRACER          = -HUGE(1)
+    130 
+    131 integer :: total_tracers(NUM_MODELS), prog_tracers(NUM_MODELS), diag_tracers(NUM_MODELS)
+    132 logical :: model_registered(NUM_MODELS) = .FALSE.
+    133 
+    134 type, private ::  tracer_type
+    135    character(len=32)        :: tracer_name, tracer_units
+    136    character(len=128)       :: tracer_longname
+    137    integer                  :: num_methods, model, instances
+    138    logical                  :: is_prognostic, instances_set
+    139    logical                  :: needs_init
+    140 !    Does tracer need mass or positive definite adjustment?
+    141 !    (true by default for both)
+    142    logical                  :: needs_mass_adjust
+    143    logical                  :: needs_positive_adjust
+    144 end type tracer_type
+    145 
+    146 type, private ::  tracer_name_type
+    147    character(len=32)  :: model_name, tracer_name, tracer_units
+    148    character(len=128) :: tracer_longname
+    149 end type tracer_name_type
+    150 
+    151 
+    152 type, private :: inst_type
+    153    character(len=128) :: name
+    154    integer            :: instances
+    155 end type inst_type
+    156 
+    157 type(tracer_type), save  :: tracers(MAX_TRACER_FIELDS)
+    158 type(inst_type)  , save  :: instantiations(MAX_TRACER_FIELDS)
+    159 
+    160 ! Include variable "version" to be written to log file.
+    161 # 1 "../include/file_version.h" 1 
+    162 ! -*-f90-*-
+    163 !***********************************************************************
+    164 !*                   GNU Lesser General Public License
+    165 !*
+    166 !* This file is part of the GFDL Flexible Modeling System (FMS).
+    167 !*
+    168 !* FMS is free software: you can redistribute it and/or modify it under
+    169 !* the terms of the GNU Lesser General Public License as published by
+    170 !* the Free Software Foundation, either version 3 of the License, or (at
+    171 !* your option) any later version.
+
+Page 4           Source Listing                  TRACER_MANAGER_INIT
+2021-06-01 08:56                                 ../include/file_version.h
+
+    172 !*
+    173 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+    174 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+    175 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+    176 !* for more details.
+    177 !*
+    178 !* You should have received a copy of the GNU Lesser General Public
+    179 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+    180 !***********************************************************************
+    181 
+    182 # 23
+    183 
+    184   character(len=*), parameter :: version = 'unknown'
+    185 
+    186 # 161 "tracer_manager.F90" 2 
+    187 
+    188 logical            :: module_is_initialized = .false.
+    189 
+    190 logical            :: verbose_local
+    191 integer            :: TRACER_ARRAY(NUM_MODELS,MAX_TRACER_FIELDS)
+    192 
+    193 contains
+    194 
+    195 !
+    196 !#######################################################################
+    197 !
+    198 ! <SUBROUTINE NAME="tracer_manager_init">
+    199 !   <OVERVIEW>
+    200 !      It is not necessary to call this routine.
+    201 !      It is included only for backward compatability.
+    202 !   </OVERVIEW>
+    203 !   <DESCRIPTION>
+    204 !     This routine writes the version to the logfile and
+    205 !     sets the module initialization flag.
+    206 !   </DESCRIPTION>
+    207 !   <TEMPLATE>
+    208 !     call tracer_manager_init
+    209 !   </TEMPLATE>
+    210 subroutine tracer_manager_init
+    211 integer :: model, num_tracers, num_prog, num_diag
+    212 
+    213   if(module_is_initialized) return
+    214   module_is_initialized = .TRUE.
+    215 
+    216   call write_version_number ("TRACER_MANAGER_MOD", version)
+    217   call field_manager_init()
+    218   TRACER_ARRAY = NOTRACER
+    219   do model=1,NUM_MODELS
+    220     call get_tracer_meta_data(model, num_tracers, num_prog, num_diag)
+    221   enddo
+    222 
+    223 end subroutine tracer_manager_init
+
+Page 5           Source Listing                  TRACER_MANAGER_INIT
+2021-06-01 08:56 Entry Points                    tracer_manager.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ tracer_manager_mod_mp_tracer_manager_init_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FIELD_MANAGER_INIT         Subr   217                                           PRIV             77,217,273                        
+ MODEL                      Local  211      I(4)            4           scalar                    219,220                           
+ MODULE_IS_INITIALIZED      Local  213      L(4)            4           scalar                    188,213,214,628,666,724,820,896,91
+                                                                                                  6,977,1044,1099,1126,1150,1224,139
+                                                                                                  8                                 
+ NOTRACER                   Param  218      I(4)            4           scalar                    218,736,833                       
+ NUM_DIAG                   Local  211      I(4)            4           scalar                    220                               
+ NUM_MODELS                 Param  219      I(4)            4           scalar   PRIV             85,131,132,191,219                
+ NUM_PROG                   Local  211      I(4)            4           scalar                    220                               
+ NUM_TRACERS                Local  211      I(4)            4           scalar                    220                               
+ TRACER_ARRAY               Local  218      I(4)            4     2     750                       218,298,375,476,554,555,556,587,73
+                                                                                                  5,833,834,918,919,984,1056,1110,11
+                                                                                                  37,1161,1231,1408,1484,1485       
+ TRACER_MANAGER_INIT        Subr   210                                                                                              
+ VERSION                    Param  216      CHAR            7           scalar                    216                               
+ WRITE_VERSION_NUMBER       Subr   216                                           PRIV             75,216                            
+
+Page 6           Source Listing                  TRACER_MANAGER_INIT
+2021-06-01 08:56                                 tracer_manager.F90
+
+    224 ! </SUBROUTINE>
+    225 
+    226 !#######################################################################
+    227 ! <SUBROUTINE NAME="get_tracer_meta_data">
+    228 !   <OVERVIEW>
+    229 ! read tracer table and store tracer information associated with "model"
+    230 ! in "tracers" array.
+    231 !   </OVERVIEW>
+    232 subroutine get_tracer_meta_data(model, num_tracers,num_prog,num_diag)
+    233 
+    234 integer,  intent(in) :: model ! model being used
+    235 integer, intent(out) :: num_tracers, num_prog, num_diag
+    236 character(len=256)    :: warnmesg
+    237 
+    238 character(len=32)  :: name_type, type, name
+    239 integer :: n, m, mod, num_tracer_methods, nfields, swop
+    240 integer :: j, log_unit, num_methods
+    241 logical :: flag_type
+    242 type(method_type), dimension(MAX_TRACER_METHOD) :: methods
+    243 integer :: instances, siz_inst,i
+    244 character(len = 32) :: digit,suffnam
+    245 
+    246 character(len=128) :: list_name , control
+    247 integer            :: index_list_name
+    248 logical :: fm_success
+    249 
+    250 !   <ERROR MSG="invalid model type" STATUS="FATAL">
+    251 !     The index for the model type is invalid.
+    252 !   </ERROR>
+    253 if (model .ne. MODEL_ATMOS .and. model .ne. MODEL_LAND .and. &
+    254     model .ne. MODEL_OCEAN .and. model .ne. MODEL_ICE  .and. &
+    255     model .ne. MODEL_COUPLER) call mpp_error(FATAL,'tracer_manager_init : invalid model type')
+    256 
+    257 ! One should only call get_tracer_meta_data once for each model type
+    258 ! Therefore need to set up an array to stop the subroutine being
+    259 ! unnecssarily called multiple times.
+    260 
+    261 if ( model_registered(model) ) then
+    262 ! This routine has already been called for the component model.
+    263 ! Fill in the values from the previous registration and return.
+    264   num_tracers = total_tracers(model)
+    265   num_prog    = prog_tracers(model)
+    266   num_diag    = diag_tracers(model)
+    267   return
+    268 endif
+    269 
+    270 ! Initialize the number of tracers to zero.
+    271 num_tracers = 0; num_prog = 0; num_diag = 0
+    272 
+    273 call field_manager_init(nfields=nfields)
+    274 
+    275 !   <ERROR MSG="No tracers are available to be registered." STATUS="NOTE">
+    276 !      No tracers are available to be registered. This means that the field
+    277 !      table does not exist or is empty.
+    278 !   </ERROR>
+    279 if (nfields == 0 ) then
+    280 if (mpp_pe() == mpp_root_pe()) &
+
+Page 7           Source Listing                  GET_TRACER_META_DATA
+2021-06-01 08:56                                 tracer_manager.F90
+
+    281   call mpp_error(NOTE,'tracer_manager_init : No tracers are available to be registered.')
+    282   return
+    283 endif
+    284 
+    285 ! search through field entries for model tracers
+    286 total_tracers(model) = 0
+    287 
+    288 do n=1,nfields
+    289    call get_field_info(n,type,name,mod,num_methods)
+    290 
+    291    if (mod == model .and. type == 'tracer') then
+    292          num_tracer_fields = num_tracer_fields + 1
+    293          total_tracers(model) = total_tracers(model) + 1
+    294 !   <ERROR MSG="MAX_TRACER_FIELDS exceeded" STATUS="FATAL">
+    295 !     The maximum number of tracer fields has been exceeded.
+    296 !   </ERROR>
+    297          if(num_tracer_fields > MAX_TRACER_FIELDS) call mpp_error(FATAL,'tracer_manager_init: MAX_TRACER_FIELDS exceeded')
+    298          TRACER_ARRAY(model,total_tracers(model))  = num_tracer_fields
+    299          tracers(num_tracer_fields)%model          = model
+    300          tracers(num_tracer_fields)%tracer_name    = name
+    301          tracers(num_tracer_fields)%tracer_units   = 'none'
+    302          tracers(num_tracer_fields)%tracer_longname = tracers(num_tracer_fields)%tracer_name
+    303          tracers(num_tracer_fields)%instances_set   = .FALSE.
+    304 !        By default, tracers need mass and positive definite adjustments.
+    305 !        We hardwire exceptions for compatibility with existing field_tables
+    306 !        This should ideally be cleaned up.
+    307          tracers(num_tracer_fields)%needs_mass_adjust = .true.
+    308          tracers(num_tracer_fields)%needs_positive_adjust = .true.
+    309          if (name == 'cld_amt') then
+    310             tracers(num_tracer_fields)%needs_mass_adjust = .false.
+    311          endif
+    312          if (name == 'cld_amt' .or. name == 'liq_wat' .or. name == 'ice_wat') then
+    313             tracers(num_tracer_fields)%needs_positive_adjust = .false.
+    314          endif
+    315 
+    316          num_tracer_methods     = 0
+    317          methods = default_method ! initialize methods array
+    318          call get_field_methods(n,methods)
+    319          do j=1,num_methods
+    320             select case (methods(j)%method_type)
+    321             case ('units')
+    322                tracers(num_tracer_fields)%tracer_units   = methods(j)%method_name
+    323             case ('longname')
+    324                tracers(num_tracer_fields)%tracer_longname = methods(j)%method_name
+    325             case ('instances')
+    326 !               tracers(num_tracer_fields)%instances = methods(j)%method_name
+    327                siz_inst = parse(methods(j)%method_name,"",instances)
+    328                tracers(num_tracer_fields)%instances = instances
+    329                tracers(num_tracer_fields)%instances_set   = .TRUE.
+    330             case ('adjust_mass')
+    331                if (methods(j)%method_name == "false") then
+    332                  tracers(num_tracer_fields)%needs_mass_adjust = .false.
+    333                endif
+    334             case ('adjust_positive_def')
+    335                if (methods(j)%method_name == "false") then
+    336                  tracers(num_tracer_fields)%needs_positive_adjust = .false.
+    337                endif
+
+Page 8           Source Listing                  GET_TRACER_META_DATA
+2021-06-01 08:56                                 tracer_manager.F90
+
+    338             case default
+    339                num_tracer_methods = num_tracer_methods+1
+    340 !               tracers(num_tracer_fields)%methods(num_tracer_methods) = methods(j)
+    341             end select
+    342          enddo
+    343          tracers(num_tracer_fields)%num_methods = num_tracer_methods
+    344          tracers(num_tracer_fields)%needs_init = .false.
+    345          flag_type = query_method ('tracer_type',model,total_tracers(model),name_type)
+    346          if (flag_type .and. name_type == 'diagnostic') then
+    347             tracers(num_tracer_fields)%is_prognostic = .false.
+    348          else
+    349             tracers(num_tracer_fields)%is_prognostic = .true.
+    350          endif
+    351          if (tracers(num_tracer_fields)%is_prognostic) then
+    352             num_prog = num_prog+1
+    353          else
+    354             num_diag = num_diag+1
+    355          endif
+    356    endif
+    357 enddo
+    358 
+    359 ! Now cycle through the tracers and add additional instances of the tracers.
+    360 
+    361 do n = 1, num_tracer_fields !{
+    362 !   call get_field_info(n,type,name,mod,num_methods)
+    363 
+    364   if ( model == tracers(n)%model .and. tracers(n)%instances_set ) then !{ We have multiple instances of this tracer
+    365 
+    366     if ( num_tracer_fields + tracers(n)%instances > MAX_TRACER_FIELDS ) then
+    367       write(warnmesg, '("tracer_manager_init: Number of tracers will exceed MAX_TRACER_FIELDS with &
+    368                        &multiple (",I3," instances) setup of tracer ",A)') tracers(n)%instances,tracers(n)%tracer_name
+    369       call mpp_error(FATAL, warnmesg)
+    370     endif
+    371 
+    372     do i = 2, tracers(n)%instances !{
+    373       num_tracer_fields = num_tracer_fields + 1
+    374       total_tracers(model) = total_tracers(model) + 1
+    375       TRACER_ARRAY(model,total_tracers(model))  = num_tracer_fields
+    376 ! Copy the original tracer type to the multiple instances.
+    377       tracers(num_tracer_fields) = tracers(n)
+    378       if ( query_method ('instances', model,model_tracer_number(model,n),name, control)) then !{
+    379 
+    380         if (i .lt. 10) then  !{
+    381            write (suffnam,'(''suffix'',i1)') i
+    382            siz_inst = parse(control, suffnam,digit)
+    383            if (siz_inst == 0 ) then
+    384              write (digit,'(''_'',i1)') i
+    385            else
+    386              digit = "_"//trim(digit)
+    387            endif
+    388         elseif (i .lt. 100) then  !}{
+    389            write (suffnam,'(''suffix'',i2)') i
+    390            siz_inst = parse(control, suffnam,digit)
+    391            if (siz_inst == 0 ) then
+    392              write (digit,'(''_'',i2)') i
+    393            else
+    394              digit = "_"//trim(digit)
+
+Page 9           Source Listing                  GET_TRACER_META_DATA
+2021-06-01 08:56                                 tracer_manager.F90
+
+    395            endif
+    396         else  !}{
+    397           call mpp_error(FATAL, 'tracer_manager_init: MULTIPLE_TRACER_SET_UP exceeds 100 for '//tracers(n)%tracer_name )
+    398         endif  !}
+    399 
+    400         select case(model)
+    401           case (MODEL_COUPLER)
+    402             list_name = "/coupler_mod/tracer/"//trim(tracers(num_tracer_fields)%tracer_name)
+    403           case (MODEL_ATMOS)
+    404             list_name = "/atmos_mod/tracer/"//trim(tracers(num_tracer_fields)%tracer_name)
+    405           case (MODEL_OCEAN)
+    406             list_name = "/ocean_mod/tracer/"//trim(tracers(num_tracer_fields)%tracer_name)
+    407           case (MODEL_ICE  )
+    408             list_name = "/ice_mod/tracer/"//trim(tracers(num_tracer_fields)%tracer_name)
+    409           case (MODEL_LAND )
+    410             list_name = "/land_mod/tracer/"//trim(tracers(num_tracer_fields)%tracer_name)
+    411           case default
+    412             list_name = "/default/tracer/"//trim(tracers(num_tracer_fields)%tracer_name)
+    413         end select
+    414 
+    415         if (mpp_pe() == mpp_root_pe() ) write (*,*) "Creating list name = ",trim(list_name)//trim(digit)
+    416 
+    417         index_list_name = fm_copy_list(trim(list_name),digit, create = .true.)
+    418         tracers(num_tracer_fields)%tracer_name = trim(tracers(num_tracer_fields)%tracer_name)//trim(digit)
+    419       endif !}
+    420 
+    421       if (tracers(num_tracer_fields)%is_prognostic) then !{
+    422          num_prog = num_prog+1
+    423       else !}{
+    424          num_diag = num_diag+1
+    425       endif !}
+    426     enddo !}
+    427 ! Multiple instances of tracers were found so need to rename the original tracer.
+    428     digit = "_1"
+    429     siz_inst = parse(control, "suffix1",digit)
+    430     if (siz_inst > 0 ) then !{
+    431       digit = "_"//trim(digit)
+    432     endif !}
+    433     fm_success = fm_modify_name(trim(list_name), trim(tracers(n)%tracer_name)//trim(digit))
+    434     tracers(n)%tracer_name = trim(tracers(n)%tracer_name)//trim(digit)
+    435   endif !}
+    436 enddo !}
+    437 
+    438 ! Find any field entries with the instances keyword.
+    439 do n=1,nfields
+    440    call get_field_info(n,type,name,mod,num_methods)
+    441 
+    442    if ( mod == model .and. type == 'instances' ) then
+    443       call get_field_methods(n,methods)
+    444       do j=1,num_methods
+    445 
+    446          if (.not.get_tracer_index(mod,methods(j)%method_type,m)) then
+    447            call mpp_error(FATAL,'tracer_manager_init: The instances keyword was found for undefined tracer '&
+    448            //trim(methods(j)%method_type))
+    449          else
+    450            if ( tracers(m)%instances_set ) &
+    451               call mpp_error(FATAL,'tracer_manager_init: The instances keyword was found for '&
+
+Page 10          Source Listing                  GET_TRACER_META_DATA
+2021-06-01 08:56                                 tracer_manager.F90
+
+    452               //trim(methods(j)%method_type)//' but has previously been defined in the tracer entry')
+    453            siz_inst = parse(methods(j)%method_name,"",instances)
+    454            tracers(m)%instances = instances
+    455            call mpp_error(NOTE,'tracer_manager_init: '//trim(instantiations(j)%name)// &
+    456                                ' will have '//trim(methods(j)%method_name)//' instances')
+    457          endif
+    458          if ( num_tracer_fields + instances > MAX_TRACER_FIELDS ) then
+    459            write(warnmesg, '("tracer_manager_init: Number of tracers will exceed MAX_TRACER_FIELDS with &
+    460                        &multiple (",I3," instances) setup of tracer ",A)') tracers(m)%instances,tracers(m)%tracer_name
+    461            call mpp_error(FATAL, warnmesg)
+    462          endif
+    463 ! We have found a valid tracer that has more than one instantiation.
+    464 ! We need to modify that tracer name to tracer_1 and add extra tracers for the extra instantiations.
+    465          if (instances .eq. 1) then
+    466            siz_inst = parse(methods(j)%method_control, 'suffix1',digit)
+    467            if (siz_inst == 0 ) then
+    468              digit = '_1'
+    469            else
+    470              digit = "_"//trim(digit)
+    471            endif
+    472          endif
+    473          do i = 2, instances
+    474            num_tracer_fields = num_tracer_fields + 1
+    475            total_tracers(model) = total_tracers(model) + 1
+    476            TRACER_ARRAY(model,total_tracers(model))  = num_tracer_fields
+    477            tracers(num_tracer_fields)                =  tracers(m)
+    478 
+    479            if (i .lt. 10) then  !{
+    480              write (suffnam,'(''suffix'',i1)') i
+    481              siz_inst = parse(methods(j)%method_control, suffnam,digit)
+    482              if (siz_inst == 0 ) then
+    483                write (digit,'(''_'',i1)') i
+    484              else
+    485                digit = "_"//trim(digit)
+    486              endif
+    487           elseif (i .lt. 100) then  !}{
+    488              write (suffnam,'(''suffix'',i2)') i
+    489              siz_inst = parse(methods(j)%method_control, suffnam,digit)
+    490              if (siz_inst == 0 ) then
+    491                write (digit,'(''_'',i2)') i
+    492              else
+    493                digit = "_"//trim(digit)
+    494              endif
+    495           else  !}{
+    496             call mpp_error(FATAL, 'tracer_manager_init: MULTIPLE_TRACER_SET_UP exceeds 100 for '&
+    497                                   //tracers(num_tracer_fields)%tracer_name )
+    498           endif  !}
+    499 
+    500           select case(model)
+    501             case (MODEL_COUPLER)
+    502               list_name = "/coupler_mod/tracer/"//trim(tracers(num_tracer_fields)%tracer_name)
+    503             case (MODEL_ATMOS)
+    504               list_name = "/atmos_mod/tracer/"//trim(tracers(num_tracer_fields)%tracer_name)
+    505             case (MODEL_OCEAN)
+    506               list_name = "/ocean_mod/tracer/"//trim(tracers(num_tracer_fields)%tracer_name)
+    507             case (MODEL_ICE  )
+    508               list_name = "/ice_mod/tracer/"//trim(tracers(num_tracer_fields)%tracer_name)
+
+Page 11          Source Listing                  GET_TRACER_META_DATA
+2021-06-01 08:56                                 tracer_manager.F90
+
+    509             case (MODEL_LAND )
+    510               list_name = "/land_mod/tracer/"//trim(tracers(num_tracer_fields)%tracer_name)
+    511             case default
+    512               list_name = "/default/tracer/"//trim(tracers(num_tracer_fields)%tracer_name)
+    513           end select
+    514 
+    515           if (mpp_pe() == mpp_root_pe() ) write (*,*) "Creating list name = ",trim(list_name)
+    516 
+    517           index_list_name = fm_copy_list(trim(list_name),digit, create = .true.)
+    518 
+    519           tracers(num_tracer_fields)%tracer_name    =  trim(tracers(num_tracer_fields)%tracer_name)//digit
+    520           if (tracers(num_tracer_fields)%is_prognostic) then
+    521             num_prog = num_prog+1
+    522           else
+    523             num_diag = num_diag+1
+    524           endif
+    525         enddo
+    526 !Now rename the original tracer to tracer_1 (or if suffix1 present to tracer_'value_of_suffix1')
+    527         siz_inst = parse(methods(j)%method_control, 'suffix1',digit)
+    528         if (siz_inst == 0 ) then
+    529           digit = '_1'
+    530         else
+    531           digit = "_"//trim(digit)
+    532         endif
+    533         fm_success = fm_modify_name(trim(list_name), trim(tracers(m)%tracer_name)//trim(digit))
+    534         tracers(m)%tracer_name    =  trim(tracers(m)%tracer_name)//trim(digit)
+    535       enddo
+    536    endif
+    537 enddo
+    538 
+    539 num_tracers = num_prog + num_diag
+    540 ! Make the number of tracers available publicly.
+    541 total_tracers(model)    = num_tracers
+    542 prog_tracers(model)     = num_prog
+    543 diag_tracers(model)     = num_diag
+    544 model_registered(model) = .TRUE.
+    545 
+    546 ! Now sort through the tracer fields and sort them so that the
+    547 ! prognostic tracers are first.
+    548 
+    549 do n=1, num_tracers
+    550   if (.not.check_if_prognostic(model,n) .and. n.le.num_prog) then
+    551 ! This is a diagnostic tracer so find a prognostic tracer to swop with
+    552     do m = n, num_tracers
+    553        if (check_if_prognostic(model,m) .and. .not.check_if_prognostic(model,n)) then
+    554            swop = TRACER_ARRAY(model,n)
+    555            TRACER_ARRAY(model,n) = TRACER_ARRAY(model,m)
+    556            TRACER_ARRAY(model,m) = swop
+    557            cycle
+    558        endif
+    559     enddo
+    560   endif
+    561 enddo
+    562 
+    563 do n=1, num_tracer_fields
+    564   call print_tracer_info(model,n)
+    565 enddo
+
+Page 12          Source Listing                  GET_TRACER_META_DATA
+2021-06-01 08:56                                 tracer_manager.F90
+
+    566 
+    567 log_unit = stdlog()
+    568 if ( mpp_pe() == mpp_root_pe() ) then
+    569    write (log_unit,15) trim(MODEL_NAMES(model)),total_tracers(model)
+    570 endif
+    571 
+    572 15 format ('Number of tracers in field table for ',A,' model = ',i4)
+    573 
+    574 end subroutine get_tracer_meta_data
+
+
+ENTRY POINTS
+
+  Name                                                   
+                                                         
+ tracer_manager_mod_mp_get_tracer_meta_data_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ 15                         Label  572                                                            569                               
+ CHECK_IF_PROGNOSTIC        Func   550      L(4)            4           scalar                    104,550,553,1104,1110             
+ CHECK_IF_PROGNOSTIC@0      Local  550      L(4)            4           scalar                                                      
+ CONTROL                    Local  246      CHAR            128         scalar                    378,382,390,429                   
+ DEFAULT_METHOD             Local  317      METHOD_TYPE     384         scalar   PRIV             87,317                            
+ DIAG_TRACERS               Local  266      I(4)            4     1     5                         266,543,678                       
+ DIGIT                      Local  244      CHAR            32          scalar                    382,384,386,390,392,394,415,417,41
+                                                                                                  8,428,429,431,433,434,466,468,470,
+                                                                                                  481,483,485,489,491,493,517,519,52
+                                                                                                  7,529,531,533,534                 
+ FATAL                      Param  255      I(4)            4           scalar   PRIV             70,255,297,369,397,447,451,461,496
+                                                                                                  ,674,743,752,760,1256,1602        
+ FLAG_TYPE                  Local  241      L(4)            4           scalar                    345,346                           
+ FM_COPY_LIST               Func   417      I(4)            4           scalar   PRIV             89,417,517                        
+ FM_MODIFY_NAME             Func   433      L(4)            4           scalar   PRIV             91,433,533                        
+ FM_SUCCESS                 Local  248      L(4)            4           scalar                    433,533                           
+ GET_FIELD_INFO             Subr   289                                           PRIV             78,289,440                        
+ GET_FIELD_METHODS          Subr   318                                           PRIV             79,318,443                        
+ GET_TRACER_INDEX           Local  446                                  scalar                    106,446,1483,1559                 
+ GET_TRACER_INDEX_LOGICAL@0 Local  446      L(4)            4           scalar                                                      
+ GET_TRACER_META_DATA       Subr   232                                                            220                               
+ I                          Local  243      I(4)            4           scalar                    372,380,381,384,388,389,392,473,47
+                                                                                                  9,480,483,487,488,491             
+ INDEX_LIST_NAME            Local  247      I(4)            4           scalar                    417,517                           
+ INSTANCES                  Local  243      I(4)            4           scalar                    327,328,453,454,458,465,473       
+ INSTANTIATIONS             Local  455      RECORD          132   1     150      SAVE             455                               
+ J                          Local  240      I(4)            4           scalar                    319,320,322,324,327,331,335,444,44
+                                                                                                  6,448,452,453,455,456,466,481,489,
+                                                                                                  527                               
+ LIST_NAME                  Local  246      CHAR            128         scalar                    402,404,406,408,410,412,415,417,43
+                                                                                                  3,502,504,506,508,510,512,515,517,
+                                                                                                  533                               
+ LOG_UNIT                   Local  240      I(4)            4           scalar                    567,569                           
+ M                          Local  239      I(4)            4           scalar                    446,450,454,460,477,533,534,552,55
+                                                                                                  3,555,556                         
+
+Page 13          Source Listing                  GET_TRACER_META_DATA
+2021-06-01 08:56 Symbol Table                    tracer_manager.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ MAX_TRACER_FIELDS          Param  297      I(4)            4           scalar                    117,157,158,191,297,366,458,586,73
+                                                                                                  4                                 
+ MAX_TRACER_METHOD          Param  242      I(4)            4           scalar                    242                               
+ METHODS                    Local  242      RECORD          384   1     20       TGT              317,318,320,322,324,327,331,335,44
+                                                                                                  3,446,448,452,453,456,466,481,489,
+                                                                                                  527                               
+ METHOD_TYPE                Type   242                                  scalar                    86,242                            
+ MOD                        Local  239      I(4)            4           scalar                    289,291,440,442,446               
+ MODEL                      Dummy  232      I(4)            4           scalar   ARG,IN           253,254,255,261,264,265,266,286,29
+                                                                                                  1,293,298,299,345,364,374,375,378,
+                                                                                                  400,442,475,476,500,541,542,543,54
+                                                                                                  4,550,553,554,555,556,564,569     
+ MODEL_ATMOS                Param  253      I(4)            4           scalar   PRIV             80,253,403,503,671,1259,1280,1413,
+                                                                                                  1489,1566                         
+ MODEL_COUPLER              Param  255      I(4)            4           scalar   PRIV             84,255,401,501,673,1411,1487,1564 
+ MODEL_ICE                  Param  254      I(4)            4           scalar   PRIV             83,254,407,507,672,1417,1495,1572 
+ MODEL_LAND                 Param  253      I(4)            4           scalar   PRIV             81,253,409,509,671,1419,1493,1570 
+ MODEL_NAMES                Param  569      CHAR            11    1     5        PRIV             95,569,981,1048,1103,1130,1154,122
+                                                                                                  8,1404                            
+ MODEL_OCEAN                Param  254      I(4)            4           scalar   PRIV             82,254,405,505,672,1263,1286,1415,
+                                                                                                  1491,1568                         
+ MODEL_REGISTERED           Local  261      L(4)            4     1     5                         132,261,544                       
+ MODEL_TRACER_NUMBER@0      Local  378      I(4)            4           scalar                                                      
+ MPP_ERROR                  Local  255                                  scalar   PRIV             67,255,281,297,369,397,447,451,455
+                                                                                                  ,461,496,674,743,752,760,847,1256,
+                                                                                                  1262,1266,1514,1586,1602          
+ MPP_ERROR_BASIC            Subr   255                                           PRIV             255,281,297,369,397,447,451,455,46
+                                                                                                  1,496,674,743,752,760,847,1256,126
+                                                                                                  2,1266,1514,1586,1602             
+ MPP_PE                     Func   280      I(4)            4           scalar   PRIV             68,280,415,515,568,892,918,1261,12
+                                                                                                  65,1296                           
+ MPP_ROOT_PE                Func   280      I(4)            4           scalar   PRIV             69,280,415,515,568,892,918,1261,12
+                                                                                                  65,1296                           
+ N                          Local  239      I(4)            4           scalar                    288,289,318,361,364,366,368,372,37
+                                                                                                  7,378,397,433,434,439,440,443,549,
+                                                                                                  550,552,553,554,555,563,564       
+ NAME                       Local  238      CHAR            32          scalar                    289,300,309,312,378,440           
+ NAME_TYPE                  Local  238      CHAR            32          scalar                    345,346                           
+ NFIELDS                    Local  239      I(4)            4           scalar                    273,279,288,439                   
+ NOTE                       Param  281      I(4)            4           scalar   PRIV             72,281,455,847,1262,1266,1514,1586
+ NUM_DIAG                   Dummy  232      I(4)            4           scalar   ARG,OUT          266,271,354,424,523,539,543       
+ NUM_METHODS                Local  240      I(4)            4           scalar                    289,319,440,444                   
+ NUM_PROG                   Dummy  232      I(4)            4           scalar   ARG,OUT          265,271,352,422,521,539,542,550   
+ NUM_TRACERS                Dummy  232      I(4)            4           scalar   ARG,OUT          264,271,539,541,549,552           
+ NUM_TRACER_FIELDS          Local  292      I(4)            4           scalar                    125,292,297,298,299,300,301,302,30
+                                                                                                  3,307,308,310,313,322,324,328,329,
+                                                                                                  332,336,343,344,347,349,351,361,36
+                                                                                                  6,373,375,377,402,404,406,408,410,
+                                                                                                  412,418,421,458,474,476,477,497,50
+                                                                                                  2,504,506,508,510,512,519,520,563,
+                                                                                                  832                               
+ NUM_TRACER_METHODS         Local  239      I(4)            4           scalar                    316,339,343                       
+ PARSE                      Local  327                                  scalar   PRIV             88,327,382,390,429,453,466,481,489
+                                                                                                  ,527,1247,1254,1260,1264          
+ PARSE_INTEGER              Func   327      I(4)            4           scalar   PRIV             327,453                           
+
+Page 14          Source Listing                  GET_TRACER_META_DATA
+2021-06-01 08:56 Symbol Table                    tracer_manager.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ PARSE_STRING               Func   382      I(4)            4           scalar   PRIV             382,390,429,466,481,489,527       
+ PROG_TRACERS               Local  265      I(4)            4     1     5                         265,542,677                       
+ QUERY_METHOD               Func   345      L(4)            4           scalar                    109,345,378,1242,1427             
+ QUERY_METHOD@0             Local  345      L(4)            4           scalar                                                      
+ SIZ_INST                   Local  243      I(4)            4           scalar                    327,382,383,390,391,429,430,453,46
+                                                                                                  6,467,481,482,489,490,527,528     
+ STDLOG                     Func   567      I(4)            4           scalar   PRIV             73,567,891,920                    
+ SUFFNAM                    Local  244      CHAR            32          scalar                    381,382,389,390,480,481,488,489   
+ SWOP                       Local  239      I(4)            4           scalar                    554,556                           
+ TOTAL_TRACERS              Local  264      I(4)            4     1     5                         264,286,293,298,345,374,375,475,47
+                                                                                                  6,541,569,676,979,1046,1101,1128,1
+                                                                                                  152,1226,1402                     
+ TRACERS                    Local  299      RECORD          224   1     150      SAVE             299,300,301,302,303,307,308,310,31
+                                                                                                  3,322,324,328,329,332,336,343,344,
+                                                                                                  347,349,351,364,366,368,372,377,39
+                                                                                                  7,402,404,406,408,410,412,418,421,
+                                                                                                  433,434,450,454,460,477,497,502,50
+                                                                                                  4,506,508,510,512,519,520,533,534,
+                                                                                                  737,747,755,826,834,924,925,926,92
+                                                                                                  7,928,986,987,988,1058,1059,1060,1
+                                                                                                  110,1137,1161,1257,1258,1279,1296,
+                                                                                                  1412,1414,1416,1418,1420,1422,1484
+                                                                                                  ,1485,1560,1561                   
+ TRIM                       Func   386                                  scalar                    386,394,402,404,406,408,410,412,41
+                                                                                                  5,417,418,431,433,434,448,452,455,
+                                                                                                  456,470,485,493,502,504,506,508,51
+                                                                                                  0,512,515,517,519,531,533,534,569 
+ TYPE                       Local  238      CHAR            32          scalar                    289,291,440,442                   
+ WARNMESG                   Local  236      CHAR            256         scalar                    367,369,459,461                   
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ INST_TYPE.NAME             CHAR            128   0              scalar                    455                                
+ METHOD_TYPE.METHOD_CONTROL CHAR            128   256            scalar                    466,481,489,527                    
+ METHOD_TYPE.METHOD_NAME    CHAR            128   128            scalar                    322,324,327,331,335,453,456        
+ METHOD_TYPE.METHOD_TYPE    CHAR            128   0              scalar                    320,446,448,452                    
+ TRACER_TYPE.INSTANCES      I(4)            4     200            scalar                    328,366,368,372,454,460            
+ TRACER_TYPE.INSTANCES_SET  L(4)            4     208            scalar                    303,329,364,450                    
+ TRACER_TYPE.IS_PROGNOSTIC  L(4)            4     204            scalar                    347,349,351,421,520,747,755,928,11 
+                                                                                           10                                 
+ TRACER_TYPE.MODEL          I(4)            4     196            scalar                    299,364,737,826,924,1258,1279      
+ TRACER_TYPE.NEEDS_INIT     L(4)            4     212            scalar                    344                                
+ TRACER_TYPE.NEEDS_MASS_ADJUST                                                                                             ...
+                            L(4)            4     216            scalar                    307,310,332,1137                   
+ TRACER_TYPE.NEEDS_POSITIVE_ADJUST                                                                                         ...
+                            L(4)            4     220            scalar                    308,313,336,1161                   
+ TRACER_TYPE.NUM_METHODS    I(4)            4     192            scalar                    343,1560,1561                      
+ TRACER_TYPE.TRACER_LONGNAME                                                                                               ...
+                            CHAR            128   64             scalar                    302,324,927,987,1059,1485          
+ TRACER_TYPE.TRACER_NAME    CHAR            32    0              scalar                    300,302,368,397,402,404,406,408,41 
+                                                                                           0,412,418,433,434,460,497,502,504, 
+                                                                                           506,508,510,512,519,533,534,826,83 
+
+Page 15          Source Listing                  GET_TRACER_META_DATA
+2021-06-01 08:56 Symbol Table                    tracer_manager.F90
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+                                                                                           4,925,986,1058,1257,1296,1412,1414 
+                                                                                           ,1416,1418,1420,1422               
+ TRACER_TYPE.TRACER_UNITS   CHAR            32    32             scalar                    301,322,926,988,1060,1484          
+
+Page 16          Source Listing                  GET_TRACER_META_DATA
+2021-06-01 08:56                                 tracer_manager.F90
+
+    575 !</SUBROUTINE>
+    576 
+    577 
+    578 function model_tracer_number(model,n)
+    579 integer, intent(in) :: model, n
+    580 integer model_tracer_number
+    581 
+    582 integer :: i
+    583 
+    584 model_tracer_number = NO_TRACER
+    585 
+    586 do i = 1, MAX_TRACER_FIELDS
+    587   if ( TRACER_ARRAY(model,i) == n ) then
+    588     model_tracer_number = i
+    589     return
+    590   endif
+    591 enddo
+    592 
+    593 end function model_tracer_number
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ tracer_manager_mod_mp_model_tracer_number_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ I                          Local  582      I(4)            4           scalar                    586,587,588                       
+ MODEL                      Dummy  578      I(4)            4           scalar   ARG,IN           587                               
+ MODEL_TRACER_NUMBER        Func   578      I(4)            4           scalar                    378,584,588                       
+ N                          Dummy  578      I(4)            4           scalar   ARG,IN           587                               
+ NO_TRACER                  Param  584      I(4)            4           scalar                    116,584,729,730,731,732,822,846,86
+                                                                                                  7                                 
+
+Page 17          Source Listing                  MODEL_TRACER_NUMBER
+2021-06-01 08:56                                 tracer_manager.F90
+
+    594 
+    595 !#######################################################################
+    596 !
+    597 ! <SUBROUTINE NAME="register_tracers">
+    598 
+    599 !   <OVERVIEW>
+    600 !      It is not necessary to call this routine.
+    601 !      It is included only for backward compatability.
+    602 !   </OVERVIEW>
+    603 !   <DESCRIPTION>
+    604 !     This routine returns the total number of valid tracers,
+    605 !     the number of prognostic and diagnostic tracers.
+    606 !   </DESCRIPTION>
+    607 !   <TEMPLATE>
+    608 !     call register_tracers(model, num_tracers,num_prog,num_diag)
+    609 !   </TEMPLATE>
+    610 
+    611 !   <IN NAME="model" TYPE="integer">
+    612 !     A parameter to identify which model is being used.
+    613 !   </IN>
+    614 !   <OUT NAME="num_tracers" TYPE="integer">
+    615 !    The total number of valid tracers within the component model.
+    616 !   </OUT>
+    617 !   <OUT NAME="num_prog" TYPE="integer">
+    618 !     The number of prognostic tracers within the component model.
+    619 !   </OUT>
+    620 !   <OUT NAME="num_diag" TYPE="integer">
+    621 !     The number of diagnostic tracers within the component model.
+    622 !   </OUT>
+    623 subroutine register_tracers(model, num_tracers, num_prog, num_diag, num_family)
+    624 integer, intent(in) :: model
+    625 integer, intent(out) :: num_tracers, num_prog, num_diag
+    626 integer, intent(out), optional :: num_family
+    627 
+    628 if(.not.module_is_initialized) call tracer_manager_init
+    629 
+    630 call get_number_tracers(model, num_tracers, num_prog, num_diag, num_family)
+    631 
+    632 end subroutine register_tracers
+
+Page 18          Source Listing                  REGISTER_TRACERS
+2021-06-01 08:56 Entry Points                    tracer_manager.F90
+
+
+
+ENTRY POINTS
+
+  Name                                               
+                                                     
+ tracer_manager_mod_mp_register_tracers_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_NUMBER_TRACERS         Subr   630                                                            113,630                           
+ MODEL                      Dummy  623      I(4)            4           scalar   ARG,IN           630                               
+ NUM_DIAG                   Dummy  623      I(4)            4           scalar   ARG,OUT          630                               
+ NUM_FAMILY                 Dummy  623      I(4)            4           scalar   ARG,OUT          630                               
+ NUM_PROG                   Dummy  623      I(4)            4           scalar   ARG,OUT          630                               
+ NUM_TRACERS                Dummy  623      I(4)            4           scalar   ARG,OUT          630                               
+ REGISTER_TRACERS           Subr   623                                                                                              
+ TRACER_MANAGER_INIT        Subr   628                                                            102,628,666,724,820,916,977,1044,1
+                                                                                                  099,1126,1150,1224,1398           
+
+Page 19          Source Listing                  REGISTER_TRACERS
+2021-06-01 08:56                                 tracer_manager.F90
+
+    633 !</SUBROUTINE>
+    634 
+    635 !#######################################################################
+    636 
+    637 ! <SUBROUTINE NAME="get_number_tracers">
+    638 !   <OVERVIEW>
+    639 !      A routine to return the number of tracers included in a component model.
+    640 !   </OVERVIEW>
+    641 !   <DESCRIPTION>
+    642 !     This routine returns the total number of valid tracers,
+    643 !     the number of prognostic and diagnostic tracers
+    644 !   </DESCRIPTION>
+    645 !   <TEMPLATE>
+    646 !     call get_number_tracers(model, num_tracers,num_prog,num_diag)
+    647 !   </TEMPLATE>
+    648 
+    649 !   <IN NAME="model" TYPE="integer">
+    650 !     A parameter to identify which model is being used.
+    651 !   </IN>
+    652 !   <OUT NAME="num_tracers" TYPE="integer, optional">
+    653 !    The total number of valid tracers within the component model.
+    654 !   </OUT>
+    655 !   <OUT NAME="num_prog" TYPE="integer, optional">
+    656 !     The number of prognostic tracers within the component model.
+    657 !   </OUT>
+    658 !   <OUT NAME="num_diag" TYPE="integer, optional">
+    659 !     The number of diagnostic tracers within the component model.
+    660 !   </OUT>
+    661 subroutine get_number_tracers(model, num_tracers, num_prog, num_diag, num_family)
+    662 
+    663 integer,  intent(in) :: model
+    664 integer, intent(out), optional :: num_tracers, num_prog, num_diag, num_family
+    665 
+    666 if(.not.module_is_initialized) call tracer_manager_init
+    667 
+    668 !   <ERROR MSG="Model number is invalid." STATUS="FATAL">
+    669 !     The index of the component model is invalid.
+    670 !   </ERROR>
+    671 if (model .ne. MODEL_ATMOS .and. model .ne. MODEL_LAND .and. &
+    672     model .ne. MODEL_OCEAN .and. model .ne. MODEL_ICE  .and. &
+    673     model .ne. MODEL_COUPLER)  &
+    674     call mpp_error(FATAL,"get_number_tracers : Model number is invalid.")
+    675 
+    676 if (present(num_tracers)) num_tracers = total_tracers(model)
+    677 if (present(num_prog))    num_prog    = prog_tracers(model)
+    678 if (present(num_diag))    num_diag    = diag_tracers(model)
+    679 if (present(num_family))  num_family  = 0 ! Needed only for backward compatability with lima
+    680 
+    681 end subroutine get_number_tracers
+
+Page 20          Source Listing                  GET_NUMBER_TRACERS
+2021-06-01 08:56 Entry Points                    tracer_manager.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ tracer_manager_mod_mp_get_number_tracers_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_NUMBER_TRACERS         Subr   661                                                                                              
+ MODEL                      Dummy  661      I(4)            4           scalar   ARG,IN           671,672,673,676,677,678           
+ NUM_DIAG                   Dummy  661      I(4)            4           scalar   ARG,OUT          678                               
+ NUM_FAMILY                 Dummy  661      I(4)            4           scalar   ARG,OUT          679                               
+ NUM_PROG                   Dummy  661      I(4)            4           scalar   ARG,OUT          677                               
+ NUM_TRACERS                Dummy  661      I(4)            4           scalar   ARG,OUT          676                               
+ PRESENT                    Func   676                                  scalar                    676,677,678,679                   
+
+Page 21          Source Listing                  GET_NUMBER_TRACERS
+2021-06-01 08:56                                 tracer_manager.F90
+
+    682 !</SUBROUTINE>
+    683 
+    684 
+    685 ! <SUBROUTINE NAME="get_tracer_indices">
+    686 
+    687 !   <OVERVIEW>
+    688 !     Routine to return the component model tracer indices as defined within
+    689 !     the tracer manager.
+    690 !   </OVERVIEW>
+    691 !   <DESCRIPTION>
+    692 !     If several models are being used or redundant tracers have been written to
+    693 ! the tracer_table, then the indices in the component model and the tracer
+    694 ! manager may not have a one to one correspondence. Therefore the component
+    695 ! model needs to know what index to pass to calls to tracer_manager routines in
+    696 ! order that the correct tracer information be accessed.
+    697 !   </DESCRIPTION>
+    698 !   <TEMPLATE>
+    699 !     call get_tracer_indices(model, ind, prog_ind, diag_ind)
+    700 !   </TEMPLATE>
+    701 
+    702 !   <IN NAME="model" TYPE="integer">
+    703 !     A parameter to identify which model is being used.
+    704 !   </IN>
+    705 !   <OUT NAME="ind" TYPE="integer, optional" DIM="(:)" >
+    706 ! An array containing the tracer manager defined indices for
+    707 !             all the tracers within the component model.
+    708 !   </OUT>
+    709 !   <OUT NAME="prog_ind" TYPE="integer, optional" DIM="(:)" >
+    710 ! An array containing the tracer manager defined indices for
+    711 !             the prognostic tracers within the component model.
+    712 !   </OUT>
+    713 !   <OUT NAME="diag_ind" TYPE="integer, optional" DIM="(:)" >
+    714 ! An array containing the tracer manager defined indices for
+    715 !             the diagnostic tracers within the component model.
+    716 !   </OUT>
+    717 subroutine get_tracer_indices(model, ind, prog_ind, diag_ind, fam_ind)
+    718 
+    719 integer, intent(in) :: model
+    720 integer, intent(out), dimension(:), optional :: ind, prog_ind, diag_ind, fam_ind
+    721 
+    722 integer :: i, j, np, nd, n
+    723 
+    724 if(.not.module_is_initialized) call tracer_manager_init
+    725 
+    726 nd=0;np=0;n=0
+    727 
+    728 ! Initialize arrays with dummy values
+    729 if (PRESENT(ind))      ind      = NO_TRACER
+    730 if (PRESENT(prog_ind)) prog_ind = NO_TRACER
+    731 if (PRESENT(diag_ind)) diag_ind = NO_TRACER
+    732 if (PRESENT(fam_ind))  fam_ind  = NO_TRACER
+    733 
+    734 do i = 1, MAX_TRACER_FIELDS
+    735 j = TRACER_ARRAY(model,i)
+    736  if ( j /= NOTRACER) then
+    737    if ( model == tracers(j)%model) then
+    738       if (PRESENT(ind)) then
+
+Page 22          Source Listing                  GET_TRACER_INDICES
+2021-06-01 08:56                                 tracer_manager.F90
+
+    739          n=n+1
+    740 !   <ERROR MSG="index array size too small in get_tracer_indices" STATUS="FATAL">
+    741 !     The global index array is too small and cannot contain all the tracer numbers.
+    742 !   </ERROR>
+    743          if (n > size(ind(:))) call mpp_error(FATAL,'get_tracer_indices : index array size too small in get_tracer_indices')
+    744          ind(n) = i
+    745       endif
+    746 
+    747       if (tracers(j)%is_prognostic.and.PRESENT(prog_ind)) then
+    748          np=np+1
+    749 !   <ERROR MSG="prognostic array size too small in get_tracer_indices" STATUS="FATAL">
+    750 !     The prognostic index array is too small and cannot contain all the tracer numbers.
+    751 !   </ERROR>
+    752          if ( np > size( prog_ind(:)))call mpp_error(FATAL,&
+    753                                           'get_tracer_indices : prognostic array size too small in get_tracer_indices')
+    754          prog_ind(np) = i
+    755       else if (.not.tracers(j)%is_prognostic .and. PRESENT(diag_ind)) then
+    756          nd = nd+1
+    757 !   <ERROR MSG="diagnostic array size too small in get_tracer_indices" STATUS="FATAL">
+    758 !     The diagnostic index array is too small and cannot contain all the tracer numbers.
+    759 !   </ERROR>
+    760          if (nd > size(diag_ind(:))) call mpp_error(FATAL,&
+    761                                          'get_tracer_indices : diagnostic array size too small in get_tracer_indices')
+    762          diag_ind(nd) = i
+    763       endif
+    764    endif
+    765  endif
+    766 enddo
+    767 
+    768 return
+    769 end subroutine get_tracer_indices
+
+Page 23          Source Listing                  GET_TRACER_INDICES
+2021-06-01 08:56 Entry Points                    tracer_manager.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ tracer_manager_mod_mp_get_tracer_indices_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DIAG_IND                   Dummy  717      I(4)            4     1     1        ARG,OUT          731,755,760,762                   
+ FAM_IND                    Dummy  717      I(4)            4     1     1        ARG,OUT          732                               
+ GET_TRACER_INDICES         Subr   717                                                                                              
+ I                          Local  722      I(4)            4           scalar                    734,735,744,754,762               
+ IND                        Dummy  717      I(4)            4     1     1        ARG,OUT          729,738,743,744                   
+ J                          Local  722      I(4)            4           scalar                    735,736,737,747,755               
+ MODEL                      Dummy  717      I(4)            4           scalar   ARG,IN           735,737                           
+ N                          Local  722      I(4)            4           scalar                    726,739,743,744                   
+ ND                         Local  722      I(4)            4           scalar                    726,756,760,762                   
+ NP                         Local  722      I(4)            4           scalar                    726,748,752,754                   
+ PRESENT                    Func   729                                  scalar                    729,730,731,732,738,747,755       
+ PROG_IND                   Dummy  717      I(4)            4     1     1        ARG,OUT          730,747,752,754                   
+ SIZE                       Func   743                                  scalar                    743,752,760                       
+
+Page 24          Source Listing                  GET_TRACER_INDICES
+2021-06-01 08:56                                 tracer_manager.F90
+
+    770 !</SUBROUTINE>
+    771 
+    772 !<FUNCTION NAME= "get_tracer_index">
+    773 !   <OVERVIEW>
+    774 !     Function which returns the number assigned to the tracer name.
+    775 !   </OVERVIEW>
+    776 !   <DESCRIPTION>
+    777 !     This is a function which returns the index, as implied within the component model.
+    778 !     There are two overloaded interfaces: one of type integer, one logical.
+    779 !   </DESCRIPTION>
+    780 !   <TEMPLATE>
+    781 !     integer: index = get_tracer_index(model, name,        indices, verbose)
+    782 !     logical:    if ( get_tracer_index(model, name, index, indices, verbose) ) then
+    783 !   </TEMPLATE>
+    784 !   <IN NAME="model" TYPE="integer">
+    785 !     A parameter to identify which model is being used.
+    786 !   </IN>
+    787 !   <IN NAME="name" TYPE="character">
+    788 !     The name of the tracer (as assigned in the field table).
+    789 !   </IN>
+    790 !   <IN NAME="indices" TYPE="integer, optional" DIM="(:)">
+    791 !     An array indices.
+    792 !     When present, the returned index will limit the search for the tracer
+    793 !     to those tracers whos indices are amoung those in array "indices".
+    794 !     This would be useful when it is desired to limit the search to a subset
+    795 !     of the tracers. Such a subset might be the diagnostic or prognostic tracers.
+    796 !     (Note that subroutine get_tracer_indices returns these subsets)
+    797 !   </IN>
+    798 !   <IN NAME="verbose" TYPE="logical, optional">
+    799 !     A flag to allow the message saying that a tracer with this name has not
+    800 !     been found. This should only be used for debugging purposes.
+    801 !   </IN>
+    802 !   <OUT NAME="get_tracer_index" TYPE="integer">
+    803 !     integer function:
+    804 !       The index of the tracer named "name".
+    805 !       If no tracer by that name exists then the returned value is NO_TRACER.
+    806 !     logical function:
+    807 !       If no tracer by that name exists then the returned value is .false.,
+    808 !       otherwise the returned value is .true.
+    809 !   </OUT>
+    810 function get_tracer_index_integer(model, name, indices, verbose)
+    811 
+    812 integer, intent(in)                         :: model
+    813 character(len=*), intent(in)                :: name
+    814 integer, intent(in), dimension(:), optional :: indices
+    815 logical, intent(in), optional               :: verbose
+    816 integer :: get_tracer_index_integer
+    817 
+    818 integer :: i
+    819 
+    820 if(.not.module_is_initialized) call tracer_manager_init
+    821 
+    822 get_tracer_index_integer = NO_TRACER
+    823 
+    824 if (PRESENT(indices)) then
+    825     do i = 1, size(indices(:))
+    826        if (model == tracers(indices(i))%model .and. lowercase(trim(name)) == trim(tracers(indices(i))%tracer_name)) then
+
+Page 25          Source Listing                  GET_TRACER_INDEX_INTEGER
+2021-06-01 08:56                                 tracer_manager.F90
+
+    827            get_tracer_index_integer = i
+    828            exit
+    829        endif
+    830     enddo
+    831 else
+    832     do i=1, num_tracer_fields
+    833        if(TRACER_ARRAY(model,i) == NOTRACER) cycle
+    834        if (lowercase(trim(name)) == trim(tracers(TRACER_ARRAY(model,i))%tracer_name)) then
+    835            get_tracer_index_integer = i!TRACER_ARRAY(model,i)
+    836            exit
+    837        endif
+    838     enddo
+    839 end if
+    840 
+    841 verbose_local=.FALSE.
+    842 if (present(verbose)) verbose_local=verbose
+    843 
+    844 if (verbose_local) then
+    845 ! <ERROR MSG="tracer with this name not found: X" STATUS="NOTE">
+    846   if (get_tracer_index_integer == NO_TRACER ) then
+    847     call mpp_error(NOTE,'get_tracer_index : tracer with this name not found: '//trim(name))
+    848   endif
+    849 ! </ERROR>
+    850 endif
+    851 
+    852 return
+    853 
+    854 end function get_tracer_index_integer
+
+Page 26          Source Listing                  GET_TRACER_INDEX_INTEGER
+2021-06-01 08:56 Entry Points                    tracer_manager.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                       
+                                                             
+ tracer_manager_mod_mp_get_tracer_index_integer_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_TRACER_INDEX_INTEGER   Func   810      I(4)            4           scalar   PRIV             822,827,835,846,866               
+ I                          Local  818      I(4)            4           scalar                    825,826,827,832,833,834,835       
+ INDICES                    Dummy  810      I(4)            4     1     1        ARG,IN           824,825,826                       
+ LOWERCASE                  Func   826      CHAR                        scalar   TGT,PRIV         74,826,834,1245,1252              
+ MODEL                      Dummy  810      I(4)            4           scalar   ARG,IN           826,833,834                       
+ NAME                       Dummy  810      CHAR                        scalar   ARG,IN           826,834,847                       
+ PRESENT                    Func   824                                  scalar                    824,842                           
+ SIZE                       Func   825                                  scalar                    825                               
+ TRIM                       Func   826                                  scalar                    826,834,847                       
+ VERBOSE                    Dummy  810      L(4)            4           scalar   ARG,IN           842                               
+ VERBOSE_LOCAL              Local  841      L(4)            4           scalar                    841,842,844                       
+
+Page 27          Source Listing                  GET_TRACER_INDEX_INTEGER
+2021-06-01 08:56                                 tracer_manager.F90
+
+    855 
+    856 !#######################################################################
+    857 function get_tracer_index_logical(model, name, index, indices, verbose)
+    858 
+    859 integer, intent(in)                         :: model
+    860 character(len=*), intent(in)                :: name
+    861 integer, intent(out)                        :: index
+    862 integer, intent(in), dimension(:), optional :: indices
+    863 logical, intent(in), optional               :: verbose
+    864 logical :: get_tracer_index_logical
+    865 
+    866 index = get_tracer_index_integer(model, name, indices, verbose)
+    867 if(index == NO_TRACER) then
+    868   get_tracer_index_logical = .false.
+    869 else
+    870   get_tracer_index_logical = .true.
+    871 endif
+    872 
+    873 end function get_tracer_index_logical
+
+
+ENTRY POINTS
+
+  Name                                                       
+                                                             
+ tracer_manager_mod_mp_get_tracer_index_logical_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ GET_TRACER_INDEX_LOGICAL   Func   857      L(4)            4           scalar   PRIV             446,868,870,1483,1559             
+ INDEX                      Dummy  857      I(4)            4           scalar   ARG,OUT          866,867                           
+ INDICES                    Dummy  857      I(4)            4     1     1        ARG,IN           866                               
+ MODEL                      Dummy  857      I(4)            4           scalar   ARG,IN           866                               
+ NAME                       Dummy  857      CHAR                        scalar   ARG,IN           866                               
+ VERBOSE                    Dummy  857      L(4)            4           scalar   ARG,IN           866                               
+
+Page 28          Source Listing                  GET_TRACER_INDEX_LOGICAL
+2021-06-01 08:56                                 tracer_manager.F90
+
+    874 !</FUNCTION>
+    875 
+    876 !#######################################################################
+    877 ! <SUBROUTINE NAME="tracer_manager_end" >
+    878 !   <OVERVIEW>
+    879 !     Routine to write to the log file that the tracer manager is ending.
+    880 !   </OVERVIEW>
+    881 !   <DESCRIPTION>
+    882 !     Routine to write to the log file that the tracer manager is ending.
+    883 !   </DESCRIPTION>
+    884 !   <TEMPLATE>
+    885 !     call tracer_manager_end
+    886 !   </TEMPLATE>
+    887 subroutine tracer_manager_end
+    888 
+    889 integer :: log_unit
+    890 
+    891 log_unit = stdlog()
+    892 if ( mpp_pe() == mpp_root_pe() ) then
+    893    write (log_unit,'(/,(a))') 'Exiting tracer_manager, have a nice day ...'
+    894 endif
+    895 
+    896 module_is_initialized = .FALSE.
+    897 
+    898 end subroutine tracer_manager_end
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ tracer_manager_mod_mp_tracer_manager_end_             
+
+Page 29          Source Listing                  TRACER_MANAGER_END
+2021-06-01 08:56 Symbol Table                    tracer_manager.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ LOG_UNIT                   Local  889      I(4)            4           scalar                    891,893                           
+ TRACER_MANAGER_END         Subr   887                                                                                              
+
+Page 30          Source Listing                  TRACER_MANAGER_END
+2021-06-01 08:56                                 tracer_manager.F90
+
+    899 !</SUBROUTINE>
+    900 
+    901 !#######################################################################
+    902 !
+    903 subroutine print_tracer_info(model,n)
+    904 !
+    905 ! Routine to print out the components of the tracer.
+    906 ! This is useful for informational purposes.
+    907 ! Used in get_tracer_meta_data.
+    908 !
+    909 ! Arguments:
+    910 ! INTENT IN
+    911 !  i            : index of the tracer that is being printed.
+    912 !
+    913 integer, intent(in) :: model,n
+    914 integer :: i,log_unit
+    915 
+    916 if(.not.module_is_initialized) call tracer_manager_init
+    917 
+    918 if(mpp_pe()==mpp_root_pe() .and. TRACER_ARRAY(model,n)> 0 ) then
+    919   i = TRACER_ARRAY(model,n)
+    920   log_unit = stdlog()
+    921   write(log_unit, *)'----------------------------------------------------'
+    922   write(log_unit, *) 'Contents of tracer entry ', i
+    923   write(log_unit, *) 'Model type and field name'
+    924   write(log_unit, *) 'Model                : ', tracers(i)%model
+    925   write(log_unit, *) 'Field name           : ', trim(tracers(i)%tracer_name)
+    926   write(log_unit, *) 'Tracer units         : ', trim(tracers(i)%tracer_units)
+    927   write(log_unit, *) 'Tracer longname      : ', trim(tracers(i)%tracer_longname)
+    928   write(log_unit, *) 'Tracer is_prognostic : ', tracers(i)%is_prognostic
+    929   write(log_unit, *)'----------------------------------------------------'
+    930 endif
+    931 
+    932 900 FORMAT(A,2(1x,E12.6))
+    933 901 FORMAT(E12.6,1x,E12.6)
+    934 
+    935 
+    936 end subroutine print_tracer_info
+
+Page 31          Source Listing                  PRINT_TRACER_INFO
+2021-06-01 08:56 Entry Points                    tracer_manager.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                
+                                                      
+ tracer_manager_mod_mp_print_tracer_info_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ 900                        Label  932                                                                                              
+ 901                        Label  933                                                                                              
+ I                          Local  914      I(4)            4           scalar                    919,922,924,925,926,927,928       
+ LOG_UNIT                   Local  914      I(4)            4           scalar                    920,921,922,923,924,925,926,927,92
+                                                                                                  8,929                             
+ MODEL                      Dummy  903      I(4)            4           scalar   ARG,IN           918,919                           
+ N                          Dummy  903      I(4)            4           scalar   ARG,IN           918,919                           
+ PRINT_TRACER_INFO          Subr   903                                                            564                               
+ TRIM                       Func   925                                  scalar                    925,926,927                       
+
+Page 32          Source Listing                  PRINT_TRACER_INFO
+2021-06-01 08:56                                 tracer_manager.F90
+
+    937 
+    938 !#######################################################################
+    939 !
+    940 ! <SUBROUTINE NAME="get_tracer_names" >
+    941 !   <OVERVIEW>
+    942 !     Routine to find the names associated with a tracer number.
+    943 !   </OVERVIEW>
+    944 !   <DESCRIPTION>
+    945 !     This routine can return the name, long name and units associated
+    946 !     with a tracer.
+    947 !   </DESCRIPTION>
+    948 !   <TEMPLATE>
+    949 !     call get_tracer_names(model,n,name,longname, units)
+    950 !   </TEMPLATE>
+    951 
+    952 !   <IN NAME="model" TYPE="integer">
+    953 !     A parameter representing the component model in use.
+    954 !   </IN>
+    955 !   <IN NAME="n" TYPE="integer">
+    956 !     Tracer number.
+    957 !   </IN>
+    958 !   <OUT NAME="name" TYPE="character" >
+    959 !     Field name associated with tracer number.
+    960 !   </OUT>
+    961 !   <OUT NAME="longname" TYPE="character, optional" >
+    962 !     The long name associated with tracer number.
+    963 !   </OUT>
+    964 !   <OUT NAME="units" TYPE="character, optional" >
+    965 !     The units associated with tracer number.
+    966 !   </OUT>
+    967 
+    968 subroutine get_tracer_names(model,n,name,longname, units, err_msg)
+    969 
+    970 integer,          intent(in)  :: model, n
+    971 character (len=*),intent(out) :: name
+    972 character (len=*), intent(out), optional :: longname, units, err_msg
+    973 character (len=128) :: err_msg_local
+    974 integer :: n1
+    975 character(len=11) :: chn
+    976 
+    977 if(.not.module_is_initialized) call tracer_manager_init
+    978 
+    979  if (n < 1 .or. n > total_tracers(model)) then
+    980    write(chn, '(i11)') n
+    981    err_msg_local = ' Invalid tracer index.  Model name = '//trim(MODEL_NAMES(model))//',  Index='//trim(chn)
+    982    if(error_handler('get_tracer_names', err_msg_local, err_msg)) return
+    983  endif
+    984  n1 = TRACER_ARRAY(model,n)
+    985 
+    986 name = trim(tracers(n1)%tracer_name)
+    987 if (PRESENT(longname)) longname = trim(tracers(n1)%tracer_longname)
+    988 if (PRESENT(units))    units    = trim(tracers(n1)%tracer_units)
+    989 
+    990 end subroutine get_tracer_names
+
+Page 33          Source Listing                  GET_TRACER_NAMES
+2021-06-01 08:56 Entry Points                    tracer_manager.F90
+
+
+
+ENTRY POINTS
+
+  Name                                               
+                                                     
+ tracer_manager_mod_mp_get_tracer_names_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CHN                        Local  975      CHAR            11          scalar                    980,981                           
+ ERROR_HANDLER@0            Local  982      L(4)            4           scalar                                                      
+ ERR_MSG                    Dummy  968      CHAR                        scalar   ARG,OUT          982                               
+ ERR_MSG_LOCAL              Local  973      CHAR            128         scalar                    981,982                           
+ GET_TRACER_NAMES           Subr   968                                                                                              
+ LONGNAME                   Dummy  968      CHAR                        scalar   ARG,OUT          987                               
+ MODEL                      Dummy  968      I(4)            4           scalar   ARG,IN           979,981,984                       
+ N                          Dummy  968      I(4)            4           scalar   ARG,IN           979,980,984                       
+ N1                         Local  974      I(4)            4           scalar                    984,986,987,988                   
+ NAME                       Dummy  968      CHAR                        scalar   ARG,OUT          986                               
+ PRESENT                    Func   987                                  scalar                    987,988                           
+ TRIM                       Func   981                                  scalar                    981,986,987,988                   
+ UNITS                      Dummy  968      CHAR                        scalar   ARG,OUT          988                               
+
+Page 34          Source Listing                  GET_TRACER_NAMES
+2021-06-01 08:56                                 tracer_manager.F90
+
+    991 !</SUBROUTINE>
+    992 !
+    993 !#######################################################################
+    994 !
+    995 ! <FUNCTION NAME="get_tracer_name" >
+    996 !   <OVERVIEW>
+    997 !     Routine to find the names associated with a tracer number.
+    998 !   </OVERVIEW>
+    999 !   <DESCRIPTION>
+   1000 !     This routine can return the name, long name and units associated with a tracer.
+   1001 !     The return value of get_tracer_name is .false. when a FATAL error condition is
+   1002 !     detected, otherwise the return value is .true.
+   1003 !   </DESCRIPTION>
+   1004 !   <TEMPLATE>
+   1005 !     if(.not.get_tracer_name(model,n,name,longname, units, err_msg)) call mpp_error(.....
+   1006 !   </TEMPLATE>
+   1007 
+   1008 !   <IN NAME="model" TYPE="integer">
+   1009 !     A parameter representing the component model in use.
+   1010 !   </IN>
+   1011 !   <IN NAME="n" TYPE="integer">
+   1012 !     Tracer number.
+   1013 !   </IN>
+   1014 !   <OUT NAME="name" TYPE="character" >
+   1015 !     Field name associated with tracer number.
+   1016 !   </OUT>
+   1017 !   <OUT NAME="longname" TYPE="character, optional" >
+   1018 !     The long name associated with tracer number.
+   1019 !   </OUT>
+   1020 !   <OUT NAME="units" TYPE="character, optional" >
+   1021 !     The units associated with tracer number.
+   1022 !   </OUT>
+   1023 !   <OUT NAME="err_msg" TYPE="character, optional" >
+   1024 !     When present:
+   1025 !       If a FATAL error condition is detected then err_msg will contain an error message
+   1026 !       and the return value of get_tracer_name will be .false.
+   1027 !       If no FATAL error is detected err_msg will be filled with space characters and
+   1028 !       and the return value of get_tracer_name will be .true.
+   1029 !     When not present:
+   1030 !       A FATAL error will result in termination inside get_tracer_name without returning.
+   1031 !       If no FATAL error is detected the return value of get_tracer_name will be .true.
+   1032 !   </OUT>
+   1033 
+   1034 function get_tracer_name(model,n,name,longname, units, err_msg)
+   1035 
+   1036 logical :: get_tracer_name
+   1037 integer,          intent(in)  :: model, n
+   1038 character (len=*),intent(out) :: name
+   1039 character (len=*), intent(out), optional :: longname, units, err_msg
+   1040 character (len=128) :: err_msg_local
+   1041 integer :: n1
+   1042 character(len=11) :: chn
+   1043 
+   1044 if(.not.module_is_initialized) call tracer_manager_init
+   1045 
+   1046  if (n < 1 .or. n > total_tracers(model)) then
+   1047    write(chn, '(i11)') n
+
+Page 35          Source Listing                  GET_TRACER_NAME
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1048    err_msg_local = ' Invalid tracer index.  Model name = '//trim(MODEL_NAMES(model))//',  Index='//trim(chn)
+   1049    if(error_handler('get_tracer_name', err_msg_local, err_msg)) then
+   1050      get_tracer_name = .false.
+   1051      return
+   1052    endif
+   1053  else
+   1054    get_tracer_name = .true.
+   1055  endif
+   1056  n1 = TRACER_ARRAY(model,n)
+   1057 
+   1058 name = trim(tracers(n1)%tracer_name)
+   1059 if (PRESENT(longname)) longname = trim(tracers(n1)%tracer_longname)
+   1060 if (PRESENT(units))    units    = trim(tracers(n1)%tracer_units)
+   1061 
+   1062 end function get_tracer_name
+
+
+ENTRY POINTS
+
+  Name                                              
+                                                    
+ tracer_manager_mod_mp_get_tracer_name_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CHN                        Local  1042     CHAR            11          scalar                    1047,1048                         
+ ERR_MSG                    Dummy  1034     CHAR                        scalar   ARG,OUT          1049                              
+ ERR_MSG_LOCAL              Local  1040     CHAR            128         scalar                    1048,1049                         
+ GET_TRACER_NAME            Func   1034     L(4)            4           scalar                                                      
+ LONGNAME                   Dummy  1034     CHAR                        scalar   ARG,OUT          1059                              
+ MODEL                      Dummy  1034     I(4)            4           scalar   ARG,IN           1046,1048,1056                    
+ N                          Dummy  1034     I(4)            4           scalar   ARG,IN           1046,1047,1056                    
+ N1                         Local  1041     I(4)            4           scalar                    1056,1058,1059,1060               
+ NAME                       Dummy  1034     CHAR                        scalar   ARG,OUT          1058                              
+ PRESENT                    Func   1059                                 scalar                    1059,1060                         
+ TRIM                       Func   1048                                 scalar                    1048,1058,1059,1060               
+ UNITS                      Dummy  1034     CHAR                        scalar   ARG,OUT          1060                              
+
+Page 36          Source Listing                  GET_TRACER_NAME
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1063 !</FUNCTION>
+   1064 !
+   1065 !#######################################################################
+   1066 !
+   1067 !<FUNCTION NAME= "check_if_prognostic">
+   1068 !   <OVERVIEW>
+   1069 !    Function to see if a tracer is prognostic or diagnostic.
+   1070 !   </OVERVIEW>
+   1071 !   <DESCRIPTION>
+   1072 !    All tracers are assumed to be prognostic when read in from the field_table
+   1073 !    However a tracer can be changed to a diagnostic tracer by adding the line
+   1074 !    "tracer_type","diagnostic"
+   1075 !    to the tracer description in field_table.
+   1076 !   </DESCRIPTION>
+   1077 !   <TEMPLATE>
+   1078 !     logical =check_if_prognostic(model, n)
+   1079 !   </TEMPLATE>
+   1080 
+   1081 !   <IN NAME="model" TYPE="integer">
+   1082 !     A parameter representing the component model in use.
+   1083 !   </IN>
+   1084 !   <IN NAME="n" TYPE="integer">
+   1085 !     Tracer number
+   1086 !   </IN>
+   1087 !   <OUT NAME="check_if_prognostic" TYPE="logical">
+   1088 !     A logical flag set TRUE if the tracer is
+   1089 !                        prognostic.
+   1090 !   </OUT>
+   1091 function check_if_prognostic(model, n, err_msg)
+   1092 
+   1093 integer, intent(in) :: model, n
+   1094 logical             :: check_if_prognostic
+   1095 character(len=*), intent(out), optional :: err_msg
+   1096 character(len=128) :: err_msg_local
+   1097 character(len=11) :: chn
+   1098 
+   1099 if(.not.module_is_initialized) call tracer_manager_init
+   1100 
+   1101 if (n < 1 .or. n > total_tracers(model)) then
+   1102   write(chn, '(i11)') n
+   1103   err_msg_local = ' Invalid tracer index.  Model name = '//trim(MODEL_NAMES(model))//',  Index='//trim(chn)
+   1104   check_if_prognostic = .true.
+   1105   if(error_handler('check_if_prognostic', err_msg_local, err_msg)) return
+   1106 endif
+   1107 
+   1108 !Convert local model index to tracer_manager index
+   1109 
+   1110 check_if_prognostic = tracers(TRACER_ARRAY(model,n))%is_prognostic
+   1111 
+   1112 end function check_if_prognostic
+
+Page 37          Source Listing                  CHECK_IF_PROGNOSTIC
+2021-06-01 08:56 Entry Points                    tracer_manager.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ tracer_manager_mod_mp_check_if_prognostic_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ CHECK_IF_PROGNOSTIC        Func   1091     L(4)            4           scalar                                                      
+ CHN                        Local  1097     CHAR            11          scalar                    1102,1103                         
+ ERR_MSG                    Dummy  1091     CHAR                        scalar   ARG,OUT          1105                              
+ ERR_MSG_LOCAL              Local  1096     CHAR            128         scalar                    1103,1105                         
+ MODEL                      Dummy  1091     I(4)            4           scalar   ARG,IN           1101,1103,1110                    
+ N                          Dummy  1091     I(4)            4           scalar   ARG,IN           1101,1102,1110                    
+ TRIM                       Func   1103                                 scalar                    1103                              
+
+Page 38          Source Listing                  CHECK_IF_PROGNOSTIC
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1113 !</FUNCTION>
+   1114 
+   1115 ! Does tracer need mass or positive definite adjustments?
+   1116 !#######################################################################
+   1117 ! Function to check whether tracer should have its mass adjusted
+   1118 function adjust_mass(model, n, err_msg)
+   1119 
+   1120 integer, intent(in) :: model, n
+   1121 logical             :: adjust_mass
+   1122 character(len=*), intent(out), optional :: err_msg
+   1123 character(len=128) :: err_msg_local
+   1124 character(len=11) :: chn
+   1125 
+   1126 if(.not.module_is_initialized) call tracer_manager_init
+   1127 
+   1128 if (n < 1 .or. n > total_tracers(model)) then
+   1129   write(chn, '(i11)') n
+   1130   err_msg_local = ' Invalid tracer index.  Model name = '//trim(MODEL_NAMES(model))//',  Index='//trim(chn)
+   1131   adjust_mass = .true.
+   1132   if(error_handler('adjust_mass', err_msg_local, err_msg)) return
+   1133 endif
+   1134 
+   1135 !Convert local model index to tracer_manager index
+   1136 
+   1137 adjust_mass = tracers(TRACER_ARRAY(model,n))%needs_mass_adjust
+   1138 
+   1139 end function adjust_mass
+
+
+ENTRY POINTS
+
+  Name                                          
+                                                
+ tracer_manager_mod_mp_adjust_mass_             
+
+Page 39          Source Listing                  ADJUST_MASS
+2021-06-01 08:56 Symbol Table                    tracer_manager.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ADJUST_MASS                Func   1118     L(4)            4           scalar                                                      
+ CHN                        Local  1124     CHAR            11          scalar                    1129,1130                         
+ ERR_MSG                    Dummy  1118     CHAR                        scalar   ARG,OUT          1132                              
+ ERR_MSG_LOCAL              Local  1123     CHAR            128         scalar                    1130,1132                         
+ MODEL                      Dummy  1118     I(4)            4           scalar   ARG,IN           1128,1130,1137                    
+ N                          Dummy  1118     I(4)            4           scalar   ARG,IN           1128,1129,1137                    
+ TRIM                       Func   1130                                 scalar                    1130                              
+
+Page 40          Source Listing                  ADJUST_MASS
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1140 
+   1141 ! Function to check whether tracer should be adjusted to remain positive definite
+   1142 function adjust_positive_def(model, n, err_msg)
+   1143 
+   1144 integer, intent(in) :: model, n
+   1145 logical             :: adjust_positive_def
+   1146 character(len=*), intent(out), optional :: err_msg
+   1147 character(len=128) :: err_msg_local
+   1148 character(len=11) :: chn
+   1149 
+   1150 if(.not.module_is_initialized) call tracer_manager_init
+   1151 
+   1152 if (n < 1 .or. n > total_tracers(model)) then
+   1153   write(chn, '(i11)') n
+   1154   err_msg_local = ' Invalid tracer index.  Model name = '//trim(MODEL_NAMES(model))//',  Index='//trim(chn)
+   1155   adjust_positive_def = .true.
+   1156   if(error_handler('adjust_positive_def', err_msg_local, err_msg)) return
+   1157 endif
+   1158 
+   1159 !Convert local model index to tracer_manager index
+   1160 
+   1161 adjust_positive_def = tracers(TRACER_ARRAY(model,n))%needs_positive_adjust
+   1162 
+   1163 end function adjust_positive_def
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ tracer_manager_mod_mp_adjust_positive_def_             
+
+Page 41          Source Listing                  ADJUST_POSITIVE_DEF
+2021-06-01 08:56 Symbol Table                    tracer_manager.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ADJUST_POSITIVE_DEF        Func   1142     L(4)            4           scalar                                                      
+ CHN                        Local  1148     CHAR            11          scalar                    1153,1154                         
+ ERR_MSG                    Dummy  1142     CHAR                        scalar   ARG,OUT          1156                              
+ ERR_MSG_LOCAL              Local  1147     CHAR            128         scalar                    1154,1156                         
+ MODEL                      Dummy  1142     I(4)            4           scalar   ARG,IN           1152,1154,1161                    
+ N                          Dummy  1142     I(4)            4           scalar   ARG,IN           1152,1153,1161                    
+ TRIM                       Func   1154                                 scalar                    1154                              
+
+Page 42          Source Listing                  ADJUST_POSITIVE_DEF
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1164 
+   1165 !
+   1166 !#######################################################################
+   1167 !
+   1168 ! <SUBROUTINE NAME="set_tracer_profile" >
+   1169 !   <OVERVIEW>
+   1170 !     Subroutine to set the tracer field to the wanted profile.
+   1171 !   </OVERVIEW>
+   1172 !   <DESCRIPTION>
+   1173 !     If the profile type is 'fixed' then the tracer field values are set
+   1174 ! equal to the surface value.
+   1175 ! If the profile type is 'profile' then the top/bottom of model and
+   1176 ! surface values are read and an exponential profile is calculated,
+   1177 ! with the profile being dependent on the number of levels in the
+   1178 ! component model. This should be called from the part of the dynamical
+   1179 ! core where tracer restarts are called in the event that a tracer
+   1180 ! restart file does not exist.
+   1181 !
+   1182 !  This can be activated by adding a method to the field_table
+   1183 ! e.g.
+   1184 !  "profile_type","fixed","surface_value = 1e-12"
+   1185 !  would return values of surf_value = 1e-12 and a multiplier of 1.0
+   1186 !  One can use these to initialize the entire field with a value of 1e-12.
+   1187 !
+   1188 !  "profile_type","profile","surface_value = 1e-12, top_value = 1e-15"
+   1189 !   In a 15 layer model this would return values of surf_value = 1e-12 and
+   1190 !   multiplier = 0.6309573 i.e 1e-15 = 1e-12*(0.6309573^15)
+   1191 !   In this case the model should be MODEL_ATMOS as you have a "top" value.
+   1192 !
+   1193 !   If you wish to initialize the ocean model, one can use bottom_value instead
+   1194 !   of top_value.
+   1195 
+   1196 !   </DESCRIPTION>
+   1197 !   <TEMPLATE>
+   1198 !     call set_tracer_profile(model, n, tracer)
+   1199 !   </TEMPLATE>
+   1200 
+   1201 !   <IN NAME="model" TYPE="integer">
+   1202 !     A parameter representing the component model in use.
+   1203 !   </IN>
+   1204 !   <IN NAME="n" TYPE="integer">
+   1205 !     Tracer number.
+   1206 !   </IN>
+   1207 !   <INOUT NAME="tracer_array" TYPE="real">
+   1208 !     The initialized tracer array.
+   1209 !   </INOUT>
+   1210 
+   1211 subroutine set_tracer_profile(model, n, tracer, err_msg)
+   1212 
+   1213 integer,  intent(in)  :: model, n
+   1214    real, intent(inout), dimension(:,:,:) :: tracer
+   1215 character(len=*), intent(out), optional :: err_msg
+   1216 
+   1217 real    :: surf_value, multiplier
+   1218 integer :: numlevels, k, n1, flag
+   1219 real    :: top_value, bottom_value
+   1220 character(len=80) :: scheme, control,profile_type
+
+Page 43          Source Listing                  SET_TRACER_PROFILE
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1221 character(len=128) :: err_msg_local
+   1222 character(len=11) :: chn
+   1223 
+   1224 if(.not.module_is_initialized) call tracer_manager_init
+   1225 
+   1226 if (n < 1 .or. n > total_tracers(model)) then
+   1227   write(chn, '(i11)') n
+   1228   err_msg_local = ' Invalid tracer index.  Model name = '//trim(MODEL_NAMES(model))//',  Index='//trim(chn)
+   1229   if(error_handler('set_tracer_profile', err_msg_local, err_msg)) return
+   1230 endif
+   1231 n1 = TRACER_ARRAY(model,n)
+   1232 
+   1233 !default values
+   1234 profile_type  = 'Fixed'
+   1235 surf_value = 0.0E+00
+   1236 top_value  = surf_value
+   1237 bottom_value = surf_value
+   1238 multiplier = 1.0
+   1239 
+   1240 tracer = surf_value
+   1241 
+   1242 if ( query_method ( 'profile_type',model,n,scheme,control)) then
+   1243 !Change the tracer_number to the tracer_manager version
+   1244 
+   1245   if(lowercase(trim(scheme(1:5))).eq.'fixed') then
+   1246     profile_type                   = 'Fixed'
+   1247     flag =parse(control,'surface_value',surf_value)
+   1248     multiplier = 1.0
+   1249     tracer = surf_value
+   1250   endif
+   1251 
+   1252   if(lowercase(trim(scheme(1:7))).eq.'profile') then
+   1253     profile_type                   = 'Profile'
+   1254     flag=parse(control,'surface_value',surf_value)
+   1255     if (surf_value .eq. 0.0) &
+   1256       call mpp_error(FATAL,'set_tracer_profile : Cannot have a zero surface value for an exponential profile. Tracer '&
+   1257                            //tracers(n1)%tracer_name//" "//control//" "//scheme)
+   1258     select case (tracers(n1)%model)
+   1259       case (MODEL_ATMOS)
+   1260         flag=parse(control,'top_value',top_value)
+   1261         if(mpp_pe()==mpp_root_pe() .and. flag == 0) &
+   1262            call mpp_error(NOTE,'set_tracer_profile : Parameter top_value needs to be defined for the tracer profile.')
+   1263       case (MODEL_OCEAN)
+   1264         flag =parse(control,'bottom_value',bottom_value)
+   1265         if(mpp_pe() == mpp_root_pe() .and. flag == 0) &
+   1266            call mpp_error(NOTE,'set_tracer_profile : Parameter bottom_value needs to be defined for the tracer profile.')
+   1267       case default
+   1268 !   Should there be a NOTE or WARNING message here?
+   1269     end select
+   1270 
+   1271 ! If profile type is profile then set the surface value to the input
+   1272 ! value and calculate the vertical multiplier.
+   1273 !
+   1274 ! Assume an exponential decay/increase from the surface to the top level
+   1275 !  C = C0 exp ( -multiplier* level_number)
+   1276 !  => multiplier = exp [ ln(Ctop/Csurf)/number_of_levels]
+   1277 !
+
+Page 44          Source Listing                  SET_TRACER_PROFILE
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1278 numlevels = size(tracer,3) -1
+   1279     select case (tracers(n1)%model)
+   1280       case (MODEL_ATMOS)
+   1281         multiplier = exp( log (top_value/surf_value) /numlevels)
+   1282         tracer(:,:,1) = surf_value
+   1283         do k = 2, size(tracer,3)
+   1284           tracer(:,:,k) = tracer(:,:,k-1) * multiplier
+   1285         enddo
+   1286       case (MODEL_OCEAN)
+   1287         multiplier = exp( log (bottom_value/surf_value) /numlevels)
+   1288         tracer(:,:,size(tracer,3)) = surf_value
+   1289         do k = size(tracer,3) - 1, 1, -1
+   1290           tracer(:,:,k) = tracer(:,:,k+1) * multiplier
+   1291         enddo
+   1292       case default
+   1293     end select
+   1294   endif !scheme.eq.profile
+   1295 
+   1296   if (mpp_pe() == mpp_root_pe() ) write(*,700) 'Tracer ',trim(tracers(n1)%tracer_name),    &
+   1297                             ' initialized with surface value of ',surf_value, &
+   1298                             ' and vertical multiplier of ',multiplier
+   1299   700 FORMAT (3A,E12.6,A,F10.6)
+   1300 
+   1301 endif ! end of query scheme
+   1302 
+   1303 end subroutine set_tracer_profile
+
+
+ENTRY POINTS
+
+  Name                                                 
+                                                       
+ tracer_manager_mod_mp_set_tracer_profile_             
+
+Page 45          Source Listing                  SET_TRACER_PROFILE
+2021-06-01 08:56 Symbol Table                    tracer_manager.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ 700                        Label  1299                                                           1296                              
+ BOTTOM_VALUE               Local  1219     R(8)            8           scalar                    1237,1264,1287                    
+ CHN                        Local  1222     CHAR            11          scalar                    1227,1228                         
+ CONTROL                    Local  1220     CHAR            80          scalar                    1242,1247,1254,1257,1260,1264     
+ ERR_MSG                    Dummy  1211     CHAR                        scalar   ARG,OUT          1229                              
+ ERR_MSG_LOCAL              Local  1221     CHAR            128         scalar                    1228,1229                         
+ EXP                        Func   1281                                 scalar                    1281,1287                         
+ FLAG                       Local  1218     I(4)            4           scalar                    1247,1254,1260,1261,1264,1265     
+ K                          Local  1218     I(4)            4           scalar                    1283,1284,1289,1290               
+ LOG                        Func   1281                                 scalar                    1281,1287                         
+ MODEL                      Dummy  1211     I(4)            4           scalar   ARG,IN           1226,1228,1231,1242               
+ MULTIPLIER                 Local  1217     R(8)            8           scalar                    1238,1248,1281,1284,1287,1290,1298
+ N                          Dummy  1211     I(4)            4           scalar   ARG,IN           1226,1227,1231,1242               
+ N1                         Local  1218     I(4)            4           scalar                    1231,1257,1258,1279,1296          
+ NUMLEVELS                  Local  1218     I(4)            4           scalar                    1278,1281,1287                    
+ PARSE_REAL                 Func   1247     I(4)            4           scalar   PRIV             1247,1254,1260,1264               
+ PROFILE_TYPE               Local  1220     CHAR            80          scalar                    1234,1246,1253                    
+ SCHEME                     Local  1220     CHAR            80          scalar                    1242,1245,1252,1257               
+ SET_TRACER_PROFILE         Subr   1211                                                                                             
+ SIZE                       Func   1278                                 scalar                    1278,1283,1288,1289               
+ SURF_VALUE                 Local  1217     R(8)            8           scalar                    1235,1236,1237,1240,1247,1249,1254
+                                                                                                  ,1255,1281,1282,1287,1288,1297    
+ TOP_VALUE                  Local  1219     R(8)            8           scalar                    1236,1260,1281                    
+ TRACER                     Dummy  1211     R(8)            8     3     1        ARG,INOUT        1240,1249,1278,1282,1283,1284,1288
+                                                                                                  ,1289,1290                        
+ TRIM                       Func   1228                                 scalar                    1228,1245,1252,1296               
+
+Page 46          Source Listing                  SET_TRACER_PROFILE
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1304 !</SUBROUTINE>
+   1305 
+   1306 !
+   1307 !#######################################################################
+   1308 !
+   1309 ! <FUNCTION NAME="query_method" >
+   1310 !   <OVERVIEW>
+   1311 !     A function to query the "methods" associated with each tracer.
+   1312 !   </OVERVIEW>
+   1313 !   <DESCRIPTION>
+   1314 !     A function to query the "methods" associated with each tracer. The
+   1315 !  "methods" are the parameters of the component model that can be
+   1316 !  adjusted by user by placing formatted strings, associated with a
+   1317 !  particular tracer, within the field table.
+   1318 !  These methods can control the advection, wet deposition, dry
+   1319 !  deposition or initial profile of the tracer in question. Any
+   1320 !  parametrization can use this function as long as a routine for parsing
+   1321 !  the name and control strings are provided by that routine.
+   1322 !   </DESCRIPTION>
+   1323 !   <TEMPLATE>
+   1324 !     logical =query_method  (method_type, model, n, name, control)
+   1325 !   </TEMPLATE>
+   1326 
+   1327 !   <IN NAME="method_type" TYPE="character">
+   1328 !     The method that is being requested.
+   1329 !   </IN>
+   1330 !   <IN NAME="model" TYPE="integer">
+   1331 !     A parameter representing the component model in use.
+   1332 !   </IN>
+   1333 !   <IN NAME="n" TYPE="integer">
+   1334 !     Tracer number
+   1335 !   </IN>
+   1336 !   <OUT NAME="name" TYPE="character">
+   1337 !     A string containing the modified name to be used with
+   1338 !     method_type. i.e. "2nd_order" might be the default for
+   1339 !     advection. One could use "4th_order" here to modify
+   1340 !     that behaviour.
+   1341 !   </OUT>
+   1342 !   <OUT NAME="control" TYPE="character, optional">
+   1343 !     A string containing the modified parameters that are
+   1344 !     associated with the method_type and name.
+   1345 !   </OUT>
+   1346 !   <OUT NAME="query_method" TYPE="logical">
+   1347 !      A flag to show whether method_type exists with regard to
+   1348 !      tracer n. If method_type is not present then one must
+   1349 !      have default values.
+   1350 !   </OUT>
+   1351 
+   1352 !<NOTE>
+   1353 !  At present the tracer manager module allows the initialization of a tracer
+   1354 !  profile if a restart does not exist for that tracer.
+   1355 !  Options for this routine are as follows
+   1356 !
+   1357 !  Tracer profile setup
+   1358 !  ==================================================================
+   1359 !  |method_type  |method_name  |method_control                      |
+   1360 !  ==================================================================
+
+Page 47          Source Listing                  SET_TRACER_PROFILE
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1361 !  |profile_type |fixed        |surface_value = X                   |
+   1362 !  |profile_type |profile      |surface_value = X, top_value = Y    |(atmosphere)
+   1363 !  |profile_type |profile      |surface_value = X, bottom_value = Y |(ocean)
+   1364 !  ==================================================================
+   1365 !
+   1366 !</NOTE>
+   1367  function query_method  (method_type, model, n, name, control, err_msg)
+   1368 !
+   1369 !  A function to query the schemes associated with each tracer.
+   1370 !
+   1371 !  INTENT IN
+   1372 !   method_type  : The method that is being requested.
+   1373 !   model        : The model that you are calling this function from.
+   1374 !   n            : The tracer number.
+   1375 !  INTENT OUT
+   1376 !   name         : A string containing the modified name to be used with
+   1377 !                  method_type. i.e. "2nd_order" might be the default for
+   1378 !                  advection. One could use "4th_order" here to modify
+   1379 !                  that behaviour.
+   1380 !   control      : A string containing the modified parameters that are
+   1381 !                  associated with the method_type and name.
+   1382 !   query_method : A flag to show whether method_type exists with regard
+   1383 !                  to tracer n. If method_type is not present then one
+   1384 !                  must have default values.
+   1385 
+   1386  character(len=*), intent(in)            :: method_type
+   1387  integer         , intent(in)            :: model, n
+   1388  character(len=*), intent(out)           :: name
+   1389  character(len=*), intent(out), optional :: control, err_msg
+   1390  logical                                 :: query_method
+   1391 
+   1392  integer :: n1
+   1393  character(len=256) :: list_name
+   1394  character(len=1024):: control_tr
+   1395  character(len=16)  :: chn,chn1
+   1396  character(len=128) :: err_msg_local
+   1397 
+   1398  if(.not.module_is_initialized) call tracer_manager_init
+   1399 
+   1400 !Convert the local model tracer number to the tracer_manager version.
+   1401 
+   1402  if (n < 1 .or. n > total_tracers(model)) then
+   1403    write(chn, '(i11)') n
+   1404    err_msg_local = ' Invalid tracer index.  Model name = '//trim(MODEL_NAMES(model))//',  Index='//trim(chn)
+   1405    if(error_handler('query_method', err_msg_local, err_msg)) return
+   1406  endif
+   1407 
+   1408  n1 = TRACER_ARRAY(model,n)
+   1409 
+   1410  select case(model)
+   1411   case (MODEL_COUPLER)
+   1412    list_name = "/coupler_mod/tracer/"//trim(tracers(n1)%tracer_name)//"/"//trim(method_type)
+   1413   case (MODEL_ATMOS)
+   1414    list_name = "/atmos_mod/tracer/"//trim(tracers(n1)%tracer_name)//"/"//trim(method_type)
+   1415   case (MODEL_OCEAN)
+   1416    list_name = "/ocean_mod/tracer/"//trim(tracers(n1)%tracer_name)//"/"//trim(method_type)
+   1417   case (MODEL_ICE  )
+
+Page 48          Source Listing                  QUERY_METHOD
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1418    list_name = "/ice_mod/tracer/"//trim(tracers(n1)%tracer_name)//"/"//trim(method_type)
+   1419   case (MODEL_LAND )
+   1420    list_name = "/land_mod/tracer/"//trim(tracers(n1)%tracer_name)//"/"//trim(method_type)
+   1421   case default
+   1422    list_name = "/default/tracer/"//trim(tracers(n1)%tracer_name)//"/"//trim(method_type)
+   1423  end select
+   1424 
+   1425  name = ''
+   1426  control_tr = ''
+   1427  query_method = fm_query_method(list_name, name, control_tr)
+   1428 
+   1429  if ( present(control) ) then
+   1430     if ( len_trim(control_tr)>len(control) ) then
+   1431        write(chn,*)len(control)
+   1432        write(chn1,*)len_trim(control_tr)
+   1433        if(error_handler('query_method', &
+   1434            ' Output string length ('//trim(adjustl(chn)) &
+   1435                // ') is not enough to return all "control" parameters ("'//trim(control_tr) &
+   1436                // '", length='//trim(adjustl(chn1))//')', &
+   1437            err_msg)) return
+   1438     endif
+   1439     control = trim(control_tr)
+   1440  endif
+   1441 
+   1442  end function query_method
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ tracer_manager_mod_mp_query_method_             
+
+Page 49          Source Listing                  QUERY_METHOD
+2021-06-01 08:56 Symbol Table                    tracer_manager.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ADJUSTL                    Func   1434                                 scalar                    1434,1436                         
+ CHN                        Local  1395     CHAR            16          scalar                    1403,1404,1431,1434               
+ CHN1                       Local  1395     CHAR            16          scalar                    1432,1436                         
+ CONTROL                    Dummy  1367     CHAR                        scalar   ARG,OUT          1429,1430,1431,1439               
+ CONTROL_TR                 Local  1394     CHAR            1024        scalar                    1426,1427,1430,1432,1435,1439     
+ ERR_MSG                    Dummy  1367     CHAR                        scalar   ARG,OUT          1405,1437                         
+ ERR_MSG_LOCAL              Local  1396     CHAR            128         scalar                    1404,1405                         
+ FM_QUERY_METHOD            Func   1427     L(4)            4           scalar   PRIV             92,1427                           
+ LEN                        Func   1430                                 scalar                    1430,1431                         
+ LEN_TRIM                   Func   1430                                 scalar                    1430,1432                         
+ LIST_NAME                  Local  1393     CHAR            256         scalar                    1412,1414,1416,1418,1420,1422,1427
+ METHOD_TYPE                Dummy  1367     CHAR                        scalar   ARG,IN           1412,1414,1416,1418,1420,1422     
+ MODEL                      Dummy  1367     I(4)            4           scalar   ARG,IN           1402,1404,1408,1410               
+ N                          Dummy  1367     I(4)            4           scalar   ARG,IN           1402,1403,1408                    
+ N1                         Local  1392     I(4)            4           scalar                    1408,1412,1414,1416,1418,1420,1422
+ NAME                       Dummy  1367     CHAR                        scalar   ARG,OUT          1425,1427                         
+ PRESENT                    Func   1429                                 scalar                    1429                              
+ QUERY_METHOD               Func   1367     L(4)            4           scalar                                                      
+ TRIM                       Func   1404                                 scalar                    1404,1412,1414,1416,1418,1420,1422
+                                                                                                  ,1434,1435,1436,1439              
+
+Page 50          Source Listing                  QUERY_METHOD
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1443 !</FUNCTION>
+   1444 
+   1445 !<SUBROUTINE NAME="set_tracer_atts">
+   1446 !   <OVERVIEW>
+   1447 !     A subroutine to allow the user set the tracer longname and units from the
+   1448 !     tracer initialization routine.
+   1449 !   </OVERVIEW>
+   1450 !   <DESCRIPTION>
+   1451 !     A function to allow the user set the tracer longname and units from the
+   1452 !     tracer initialization routine. It seems sensible that the user who is
+   1453 !     coding the tracer code will know what units they are working in and it
+   1454 !     is probably safer to set the value in the tracer code rather than in
+   1455 !     the field table.
+   1456 !   </DESCRIPTION>
+   1457 !   <TEMPLATE>
+   1458 !     call set_tracer_atts(model, name, longname, units)
+   1459 !   </TEMPLATE>
+   1460 
+   1461 !   <IN NAME="model" TYPE="integer">
+   1462 !     A parameter representing the component model in use.
+   1463 !   </IN>
+   1464 !   <IN NAME="name" TYPE="character">
+   1465 !     Tracer name.
+   1466 !   </IN>
+   1467 !   <OUT NAME="longname" TYPE="character, optional">
+   1468 !     A string describing the longname of the tracer for output to NetCDF files
+   1469 !   </OUT>
+   1470 !   <OUT NAME="units" TYPE="character, optional">
+   1471 !     A string describing the units of the tracer for output to NetCDF files
+   1472 !   </OUT>
+   1473 subroutine set_tracer_atts(model, name, longname, units)
+   1474 
+   1475 integer, intent(in)                    :: model
+   1476 character(len=*), intent(in)           :: name
+   1477 character(len=*), intent(in), optional :: longname, units
+   1478 
+   1479 integer :: n, index
+   1480 logical :: success
+   1481 character(len=128) :: list_name
+   1482 
+   1483 if ( get_tracer_index(model,name,n) ) then
+   1484     tracers(TRACER_ARRAY(model,n))%tracer_units   = units
+   1485     tracers(TRACER_ARRAY(model,n))%tracer_longname = longname
+   1486   select case(model)
+   1487     case(MODEL_COUPLER)
+   1488       list_name = "/coupler_mod/tracer/"//trim(name)
+   1489     case(MODEL_ATMOS)
+   1490       list_name = "/atmos_mod/tracer/"//trim(name)
+   1491     case(MODEL_OCEAN)
+   1492       list_name = "/ocean_mod/tracer/"//trim(name)
+   1493     case(MODEL_LAND)
+   1494       list_name = "/land_mod/tracer/"//trim(name)
+   1495     case(MODEL_ICE)
+   1496       list_name = "/ice_mod/tracer/"//trim(name)
+   1497     case DEFAULT
+   1498       list_name = "/"//trim(name)
+   1499   end select
+
+Page 51          Source Listing                  SET_TRACER_ATTS
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1500 
+   1501 ! Method_type is a list, method_name is a name of a parameter and method_control has the value.
+   1502 !    list_name = trim(list_name)//"/longname"
+   1503   if ( fm_exists(list_name)) then
+   1504     success = fm_change_list(list_name)
+   1505     if ( present(longname) ) then
+   1506       if ( longname .ne. "" ) index = fm_new_value('longname',longname)
+   1507     endif
+   1508     if ( present(units) ) then
+   1509       if (units .ne. "" ) index = fm_new_value('units',units)
+   1510     endif
+   1511   endif
+   1512 
+   1513 else
+   1514     call mpp_error(NOTE,'set_tracer_atts : Trying to set longname and/or units for non-existent tracer : '//trim(name))
+   1515 endif
+   1516 
+   1517 end subroutine set_tracer_atts
+
+
+ENTRY POINTS
+
+  Name                                              
+                                                    
+ tracer_manager_mod_mp_set_tracer_atts_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ FM_CHANGE_LIST             Func   1504     L(4)            4           scalar   PRIV             90,1504,1582                      
+ FM_EXISTS                  Func   1503     L(4)            4           scalar   PRIV             94,1503,1581                      
+ FM_NEW_VALUE               Local  1506                                 scalar   PRIV             93,1506,1509,1583                 
+ FM_NEW_VALUE_STRING        Func   1506     I(4)            4           scalar   PRIV             1506,1509,1583                    
+ INDEX                      Local  1479     I(4)            4           scalar                    1506,1509                         
+ LIST_NAME                  Local  1481     CHAR            128         scalar                    1488,1490,1492,1494,1496,1498,1503
+                                                                                                  ,1504                             
+ LONGNAME                   Dummy  1473     CHAR                        scalar   ARG,IN           1485,1505,1506                    
+ MODEL                      Dummy  1473     I(4)            4           scalar   ARG,IN           1483,1484,1485,1486               
+ N                          Local  1479     I(4)            4           scalar                    1483,1484,1485                    
+ NAME                       Dummy  1473     CHAR                        scalar   ARG,IN           1483,1488,1490,1492,1494,1496,1498
+                                                                                                  ,1514                             
+ PRESENT                    Func   1505                                 scalar                    1505,1508                         
+ SET_TRACER_ATTS            Subr   1473                                                                                             
+ SUCCESS                    Local  1480     L(4)            4           scalar                    1504                              
+ TRIM                       Func   1488                                 scalar                    1488,1490,1492,1494,1496,1498,1514
+ UNITS                      Dummy  1473     CHAR                        scalar   ARG,IN           1484,1508,1509                    
+
+Page 52          Source Listing                  SET_TRACER_ATTS
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1518 !</SUBROUTINE>
+   1519 
+   1520 !<SUBROUTINE NAME="set_tracer_method">
+   1521 !   <OVERVIEW>
+   1522 !      A subroutine to allow the user to set some tracer specific methods.
+   1523 !   </OVERVIEW>
+   1524 !   <DESCRIPTION>
+   1525 !      A subroutine to allow the user to set methods for a specific tracer.
+   1526 !   </DESCRIPTION>
+   1527 !   <TEMPLATE>
+   1528 !     call set_tracer_method(model, name, method_type, method_name, method_control)
+   1529 !   </TEMPLATE>
+   1530 
+   1531 !   <IN NAME="model" TYPE="integer">
+   1532 !     A parameter representing the component model in use.
+   1533 !   </IN>
+   1534 !   <IN NAME="name" TYPE="character">
+   1535 !     Tracer name.
+   1536 !   </IN>
+   1537 !   <IN NAME="method_type" TYPE="character">
+   1538 !     The type of the method to be set.
+   1539 !   </IN>
+   1540 !   <IN NAME="method_name" TYPE="character">
+   1541 !     The name of the method to be set.
+   1542 !   </IN>
+   1543 !   <IN NAME="method_control" TYPE="character">
+   1544 !     The control parameters of the method to be set.
+   1545 !   </IN>
+   1546 
+   1547 subroutine set_tracer_method(model, name, method_type, method_name, method_control)
+   1548 
+   1549 integer, intent(in)                    :: model
+   1550 character(len=*), intent(in)           :: name
+   1551 character(len=*), intent(in)           :: method_type
+   1552 character(len=*), intent(in)           :: method_name
+   1553 character(len=*), intent(in)           :: method_control
+   1554 
+   1555 integer :: n, num_method, index
+   1556 logical :: success
+   1557 character(len=128) :: list_name
+   1558 
+   1559 if ( get_tracer_index(model,name,n) ) then
+   1560   tracers(n)%num_methods = tracers(n)%num_methods + 1
+   1561   num_method = tracers(n)%num_methods
+   1562 
+   1563   select case(model)
+   1564     case(MODEL_COUPLER)
+   1565       list_name = "/coupler_mod/tracer/"//trim(name)
+   1566     case(MODEL_ATMOS)
+   1567       list_name = "/atmos_mod/tracer/"//trim(name)
+   1568     case(MODEL_OCEAN)
+   1569       list_name = "/ocean_mod/tracer/"//trim(name)
+   1570     case(MODEL_LAND)
+   1571       list_name = "/land_mod/tracer/"//trim(name)
+   1572     case(MODEL_ICE)
+   1573       list_name = "/ice_mod/tracer/"//trim(name)
+   1574     case DEFAULT
+
+Page 53          Source Listing                  SET_TRACER_METHOD
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1575       list_name = "/"//trim(name)
+   1576   end select
+   1577 
+   1578   if ( method_control .ne. "" ) then
+   1579 ! Method_type is a list, method_name is a name of a parameter and method_control has the value.
+   1580     list_name = trim(list_name)//"/"//trim(method_type)
+   1581     if ( fm_exists(list_name)) then
+   1582       success = fm_change_list(list_name)
+   1583       index = fm_new_value(method_type,method_control)
+   1584     endif
+   1585   else
+   1586     call mpp_error(NOTE,'set_tracer_method : Trying to set a method for non-existent tracer : '//trim(name))
+   1587   endif
+   1588 endif
+   1589 
+   1590 end subroutine set_tracer_method
+
+
+ENTRY POINTS
+
+  Name                                                
+                                                      
+ tracer_manager_mod_mp_set_tracer_method_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ INDEX                      Local  1555     I(4)            4           scalar                    1583                              
+ LIST_NAME                  Local  1557     CHAR            128         scalar                    1565,1567,1569,1571,1573,1575,1580
+                                                                                                  ,1581,1582                        
+ METHOD_CONTROL             Dummy  1547     CHAR                        scalar   ARG,IN           1578,1583                         
+ METHOD_NAME                Dummy  1547     CHAR                        scalar   ARG,IN                                             
+ METHOD_TYPE                Dummy  1547     CHAR                        scalar   ARG,IN           1580,1583                         
+ MODEL                      Dummy  1547     I(4)            4           scalar   ARG,IN           1559,1563                         
+ N                          Local  1555     I(4)            4           scalar                    1559,1560,1561                    
+ NAME                       Dummy  1547     CHAR                        scalar   ARG,IN           1559,1565,1567,1569,1571,1573,1575
+                                                                                                  ,1586                             
+ NUM_METHOD                 Local  1555     I(4)            4           scalar                    1561                              
+ SET_TRACER_METHOD          Subr   1547                                                                                             
+ SUCCESS                    Local  1556     L(4)            4           scalar                    1582                              
+ TRIM                       Func   1565                                 scalar                    1565,1567,1569,1571,1573,1575,1580
+                                                                                                  ,1586                             
+
+Page 54          Source Listing                  SET_TRACER_METHOD
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1591 !</SUBROUTINE>
+   1592 
+   1593 function error_handler(routine, err_msg_local, err_msg)
+   1594 logical :: error_handler
+   1595 character(len=*), intent(in) :: routine, err_msg_local
+   1596 character(len=*), intent(out), optional :: err_msg
+   1597 
+   1598 if(present(err_msg)) then
+   1599   err_msg = err_msg_local
+   1600   error_handler = .true.
+   1601 else
+   1602   call mpp_error(FATAL,trim(routine)//': '//trim(err_msg_local))
+   1603 endif
+   1604 
+   1605 end function error_handler
+
+
+ENTRY POINTS
+
+  Name                                            
+                                                  
+ tracer_manager_mod_mp_error_handler_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ERROR_HANDLER              Func   1593     L(4)            4           scalar                    982,1049,1105,1132,1156,1229,1405,
+                                                                                                  1433,1600                         
+ ERR_MSG                    Dummy  1593     CHAR                        scalar   ARG,OUT          1598,1599                         
+ ERR_MSG_LOCAL              Dummy  1593     CHAR                        scalar   ARG,IN           1599,1602                         
+ PRESENT                    Func   1598                                 scalar                    1598                              
+ ROUTINE                    Dummy  1593     CHAR                        scalar   ARG,IN           1602                              
+ TRIM                       Func   1602                                 scalar                    1602                              
+
+Page 55          Source Listing                  ERROR_HANDLER
+2021-06-01 08:56                                 tracer_manager.F90
+
+   1606 
+   1607 end module tracer_manager_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ADJUST_MASS@0              Local  1118     L(4)            4           scalar                                                      
+ ADJUST_POSITIVE_DEF@0      Local  1142     L(4)            4           scalar                                                      
+ FIELD_MANAGER_MOD          Module 77                                                             77                                
+ FMS_MOD                    Module 74                                                             74                                
+ GET_TRACER_INDEX_INTEGER@0 Local  810      I(4)            4           scalar                                                      
+ GET_TRACER_INDICES         Subr   105                                                            105                               
+ GET_TRACER_NAME@0          Local  1034     L(4)            4           scalar                                                      
+ GET_TRACER_NAMES           Subr   107                                                            107                               
+ HUGE                       Func   128                                  scalar                    128,129                           
+ INST_TYPE                  Type   152                      132         scalar   PRIV             155,158                           
+ MPP_MOD                    Module 67                                                             67                                
+ REGISTER_TRACERS           Subr   112                                                            112                               
+ SET_TRACER_ATTS            Subr   110                                                            110                               
+ SET_TRACER_PROFILE         Subr   111                                                            111                               
+ TRACER_MANAGER_END         Subr   103                                                            103                               
+ TRACER_MANAGER_MOD         Module 21                                                                                               
+ TRACER_NAME_TYPE           Type   146                      224         scalar   PRIV             149                               
+ TRACER_TYPE                Type   134                      224         scalar   PRIV             144,157                           
+ WARNING                    Param  71       I(4)            4           scalar   PRIV             71                                
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ INST_TYPE.INSTANCES        I(4)            4     128            scalar                                                       
+ TRACER_NAME_TYPE.MODEL_NAME                                                                                               ...
+                            CHAR            32    0              scalar                                                       
+ TRACER_NAME_TYPE.TRACER_LONGNAME                                                                                          ...
+                            CHAR            128   96             scalar                                                       
+ TRACER_NAME_TYPE.TRACER_NAME                                                                                              ...
+                            CHAR            32    32             scalar                                                       
+ TRACER_NAME_TYPE.TRACER_UNITS                                                                                             ...
+                            CHAR            32    64             scalar                                                       
+
+Page 56          Source Listing                  ERROR_HANDLER
+2021-06-01 08:56 Subprograms/Common Blocks       tracer_manager.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ADJUST_MASS                Func   1118     L(4)            4           scalar                                                      
+ ADJUST_POSITIVE_DEF        Func   1142     L(4)            4           scalar                                                      
+ CHECK_IF_PROGNOSTIC        Func   1091     L(4)            4           scalar                                                      
+ ERROR_HANDLER              Func   1593     L(4)            4           scalar                    982,1049,1105,1132,1156,1229,1405,
+                                                                                                  1433,1600                         
+ GET_NUMBER_TRACERS         Subr   661                                                                                              
+ GET_TRACER_INDEX_INTEGER   Func   810      I(4)            4           scalar   PRIV             822,827,835,846,866               
+ GET_TRACER_INDEX_LOGICAL   Func   857      L(4)            4           scalar   PRIV             446,868,870,1483,1559             
+ GET_TRACER_INDICES         Subr   717                                                                                              
+ GET_TRACER_META_DATA       Subr   232                                                            220                               
+ GET_TRACER_NAME            Func   1034     L(4)            4           scalar                                                      
+ GET_TRACER_NAMES           Subr   968                                                                                              
+ MODEL_TRACER_NUMBER        Func   578      I(4)            4           scalar                    378,584,588                       
+ PRINT_TRACER_INFO          Subr   903                                                            564                               
+ QUERY_METHOD               Func   1367     L(4)            4           scalar                                                      
+ REGISTER_TRACERS           Subr   623                                                                                              
+ SET_TRACER_ATTS            Subr   1473                                                                                             
+ SET_TRACER_METHOD          Subr   1547                                                                                             
+ SET_TRACER_PROFILE         Subr   1211                                                                                             
+ TRACER_MANAGER_END         Subr   887                                                                                              
+ TRACER_MANAGER_INIT        Subr   210                                                                                              
+ TRACER_MANAGER_MOD         Module 21                                                                                               
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+
+Page 57          Source Listing                  ERROR_HANDLER
+2021-06-01 08:56                                 tracer_manager.F90
+
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+
+Page 58          Source Listing                  ERROR_HANDLER
+2021-06-01 08:56                                 tracer_manager.F90
+
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : tracer_manager.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

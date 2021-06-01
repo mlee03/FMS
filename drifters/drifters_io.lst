@@ -1,0 +1,869 @@
+Page 1           Source Listing                  DRIFTERS_IO_NEW
+2021-06-01 08:54                                 /tmp/ifortatC7vv.i90
+
+      1 # 1 "drifters_io.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 !> @file
+     22 !! @email gfdl.climate.model.info@noaa.gov
+     23 module drifters_io_mod
+     24 
+     25   use netcdf
+     26   use netcdf_nf_data
+     27   use netcdf_nf_interfaces
+     28   use netcdf4_nf_interfaces
+     29 
+     30   implicit none
+     31   private
+     32 
+     33   public :: drifters_io_type, drifters_io_new, drifters_io_del, drifters_io_set_time_units
+     34   public :: drifters_io_set_position_names, drifters_io_set_position_units, drifters_io_set_field_names
+     35   public :: drifters_io_set_field_units, drifters_io_write
+     36 
+     37 ! Globals
+     38   integer, parameter, private   :: MAX_STR_LEN = 128
+     39 ! Include variable "version" to be written to log file.
+     40 # 1 "../include/file_version.h" 1 
+     41 ! -*-f90-*-
+     42 !***********************************************************************
+     43 !*                   GNU Lesser General Public License
+     44 !*
+     45 !* This file is part of the GFDL Flexible Modeling System (FMS).
+     46 !*
+     47 !* FMS is free software: you can redistribute it and/or modify it under
+     48 !* the terms of the GNU Lesser General Public License as published by
+     49 !* the Free Software Foundation, either version 3 of the License, or (at
+     50 !* your option) any later version.
+     51 !*
+     52 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     53 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     54 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     55 !* for more details.
+     56 !*
+     57 !* You should have received a copy of the GNU Lesser General Public
+
+Page 2           Source Listing                  DRIFTERS_IO_NEW
+2021-06-01 08:54                                 ../include/file_version.h
+
+     58 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     59 !***********************************************************************
+     60 
+     61 # 23
+     62 
+     63   character(len=*), parameter :: version = 'unknown'
+     64 
+     65 # 40 "drifters_io.F90" 2 
+     66 
+     67   real :: drfts_eps_t = 10.*epsilon(1.)
+     68 
+     69 
+     70   type drifters_io_type
+     71      real                 :: time
+     72      integer              :: it !< time index
+     73      integer              :: it_id !< infinite axis index
+     74      integer              :: ncid
+     75      integer              :: nc_positions, nc_fields, nc_ids, nc_time, nc_index_time
+     76      logical              :: enddef
+     77   end type drifters_io_type
+     78 
+     79 contains
+     80 
+     81 !###############################################################################
+     82   subroutine drifters_io_new(self, filename, nd, nf, ermesg)
+     83     type(drifters_io_type)        :: self
+     84     character(len=*), intent(in)  :: filename
+     85     integer, intent(in)           :: nd  !< number of dims
+     86     integer, intent(in)           :: nf  !< number of fields
+     87     character(len=*), intent(out) :: ermesg
+     88 
+     89     integer ier, nc_it_id, nc_nd, nc_nf
+     90     integer :: size1(1), size2(2)
+     91 
+     92     ermesg=''
+     93     self%enddef = .FALSE.
+     94 
+     95     ier = nf_create(filename, NF_CLOBBER, self%ncid)
+     96     if(ier/=NF_NOERR) ermesg = 'drifters_io_new::nf_create ('//filename//') '//nf_strerror(ier)
+     97 
+     98 ! global attributes
+     99     ier = nf_put_att_text(self%ncid, NF_GLOBAL, 'version', len_trim(version), trim(version))
+    100 
+    101 
+    102 ! dimensions
+    103     ier = nf_def_dim(self%ncid, 'np', NF_UNLIMITED, nc_it_id)
+    104     if(ier/=NF_NOERR) ermesg = 'drifters_io_new::nf_def_dim (it_id) '//nf_strerror(ier)
+    105 
+    106     ier = nf_def_dim(self%ncid, 'nf', nf, nc_nf)
+    107     if(ier/=NF_NOERR) ermesg = 'drifters_io_new::nf_def_dim (nf) '//nf_strerror(ier)
+    108 
+    109     ier = nf_def_dim(self%ncid, 'nd', nd, nc_nd)
+    110     if(ier/=NF_NOERR) ermesg = 'drifters_io_new::nf_def_dim (nd) '//nf_strerror(ier)
+    111 
+    112 ! variables
+    113     size1 = (/nc_it_id/)
+    114     ier = nf_def_var(self%ncid, 'index_time', NF_INT, 1, size1, self%nc_index_time)
+
+Page 3           Source Listing                  DRIFTERS_IO_NEW
+2021-06-01 08:54                                 drifters_io.F90
+
+    115     if(ier/=NF_NOERR) ermesg = 'drifters_io_new::nf_def_var (index_time)'//nf_strerror(ier)
+    116 
+    117     ier = nf_def_var(self%ncid, 'time', NF_DOUBLE, 1, size1, self%nc_time)
+    118     if(ier/=NF_NOERR) ermesg = 'drifters_io_new::nf_def_var (time)'//nf_strerror(ier)
+    119 
+    120     ier = nf_def_var(self%ncid, 'ids', NF_INT, 1, size1, self%nc_ids)
+    121     if(ier/=NF_NOERR) ermesg = 'drifters_io_new::nf_def_var (ids)'//nf_strerror(ier)
+    122 
+    123     size2 = (/nc_nd, nc_it_id/)
+    124     ier = nf_def_var(self%ncid, 'positions', NF_DOUBLE, 2, size2, self%nc_positions)
+    125     if(ier/=NF_NOERR) ermesg = 'drifters_io_new::nf_def_var (positions)'//nf_strerror(ier)
+    126 
+    127     size2 = (/nc_nf, nc_it_id/)
+    128     ier = nf_def_var(self%ncid, 'fields', NF_DOUBLE, 2, size2, self%nc_fields)
+    129     if(ier/=NF_NOERR) ermesg = 'drifters_io_new::nf_def_var (fields)'//nf_strerror(ier)
+    130 
+    131     self%time  = -huge(1.)
+    132     self%it    = -1
+    133     self%it_id = 1
+    134 
+    135   end subroutine drifters_io_new
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ drifters_io_mod_mp_drifters_io_new_             
+
+Page 4           Source Listing                  DRIFTERS_IO_NEW
+2021-06-01 08:54 Symbol Table                    drifters_io.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_IO_NEW            Subr   82                                                                                               
+ DRIFTERS_IO_TYPE           Type   83                       48          scalar                    33,77,83,139,153,170,193,216,239,2
+                                                                                                  62                                
+ ERMESG                     Dummy  82       CHAR                        scalar   ARG,OUT          92,96,104,107,110,115,118,121,125,
+                                                                                                  129                               
+ FILENAME                   Dummy  82       CHAR                        scalar   ARG,IN           95,96                             
+ HUGE                       Func   131                                  scalar                    131                               
+ IER                        Local  89       I(4)            4           scalar                    95,96,99,103,104,106,107,109,110,1
+                                                                                                  14,115,117,118,120,121,124,125,128
+                                                                                                  ,129                              
+ LEN_TRIM                   Func   99                                   scalar                    99                                
+ NC_IT_ID                   Local  89       I(4)            4           scalar                    103,113,123,127                   
+ NC_ND                      Local  89       I(4)            4           scalar                    109,123                           
+ NC_NF                      Local  89       I(4)            4           scalar                    106,127                           
+ ND                         Dummy  82       I(4)            4           scalar   ARG,IN           109                               
+ NF                         Dummy  82       I(4)            4           scalar   ARG,IN           106                               
+ NF_CLOBBER                 Param  95       I(4)            4           scalar   PRIV             95                                
+ NF_CREATE                  Func   95       I(4)            4           scalar   PRIV             95                                
+ NF_DEF_DIM                 Func   103      I(4)            4           scalar   PRIV             103,106,109                       
+ NF_DEF_VAR                 Func   114      I(4)            4           scalar   PRIV             114,117,120,124,128               
+ NF_DOUBLE                  Param  117      I(4)            4           scalar   PRIV             117,124,128                       
+ NF_GLOBAL                  Param  99       I(4)            4           scalar   PRIV             99,160                            
+ NF_INT                     Param  114      I(4)            4           scalar   PRIV             114,120                           
+ NF_NOERR                   Param  96       I(4)            4           scalar   PRIV             96,104,107,110,115,118,121,125,129
+                                                                                                  ,147,162,185,208,231,254,281,298,3
+                                                                                                  03,307,317,324                    
+ NF_PUT_ATT_TEXT            Func   99       I(4)            4           scalar   PRIV             99,160,183,206,229,252            
+ NF_STRERROR                Func   96       CHAR            80          scalar   PRIV             96,104,107,110,115,118,121,125,129
+                                                                                                  ,147,164,186,209,232,255,282,299,3
+                                                                                                  04,308,318,325                    
+ NF_UNLIMITED               Param  103      I(4)            4           scalar   PRIV             103                               
+ SELF                       Dummy  82       DRIFTERS_IO_TYPE                                                                        
+                                                            48          scalar   ARG,INOUT        93,95,99,103,106,109,114,117,120,1
+                                                                                                  24,128,131,132,133                
+ SIZE1                      Local  90       I(4)            4     1     1                         113,114,117,120                   
+ SIZE2                      Local  90       I(4)            4     1     2                         123,124,127,128                   
+ TRIM                       Func   99                                   scalar                    99                                
+ VERSION                    Param  99       CHAR            7           scalar                    99                                
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DRIFTERS_IO_TYPE.ENDDEF    L(4)            4     40             scalar                    93,279,285                         
+ DRIFTERS_IO_TYPE.IT        I(4)            4     8              scalar                    132,289,296                        
+ DRIFTERS_IO_TYPE.IT_ID     I(4)            4     12             scalar                    133,293,311,327                    
+ DRIFTERS_IO_TYPE.NCID      I(4)            4     16             scalar                    95,99,103,106,109,114,117,120,124, 
+                                                                                           128,146,160,183,206,229,252,280,29 
+                                                                                           7,302,306,316,323                  
+ DRIFTERS_IO_TYPE.NC_FIELDS I(4)            4     24             scalar                    128,229,252,323                    
+
+Page 5           Source Listing                  DRIFTERS_IO_NEW
+2021-06-01 08:54 Symbol Table                    drifters_io.F90
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ DRIFTERS_IO_TYPE.NC_IDS    I(4)            4     28             scalar                    120,306                            
+ DRIFTERS_IO_TYPE.NC_INDEX_TIME                                                                                            ...
+                            I(4)            4     36             scalar                    114,297                            
+ DRIFTERS_IO_TYPE.NC_POSITIONS                                                                                             ...
+                            I(4)            4     20             scalar                    124,183,206,316                    
+ DRIFTERS_IO_TYPE.NC_TIME   I(4)            4     32             scalar                    117,302                            
+ DRIFTERS_IO_TYPE.TIME      R(8)            8     0              scalar                    131,288,290                        
+
+Page 6           Source Listing                  DRIFTERS_IO_NEW
+2021-06-01 08:54                                 drifters_io.F90
+
+    136 
+    137 !###############################################################################
+    138   subroutine drifters_io_del(self, ermesg)
+    139     type(drifters_io_type)        :: self
+    140     character(len=*), intent(out) :: ermesg
+    141 
+    142     integer ier
+    143 
+    144     ermesg = ''
+    145 
+    146     ier = nf_close(self%ncid)
+    147     if(ier/=NF_NOERR) ermesg = 'drifters_io_del::nf_close '//nf_strerror(ier)
+    148 
+    149   end subroutine drifters_io_del
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ drifters_io_mod_mp_drifters_io_del_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_IO_DEL            Subr   138                                                                                              
+ ERMESG                     Dummy  138      CHAR                        scalar   ARG,OUT          144,147                           
+ IER                        Local  142      I(4)            4           scalar                    146,147                           
+ NF_CLOSE                   Func   146      I(4)            4           scalar   PRIV             146                               
+ SELF                       Dummy  138      DRIFTERS_IO_TYPE                                                                        
+                                                            48          scalar   ARG,INOUT        146                               
+
+Page 7           Source Listing                  DRIFTERS_IO_DEL
+2021-06-01 08:54                                 drifters_io.F90
+
+    150 
+    151 !###############################################################################
+    152   subroutine drifters_io_set_time_units(self, name, ermesg)
+    153     type(drifters_io_type)        :: self
+    154     character(len=*), intent(in)  :: name
+    155     character(len=*), intent(out) :: ermesg
+    156 
+    157     integer ier
+    158 
+    159     ermesg = ''
+    160     ier = nf_put_att_text(self%ncid, NF_GLOBAL, &
+    161          & 'time_units', len_trim(name), trim(name))
+    162     if(ier/=NF_NOERR) &
+    163          & ermesg = 'drifters_io_set_time_units::failed to add time_units attribute ' &
+    164          & //nf_strerror(ier)
+    165 
+    166   end subroutine drifters_io_set_time_units
+
+
+ENTRY POINTS
+
+  Name                                                      
+                                                            
+ drifters_io_mod_mp_drifters_io_set_time_units_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_IO_SET_TIME_UNITS Subr   152                                                                                              
+ ERMESG                     Dummy  152      CHAR                        scalar   ARG,OUT          159,163                           
+ IER                        Local  157      I(4)            4           scalar                    160,162,164                       
+ LEN_TRIM                   Func   161                                  scalar                    161                               
+ NAME                       Dummy  152      CHAR                        scalar   ARG,IN           161                               
+ SELF                       Dummy  152      DRIFTERS_IO_TYPE                                                                        
+                                                            48          scalar   ARG,INOUT        160                               
+ TRIM                       Func   161                                  scalar                    161                               
+
+Page 8           Source Listing                  DRIFTERS_IO_SET_TIME_UNITS
+2021-06-01 08:54                                 drifters_io.F90
+
+    167 
+    168 !###############################################################################
+    169   subroutine drifters_io_set_position_names(self, names, ermesg)
+    170     type(drifters_io_type)        :: self
+    171     character(len=*), intent(in)  :: names(:)
+    172     character(len=*), intent(out) :: ermesg
+    173 
+    174     integer n, ier, i
+    175     character(len=128) :: attname
+    176 
+    177     n = size(names)
+    178     ermesg = ''
+    179 
+    180     do i = 1, n
+    181        write(attname, '(i6)' ) i
+    182        attname = 'name_'//adjustl(attname)
+    183        ier = nf_put_att_text(self%ncid, self%nc_positions, &
+    184             & trim(attname), len_trim(names(i)), trim(names(i)))
+    185        if(ier/=NF_NOERR) &
+    186             & ermesg = 'drifters_io_set_position_names::failed to add name attribute to positions '//nf_strerror(ier)
+    187     enddo
+    188 
+    189   end subroutine drifters_io_set_position_names
+
+
+ENTRY POINTS
+
+  Name                                                          
+                                                                
+ drifters_io_mod_mp_drifters_io_set_position_names_             
+
+Page 9           Source Listing                  DRIFTERS_IO_SET_POSITION_NAMES
+2021-06-01 08:54 Symbol Table                    drifters_io.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ADJUSTL                    Func   182                                  scalar                    182                               
+ ATTNAME                    Local  175      CHAR            128         scalar                    181,182,184                       
+ DRIFTERS_IO_SET_POSITION_N                                                                                                         
+ AMES                       Subr   169                                                                                              
+ ERMESG                     Dummy  169      CHAR                        scalar   ARG,OUT          178,186                           
+ I                          Local  174      I(4)            4           scalar                    180,181,184                       
+ IER                        Local  174      I(4)            4           scalar                    183,185,186                       
+ LEN_TRIM                   Func   184                                  scalar                    184                               
+ N                          Local  174      I(4)            4           scalar                    177,180                           
+ NAMES                      Dummy  169      CHAR                  1     1        ARG,IN           177,184                           
+ SELF                       Dummy  169      DRIFTERS_IO_TYPE                                                                        
+                                                            48          scalar   ARG,INOUT        183                               
+ SIZE                       Func   177                                  scalar                    177                               
+ TRIM                       Func   184                                  scalar                    184                               
+
+Page 10          Source Listing                  DRIFTERS_IO_SET_POSITION_NAMES
+2021-06-01 08:54                                 drifters_io.F90
+
+    190 
+    191 !###############################################################################
+    192   subroutine drifters_io_set_position_units(self, names, ermesg)
+    193     type(drifters_io_type)        :: self
+    194     character(len=*), intent(in)  :: names(:)
+    195     character(len=*), intent(out) :: ermesg
+    196 
+    197     integer n, ier, i
+    198     character(len=128) :: attname
+    199 
+    200     n = size(names)
+    201     ermesg = ''
+    202 
+    203     do i = 1, n
+    204        write(attname, '(i6)' ) i
+    205        attname = 'unit_'//adjustl(attname)
+    206        ier = nf_put_att_text(self%ncid, self%nc_positions, &
+    207             & trim(attname), len_trim(names(i)), trim(names(i)))
+    208        if(ier/=NF_NOERR) &
+    209             & ermesg = 'drifters_io_set_position_names::failed to add unit attribute to positions '//nf_strerror(ier)
+    210     enddo
+    211 
+    212   end subroutine drifters_io_set_position_units
+
+
+ENTRY POINTS
+
+  Name                                                          
+                                                                
+ drifters_io_mod_mp_drifters_io_set_position_units_             
+
+Page 11          Source Listing                  DRIFTERS_IO_SET_POSITION_UNITS
+2021-06-01 08:54 Symbol Table                    drifters_io.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ADJUSTL                    Func   205                                  scalar                    205                               
+ ATTNAME                    Local  198      CHAR            128         scalar                    204,205,207                       
+ DRIFTERS_IO_SET_POSITION_U                                                                                                         
+ NITS                       Subr   192                                                                                              
+ ERMESG                     Dummy  192      CHAR                        scalar   ARG,OUT          201,209                           
+ I                          Local  197      I(4)            4           scalar                    203,204,207                       
+ IER                        Local  197      I(4)            4           scalar                    206,208,209                       
+ LEN_TRIM                   Func   207                                  scalar                    207                               
+ N                          Local  197      I(4)            4           scalar                    200,203                           
+ NAMES                      Dummy  192      CHAR                  1     1        ARG,IN           200,207                           
+ SELF                       Dummy  192      DRIFTERS_IO_TYPE                                                                        
+                                                            48          scalar   ARG,INOUT        206                               
+ SIZE                       Func   200                                  scalar                    200                               
+ TRIM                       Func   207                                  scalar                    207                               
+
+Page 12          Source Listing                  DRIFTERS_IO_SET_POSITION_UNITS
+2021-06-01 08:54                                 drifters_io.F90
+
+    213 
+    214 !###############################################################################
+    215   subroutine drifters_io_set_field_names(self, names, ermesg)
+    216     type(drifters_io_type)        :: self
+    217     character(len=*), intent(in)  :: names(:)
+    218     character(len=*), intent(out) :: ermesg
+    219 
+    220     integer n, ier, i
+    221     character(len=128) :: attname
+    222 
+    223     n = size(names)
+    224     ermesg = ''
+    225 
+    226     do i = 1, n
+    227        write(attname, '(i6)' ) i
+    228        attname = 'name_'//adjustl(attname)
+    229        ier = nf_put_att_text(self%ncid, self%nc_fields, &
+    230             & trim(attname), len_trim(names(i)), trim(names(i)))
+    231        if(ier/=NF_NOERR) &
+    232             & ermesg = 'drifters_io_set_field_names::failed to add name attribute to fields '//nf_strerror(ier)
+    233     enddo
+    234 
+    235   end subroutine drifters_io_set_field_names
+
+
+ENTRY POINTS
+
+  Name                                                       
+                                                             
+ drifters_io_mod_mp_drifters_io_set_field_names_             
+
+Page 13          Source Listing                  DRIFTERS_IO_SET_FIELD_NAMES
+2021-06-01 08:54 Symbol Table                    drifters_io.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ADJUSTL                    Func   228                                  scalar                    228                               
+ ATTNAME                    Local  221      CHAR            128         scalar                    227,228,230                       
+ DRIFTERS_IO_SET_FIELD_NAME                                                                                                         
+ S                          Subr   215                                                                                              
+ ERMESG                     Dummy  215      CHAR                        scalar   ARG,OUT          224,232                           
+ I                          Local  220      I(4)            4           scalar                    226,227,230                       
+ IER                        Local  220      I(4)            4           scalar                    229,231,232                       
+ LEN_TRIM                   Func   230                                  scalar                    230                               
+ N                          Local  220      I(4)            4           scalar                    223,226                           
+ NAMES                      Dummy  215      CHAR                  1     1        ARG,IN           223,230                           
+ SELF                       Dummy  215      DRIFTERS_IO_TYPE                                                                        
+                                                            48          scalar   ARG,INOUT        229                               
+ SIZE                       Func   223                                  scalar                    223                               
+ TRIM                       Func   230                                  scalar                    230                               
+
+Page 14          Source Listing                  DRIFTERS_IO_SET_FIELD_NAMES
+2021-06-01 08:54                                 drifters_io.F90
+
+    236 
+    237 !###############################################################################
+    238   subroutine drifters_io_set_field_units(self, names, ermesg)
+    239     type(drifters_io_type)        :: self
+    240     character(len=*), intent(in)  :: names(:)
+    241     character(len=*), intent(out) :: ermesg
+    242 
+    243     integer n, ier, i
+    244     character(len=128) :: attname
+    245 
+    246     n = size(names)
+    247     ermesg = ''
+    248 
+    249     do i = 1, n
+    250        write(attname, '(i6)' ) i
+    251        attname = 'unit_'//adjustl(attname)
+    252        ier = nf_put_att_text(self%ncid, self%nc_fields, &
+    253             & trim(attname), len_trim(names(i)), trim(names(i)))
+    254        if(ier/=NF_NOERR) &
+    255             & ermesg = 'drifters_io_set_field_units::failed to add unit attribute to fields '//nf_strerror(ier)
+    256     enddo
+    257 
+    258   end subroutine drifters_io_set_field_units
+
+
+ENTRY POINTS
+
+  Name                                                       
+                                                             
+ drifters_io_mod_mp_drifters_io_set_field_units_             
+
+Page 15          Source Listing                  DRIFTERS_IO_SET_FIELD_UNITS
+2021-06-01 08:54 Symbol Table                    drifters_io.F90
+
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ADJUSTL                    Func   251                                  scalar                    251                               
+ ATTNAME                    Local  244      CHAR            128         scalar                    250,251,253                       
+ DRIFTERS_IO_SET_FIELD_UNIT                                                                                                         
+ S                          Subr   238                                                                                              
+ ERMESG                     Dummy  238      CHAR                        scalar   ARG,OUT          247,255                           
+ I                          Local  243      I(4)            4           scalar                    249,250,253                       
+ IER                        Local  243      I(4)            4           scalar                    252,254,255                       
+ LEN_TRIM                   Func   253                                  scalar                    253                               
+ N                          Local  243      I(4)            4           scalar                    246,249                           
+ NAMES                      Dummy  238      CHAR                  1     1        ARG,IN           246,253                           
+ SELF                       Dummy  238      DRIFTERS_IO_TYPE                                                                        
+                                                            48          scalar   ARG,INOUT        252                               
+ SIZE                       Func   246                                  scalar                    246                               
+ TRIM                       Func   253                                  scalar                    253                               
+
+Page 16          Source Listing                  DRIFTERS_IO_SET_FIELD_UNITS
+2021-06-01 08:54                                 drifters_io.F90
+
+    259 !###############################################################################
+    260 
+    261   subroutine drifters_io_write(self, time, np, nd, nf, ids, positions, fields, ermesg)
+    262     type(drifters_io_type)        :: self
+    263     real, intent(in)              :: time
+    264     integer, intent(in)           :: np    !< number of dirfters
+    265     integer, intent(in)           :: nd    !< number of dimensions
+    266     integer, intent(in)           :: nf    !< number of fields
+    267     integer, intent(in)           :: ids(np)          !< of size np
+    268     real, intent(in)              :: positions(nd,np) !< nd times np
+    269     real, intent(in)              :: fields(nf,np)    !< nf times np
+    270     character(len=*), intent(out) :: ermesg
+    271 
+    272     integer ier, i
+    273     integer :: start1(1), len1(1), start2(2), len2(2)
+    274     integer :: it_indices(np)
+    275     real    :: time_array(np)
+    276 
+    277     ermesg = ''
+    278 
+    279     if(.not. self%enddef) then
+    280        ier = nf_enddef(self%ncid)
+    281        if(ier/=NF_NOERR) then
+    282             ermesg = 'drifters_io_write::nf_enddef failure. No data will be written. '//nf_strerror(ier)
+    283             return
+    284        endif
+    285        self%enddef = .TRUE.
+    286     endif
+    287 
+    288     if(abs(time - self%time) > drfts_eps_t) then
+    289        self%it = self%it + 1
+    290        self%time = time
+    291     endif
+    292 
+    293     start1(1) = self%it_id
+    294     len1(1)   = np
+    295 
+    296     it_indices = (/(self%it,i=1,np)/)
+    297     ier = nf_put_vara_int( self%ncid, self%nc_index_time, start1, len1, it_indices )
+    298     if(ier/=NF_NOERR) &
+    299          & ermesg = 'drifters_io_write::failed to write index_time: ' //nf_strerror(ier)
+    300 
+    301     time_array = (/(time,i=1,np)/)
+    302     ier = nf90_put_var( self%ncid, self%nc_time, time_array, start1, len1 )
+    303     if(ier/=NF_NOERR) &
+    304          & ermesg = 'drifters_io_write::failed to write time: ' //nf_strerror(ier)
+    305 
+    306     ier = nf_put_vara_int(self%ncid, self%nc_ids, start1, len1, ids)
+    307     if(ier/=NF_NOERR) &
+    308          & ermesg = 'drifters_io_write::failed to write ids: '//nf_strerror(ier)
+    309 
+    310     start2(1) = 1
+    311     start2(2) = self%it_id
+    312 
+    313     len2(1)   = nd
+    314     len2(2)   = np
+    315 
+
+Page 17          Source Listing                  DRIFTERS_IO_WRITE
+2021-06-01 08:54                                 drifters_io.F90
+
+    316     ier = nf90_put_var(self%ncid, self%nc_positions, positions, start2, len2)
+    317     if(ier/=NF_NOERR) &
+    318          & ermesg = 'drifters_io_write::failed to write positions: '//nf_strerror(ier)
+    319 
+    320     len2(1)   = nf
+    321     len2(2)   = np
+    322 
+    323     ier = nf90_put_var(self%ncid, self%nc_fields, fields, start2, len2)
+    324     if(ier/=NF_NOERR) &
+    325          & ermesg = 'drifters_io_write::failed to write fields: '//nf_strerror(ier)
+    326 
+    327     self%it_id = self%it_id + np
+    328 
+    329   end subroutine drifters_io_write
+
+
+ENTRY POINTS
+
+  Name                                             
+                                                   
+ drifters_io_mod_mp_drifters_io_write_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ABS                        Func   288                                  scalar                    288                               
+ DRFTS_EPS_T                Local  288      R(8)            8           scalar                    67,288                            
+ DRIFTERS_IO_WRITE          Subr   261                                                                                              
+ ERMESG                     Dummy  261      CHAR                        scalar   ARG,OUT          277,282,299,304,308,318,325       
+ FIELDS                     Dummy  261      R(8)            8     2     0        ARG,TGT,IN       323                               
+ I                          Local  272      I(4)            4           scalar                                                      
+ IDS                        Dummy  261      I(4)            4     1     0        ARG,IN           306                               
+ IER                        Local  272      I(4)            4           scalar                    280,281,282,297,298,299,302,303,30
+                                                                                                  4,306,307,308,316,317,318,323,324,
+                                                                                                  325                               
+ IT_INDICES                 Local  274      I(4)            4     1     0                         296,297                           
+ LEN1                       Local  273      I(4)            4     1     1        TGT              294,297,302,306                   
+ LEN2                       Local  273      I(4)            4     1     2        TGT              313,314,316,320,321,323           
+ ND                         Dummy  261      I(4)            4           scalar   ARG,IN           268,313                           
+ NF                         Dummy  261      I(4)            4           scalar   ARG,IN           269,320                           
+ NF90_PUT_VAR               Local  302                                  scalar   PRIV             302,316,323                       
+ NF90_PUT_VAR_1D_EIGHTBYTER                                                                                                         
+ EAL                        Func   302      I(4)            4           scalar   PRIV             302                               
+ NF90_PUT_VAR_2D_EIGHTBYTER                                                                                                         
+ EAL                        Func   316      I(4)            4           scalar   PRIV             316,323                           
+ NF_ENDDEF                  Func   280      I(4)            4           scalar   PRIV             280                               
+ NF_PUT_VARA_INT            Func   297      I(4)            4           scalar   PRIV             297,306                           
+ NP                         Dummy  261      I(4)            4           scalar   ARG,IN           267,268,269,274,275,294,296,301,31
+                                                                                                  4,321,327                         
+ POSITIONS                  Dummy  261      R(8)            8     2     0        ARG,TGT,IN       316                               
+ SELF                       Dummy  261      DRIFTERS_IO_TYPE                                                                        
+                                                            48          scalar   ARG,INOUT        279,280,285,288,289,290,293,296,29
+                                                                                                  7,302,306,311,316,323,327         
+ START1                     Local  273      I(4)            4     1     1        TGT              293,297,302,306                   
+ START2                     Local  273      I(4)            4     1     2        TGT              310,311,316,323                   
+
+Page 18          Source Listing                  DRIFTERS_IO_WRITE
+2021-06-01 08:54 Symbol Table                    drifters_io.F90
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ TIME                       Dummy  261      R(8)            8           scalar   ARG,IN           288,290,301                       
+ TIME_ARRAY                 Local  275      R(8)            8     1     0        TGT              301,302                           
+
+Page 19          Source Listing                  DRIFTERS_IO_WRITE
+2021-06-01 08:54                                 drifters_io.F90
+
+    330 
+    331 end module drifters_io_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_IO_DEL            Subr   33                                                             33                                
+ DRIFTERS_IO_MOD            Module 23                                                                                               
+ DRIFTERS_IO_NEW            Subr   33                                                             33                                
+ DRIFTERS_IO_SET_FIELD_NAME                                                                                                         
+ S                          Subr   34                                                             34                                
+ DRIFTERS_IO_SET_FIELD_UNIT                                                                                                         
+ S                          Subr   35                                                             35                                
+ DRIFTERS_IO_SET_POSITION_N                                                                                                         
+ AMES                       Subr   34                                                             34                                
+ DRIFTERS_IO_SET_POSITION_U                                                                                                         
+ NITS                       Subr   34                                                             34                                
+ DRIFTERS_IO_SET_TIME_UNITS Subr   33                                                             33                                
+ DRIFTERS_IO_WRITE          Subr   35                                                             35                                
+ EPSILON                    Func   67                                   scalar                    67                                
+ MAX_STR_LEN                Param  38       I(4)            4           scalar   PRIV             38                                
+ NETCDF                     Module 25                                                             25                                
+ NETCDF4_NF_INTERFACES      Module 28                                                             28                                
+ NETCDF_NF_DATA             Module 26                                                             26                                
+ NETCDF_NF_INTERFACES       Module 27                                                             27                                
+
+Page 20          Source Listing                  DRIFTERS_IO_WRITE
+2021-06-01 08:54 Subprograms/Common Blocks       drifters_io.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ DRIFTERS_IO_DEL            Subr   138                                                                                              
+ DRIFTERS_IO_MOD            Module 23                                                                                               
+ DRIFTERS_IO_NEW            Subr   82                                                                                               
+ DRIFTERS_IO_SET_FIELD_NAME                                                                                                         
+ S                          Subr   215                                                                                              
+ DRIFTERS_IO_SET_FIELD_UNIT                                                                                                         
+ S                          Subr   238                                                                                              
+ DRIFTERS_IO_SET_POSITION_N                                                                                                         
+ AMES                       Subr   169                                                                                              
+ DRIFTERS_IO_SET_POSITION_U                                                                                                         
+ NITS                       Subr   192                                                                                              
+ DRIFTERS_IO_SET_TIME_UNITS Subr   152                                                                                              
+ DRIFTERS_IO_WRITE          Subr   261                                                                                              
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+
+Page 21          Source Listing                  DRIFTERS_IO_WRITE
+2021-06-01 08:54                                 drifters_io.F90
+
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+
+Page 22          Source Listing                  DRIFTERS_IO_WRITE
+2021-06-01 08:54                                 drifters_io.F90
+
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : drifters_io.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555

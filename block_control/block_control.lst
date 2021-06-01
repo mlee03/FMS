@@ -1,0 +1,626 @@
+Page 1           Source Listing                  DEFINE_BLOCKS
+2021-06-01 08:55                                 /tmp/ifortrMv2PR.i90
+
+      1 # 1 "block_control.F90"
+      2 !***********************************************************************
+      3 !*                   GNU Lesser General Public License
+      4 !*
+      5 !* This file is part of the GFDL Flexible Modeling System (FMS).
+      6 !*
+      7 !* FMS is free software: you can redistribute it and/or modify it under
+      8 !* the terms of the GNU Lesser General Public License as published by
+      9 !* the Free Software Foundation, either version 3 of the License, or (at
+     10 !* your option) any later version.
+     11 !*
+     12 !* FMS is distributed in the hope that it will be useful, but WITHOUT
+     13 !* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+     14 !* FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+     15 !* for more details.
+     16 !*
+     17 !* You should have received a copy of the GNU Lesser General Public
+     18 !* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
+     19 !***********************************************************************
+     20 
+     21 !> @file
+     22 !! @brief Contains the \ref block_control_mod module
+     23 !! @email gfdl.climate.model.info@noaa.gov
+     24 
+     25 module block_control_mod
+     26 
+     27 use mpp_mod,         only: mpp_error, NOTE, WARNING, FATAL
+     28 use mpp_domains_mod, only: mpp_compute_extent
+     29 implicit none
+     30 
+     31 public block_control_type
+     32 
+     33 type ix_type
+     34   integer, dimension(:,:), allocatable :: ix
+     35 end type ix_type
+     36 
+     37 type pk_type
+     38   integer, dimension(:), allocatable :: ii
+     39   integer, dimension(:), allocatable :: jj
+     40 end type pk_type
+     41 
+     42 type block_control_type
+     43   integer :: nx_block, ny_block  !< blocking factor using mpp-style decomposition
+     44   integer :: nblks               !< number of blocks cover MPI domain
+     45   integer :: isc, iec, jsc, jec  !< MPI domain global extents
+     46   integer :: npz                 !< vertical extent
+     47   integer, dimension(:),        allocatable :: ibs  , &  !< block extents for mpp-style
+     48                                                ibe  , &  !! decompositions
+     49                                                jbs  , &
+     50                                                jbe
+     51   type(ix_type), dimension(:),  allocatable :: ix    !< dereference packed index from global index
+     52 !--- packed blocking fields
+     53   integer, dimension(:),        allocatable :: blksz !< number of points in each individual block
+     54 !! blocks are not required to be uniforom in size
+     55   integer, dimension(:,:),      allocatable :: blkno !< dereference block number using global indices
+     56   integer, dimension(:,:),      allocatable :: ixp   !< dereference packed index from global indices
+     57 !! must be used in conjuction with blkno
+
+Page 2           Source Listing                  DEFINE_BLOCKS
+2021-06-01 08:55                                 block_control.F90
+
+     58   type(pk_type), dimension(:),  allocatable :: index !< dereference global indices from
+     59 !! block/ixp combo
+     60 end type block_control_type
+     61 
+     62 public :: define_blocks, define_blocks_packed
+     63 
+     64 contains
+     65 
+     66 !###############################################################################
+     67 !> \fn define_blocks
+     68 !!
+     69 !! \brief Sets up "blocks" used for OpenMP threading of column-based
+     70 !!        calculations using rad_n[x/y]xblock from coupler_nml
+     71 !!
+     72 !! <b> Parameters: </b>
+     73 !!
+     74 !! \code{.f90}
+     75 !! character(len=*),         intent(in)    :: component
+     76 !! type(block_control_type), intent(inout) :: Block
+     77 !! integer,                  intent(in)    :: isc, iec, jsc, jec, kpts
+     78 !! integer,                  intent(in)    :: nx_block, ny_block
+     79 !! logical,                  intent(inout) :: message
+     80 !! \endcode
+     81 !!
+     82 !! \param [in]    <component>
+     83 !! \param [inout] <Block>
+     84 !! \param [in]    <isc>
+     85 !! \param [in]    <iec>
+     86 !! \param [in]    <jsc>
+     87 !! \param [in]    <jec>
+     88 !! \param [in]    <kpts>
+     89 !! \param [in]    <nx_block>
+     90 !! \param [in]    <ny_block>
+     91 !! \param [inout] <message>
+     92 !!
+     93   subroutine define_blocks (component, Block, isc, iec, jsc, jec, kpts, &
+     94                             nx_block, ny_block, message)
+     95     character(len=*),         intent(in)    :: component
+     96     type(block_control_type), intent(inout) :: Block
+     97     integer,                  intent(in)    :: isc, iec, jsc, jec, kpts
+     98     integer,                  intent(in)    :: nx_block, ny_block
+     99     logical,                  intent(inout) :: message
+    100 
+    101 !-------------------------------------------------------------------------------
+    102 ! Local variables:
+    103 !       blocks
+    104 !       i1
+    105 !       i2
+    106 !       j1
+    107 !       j2
+    108 !       text
+    109 !       i
+    110 !       j
+    111 !       nblks
+    112 !       ix
+    113 !       ii
+    114 !       jj
+
+Page 3           Source Listing                  DEFINE_BLOCKS
+2021-06-01 08:55                                 block_control.F90
+
+    115 !-------------------------------------------------------------------------------
+    116 
+    117     integer :: blocks
+    118     integer, dimension(nx_block) :: i1, i2
+    119     integer, dimension(ny_block) :: j1, j2
+    120     character(len=256) :: text
+    121     integer :: i, j, nblks, ix, ii, jj
+    122 
+    123     if (message) then
+    124       if ((mod(iec-isc+1,nx_block) .ne. 0) .or. (mod(jec-jsc+1,ny_block) .ne. 0)) then
+    125         write( text,'(a,a,2i4,a,2i4,a)' ) trim(component),'define_blocks: domain (',&
+    126              (iec-isc+1), (jec-jsc+1),') is not an even divisor with definition (',&
+    127              nx_block, ny_block,') - blocks will not be uniform'
+    128         call mpp_error (WARNING, trim(text))
+    129       endif
+    130       message = .false.
+    131     endif
+    132 
+    133 !--- set up blocks
+    134     if (iec-isc+1 .lt. nx_block) &
+    135         call mpp_error(FATAL, 'block_control: number of '//trim(component)//' nxblocks .gt. &
+    136                              &number of elements in MPI-domain size')
+    137     if (jec-jsc+1 .lt. ny_block) &
+    138         call mpp_error(FATAL, 'block_control: number of '//trim(component)//' nyblocks .gt. &
+    139                              &number of elements in MPI-domain size')
+    140     call mpp_compute_extent(isc,iec,nx_block,i1,i2)
+    141     call mpp_compute_extent(jsc,jec,ny_block,j1,j2)
+    142 
+    143     nblks = nx_block*ny_block
+    144     Block%isc = isc
+    145     Block%iec = iec
+    146     Block%jsc = jsc
+    147     Block%jec = jec
+    148     Block%npz = kpts
+    149     Block%nx_block = nx_block
+    150     Block%ny_block = ny_block
+    151     Block%nblks = nblks
+    152 
+    153     if (.not.allocated(Block%ibs)) &
+    154          allocate (Block%ibs(nblks), &
+    155                    Block%ibe(nblks), &
+    156                    Block%jbs(nblks), &
+    157                    Block%jbe(nblks), &
+    158                    Block%ix(nblks) )
+    159 
+    160     blocks=0
+    161     do j = 1, ny_block
+    162       do i = 1, nx_block
+    163         blocks = blocks + 1
+    164         Block%ibs(blocks) = i1(i)
+    165         Block%jbs(blocks) = j1(j)
+    166         Block%ibe(blocks) = i2(i)
+    167         Block%jbe(blocks) = j2(j)
+    168         allocate(Block%ix(blocks)%ix(i1(i):i2(i),j1(j):j2(j)) )
+    169         ix = 0
+    170         do jj = j1(j), j2(j)
+    171           do ii = i1(i), i2(i)
+
+Page 4           Source Listing                  DEFINE_BLOCKS
+2021-06-01 08:55                                 block_control.F90
+
+    172             ix = ix+1
+    173             Block%ix(blocks)%ix(ii,jj) = ix
+    174           enddo
+    175         enddo
+    176       enddo
+    177     enddo
+    178 
+    179   end subroutine define_blocks
+
+
+ENTRY POINTS
+
+  Name                                           
+                                                 
+ block_control_mod_mp_define_blocks_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALLOCATED                  Func   153                                  scalar                    153                               
+ BLOCK                      Dummy  93       BLOCK_CONTROL_TYPE                                                                      
+                                                            728         scalar   ARG,INOUT        144,145,146,147,148,149,150,151,15
+                                                                                                  3,154,155,156,157,158,164,165,166,
+                                                                                                  167,168,173                       
+ BLOCKS                     Local  117      I(4)            4           scalar                    160,163,164,165,166,167,168,173   
+ BLOCK_CONTROL_TYPE         Type   96                       728         scalar                    31,60,96,213                      
+ COMPONENT                  Dummy  93       CHAR                        scalar   ARG,IN           125,135,138                       
+ DEFINE_BLOCKS              Subr   93                                                                                               
+ FATAL                      Param  135      I(4)            4           scalar                    27,135,138                        
+ I                          Local  121      I(4)            4           scalar                    162,164,166,168,171               
+ I1                         Local  118      I(4)            4     1     0        TGT              140,164,168,171                   
+ I2                         Local  118      I(4)            4     1     0        TGT              140,166,168,171                   
+ IEC                        Dummy  93       I(4)            4           scalar   ARG,IN           124,126,134,140,145               
+ II                         Local  121      I(4)            4           scalar                    171,173                           
+ ISC                        Dummy  93       I(4)            4           scalar   ARG,IN           124,126,134,140,144               
+ IX                         Local  121      I(4)            4           scalar                    169,172,173                       
+ J                          Local  121      I(4)            4           scalar                    161,165,167,168,170               
+ J1                         Local  119      I(4)            4     1     0        TGT              141,165,168,170                   
+ J2                         Local  119      I(4)            4     1     0        TGT              141,167,168,170                   
+ JEC                        Dummy  93       I(4)            4           scalar   ARG,IN           124,126,137,141,147               
+ JJ                         Local  121      I(4)            4           scalar                    170,173                           
+ JSC                        Dummy  93       I(4)            4           scalar   ARG,IN           124,126,137,141,146               
+ KPTS                       Dummy  93       I(4)            4           scalar   ARG,IN           148                               
+ MESSAGE                    Dummy  94       L(4)            4           scalar   ARG,INOUT        123,130                           
+ MOD                        Func   124                                  scalar                    124                               
+ MPP_COMPUTE_EXTENT         Subr   140                                                            28,140,141                        
+ MPP_ERROR                  Local  128                                  scalar                    27,128,135,138,250                
+ MPP_ERROR_BASIC            Subr   128                                           PRIV             128,135,138,250                   
+ NBLKS                      Local  121      I(4)            4           scalar                    143,151,154,155,156,157,158       
+ NX_BLOCK                   Dummy  94       I(4)            4           scalar   ARG,IN           118,124,127,134,140,143,149,162   
+ NY_BLOCK                   Dummy  94       I(4)            4           scalar   ARG,IN           119,124,127,137,141,143,150,161   
+ TEXT                       Local  120      CHAR            256         scalar                    125,128                           
+ TRIM                       Func   125                                  scalar                    125,128,135,138                   
+ WARNING                    Param  128      I(4)            4           scalar                    27,128,250                        
+
+
+Page 5           Source Listing                  DEFINE_BLOCKS
+2021-06-01 08:55 Symbol Table                    block_control.F90
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ BLOCK_CONTROL_TYPE.IBE     I(4)            4     104      1     1        ALC              155,166                            
+ BLOCK_CONTROL_TYPE.IBS     I(4)            4     32       1     1        ALC              153,154,164                        
+ BLOCK_CONTROL_TYPE.IEC     I(4)            4     16             scalar                    145,256                            
+ BLOCK_CONTROL_TYPE.ISC     I(4)            4     12             scalar                    144,255                            
+ BLOCK_CONTROL_TYPE.IX      RECORD          96    320      1     1        ALC              158,168,173                        
+ BLOCK_CONTROL_TYPE.JBE     I(4)            4     248      1     1        ALC              157,167                            
+ BLOCK_CONTROL_TYPE.JBS     I(4)            4     176      1     1        ALC              156,165                            
+ BLOCK_CONTROL_TYPE.JEC     I(4)            4     24             scalar                    147,258                            
+ BLOCK_CONTROL_TYPE.JSC     I(4)            4     20             scalar                    146,257                            
+ BLOCK_CONTROL_TYPE.NBLKS   I(4)            4     8              scalar                    151,260                            
+ BLOCK_CONTROL_TYPE.NPZ     I(4)            4     28             scalar                    148,259                            
+ BLOCK_CONTROL_TYPE.NX_BLOCK                                                                                               ...
+                            I(4)            4     0              scalar                    149                                
+ BLOCK_CONTROL_TYPE.NY_BLOCK                                                                                               ...
+                            I(4)            4     4              scalar                    150                                
+ IX_TYPE.IX                 I(4)            4     0        2     1        ALC              168,173                            
+
+Page 6           Source Listing                  DEFINE_BLOCKS
+2021-06-01 08:55                                 block_control.F90
+
+    180 
+    181 
+    182 
+    183 !###############################################################################
+    184 !> \fn define_blocks_packed
+    185 !!
+    186 !! \brief Creates and populates a data type which is used for defining the
+    187 !!        sub-blocks of the MPI-domain to enhance OpenMP and memory performance.
+    188 !!        Uses a packed concept
+    189 !!
+    190 !! <b> Parameters: </b>
+    191 !!
+    192 !! \code{.f90}
+    193 !! character(len=*),         intent(in)    :: component
+    194 !! type(block_control_type), intent(inout) :: Block
+    195 !! integer,                  intent(in)    :: isc, iec, jsc, jec, kpts
+    196 !! integer,                  intent(inout) :: blksz
+    197 !! logical,                  intent(inout) :: message
+    198 !! \endcode
+    199 !!
+    200 !! \param [in]    <component>
+    201 !! \param [inout] <Block>
+    202 !! \param [in]    <isc>
+    203 !! \param [in]    <iec>
+    204 !! \param [in]    <jsc>
+    205 !! \param [in]    <jec>
+    206 !! \param [in]    <kpts>
+    207 !! \param [inout] <blksz>
+    208 !! \param [inout] <message>
+    209 !!
+    210   subroutine define_blocks_packed (component, Block, isc, iec, jsc, jec, &
+    211                                    kpts, blksz, message)
+    212     character(len=*),         intent(in)    :: component
+    213     type(block_control_type), intent(inout) :: Block
+    214     integer,                  intent(in)    :: isc, iec, jsc, jec, kpts
+    215     integer,                  intent(inout) :: blksz
+    216     logical,                  intent(inout) :: message
+    217 
+    218 !-------------------------------------------------------------------------------
+    219 ! Local variables:
+    220 !       nblks
+    221 !       lblksz
+    222 !       tot_pts
+    223 !       nb
+    224 !       ix
+    225 !       ii
+    226 !       jj
+    227 !       text
+    228 !-------------------------------------------------------------------------------
+    229 
+    230     integer :: nblks, lblksz, tot_pts, nb, ix, ii, jj
+    231     character(len=256) :: text
+    232 
+    233     tot_pts = (iec - isc + 1) * (jec - jsc + 1)
+    234     if (blksz < 0) then
+    235       nblks = 1
+    236       blksz = tot_pts
+
+Page 7           Source Listing                  DEFINE_BLOCKS_PACKED
+2021-06-01 08:55                                 block_control.F90
+
+    237     else
+    238       if (mod(tot_pts,blksz) .eq. 0) then
+    239         nblks = tot_pts/blksz
+    240       else
+    241         nblks = ceiling(real(tot_pts)/real(blksz))
+    242       endif
+    243     endif
+    244 
+    245     if (message) then
+    246       if (mod(tot_pts,blksz) .ne. 0) then
+    247         write( text,'(a,a,2i4,a,i4,a,i4)' ) trim(component),'define_blocks_packed: domain (',&
+    248              (iec-isc+1), (jec-jsc+1),') is not an even divisor with definition (',&
+    249              blksz,') - blocks will not be uniform with a remainder of ',mod(tot_pts,blksz)
+    250         call mpp_error (WARNING, trim(text))
+    251       endif
+    252       message = .false.
+    253     endif
+    254 
+    255     Block%isc   = isc
+    256     Block%iec   = iec
+    257     Block%jsc   = jsc
+    258     Block%jec   = jec
+    259     Block%npz   = kpts
+    260     Block%nblks = nblks
+    261     if (.not. allocated(Block%blksz)) &
+    262       allocate (Block%blksz(nblks), &
+    263                 Block%index(nblks), &
+    264                 Block%blkno(isc:iec,jsc:jec), &
+    265                 Block%ixp(isc:iec,jsc:jec))
+    266 
+    267 !--- set up blocks
+    268     do nb = 1, nblks
+    269       lblksz = blksz
+    270       if (nb .EQ. nblks) lblksz = tot_pts - (nb-1) * blksz
+    271       Block%blksz(nb) = lblksz
+    272       allocate (Block%index(nb)%ii(lblksz), &
+    273                 Block%index(nb)%jj(lblksz))
+    274     enddo
+    275 
+    276 !--- set up packed indices
+    277     nb = 1
+    278     ix = 0
+    279     do jj = jsc, jec
+    280       do ii = isc, iec
+    281         ix = ix + 1
+    282         if (ix .GT. blksz) then
+    283           ix = 1
+    284           nb = nb + 1
+    285         endif
+    286         Block%ixp(ii,jj) = ix
+    287         Block%blkno(ii,jj) = nb
+    288         Block%index(nb)%ii(ix) = ii
+    289         Block%index(nb)%jj(ix) = jj
+    290       enddo
+    291     enddo
+    292 
+    293   end subroutine define_blocks_packed
+
+Page 8           Source Listing                  DEFINE_BLOCKS_PACKED
+2021-06-01 08:55 Entry Points                    block_control.F90
+
+
+
+ENTRY POINTS
+
+  Name                                                  
+                                                        
+ block_control_mod_mp_define_blocks_packed_             
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ ALLOCATED                  Func   261                                  scalar                    261                               
+ BLKSZ                      Dummy  211      I(4)            4           scalar   ARG,INOUT        234,236,238,239,241,246,249,269,27
+                                                                                                  0,282                             
+ BLOCK                      Dummy  210      BLOCK_CONTROL_TYPE                                                                      
+                                                            728         scalar   ARG,INOUT        255,256,257,258,259,260,261,262,26
+                                                                                                  3,264,265,271,272,273,286,287,288,
+                                                                                                  289                               
+ CEILING                    Func   241                                  scalar                    241                               
+ COMPONENT                  Dummy  210      CHAR                        scalar   ARG,IN           247                               
+ DEFINE_BLOCKS_PACKED       Subr   210                                                                                              
+ IEC                        Dummy  210      I(4)            4           scalar   ARG,IN           233,248,256,264,265,280           
+ II                         Local  230      I(4)            4           scalar                    280,286,287,288                   
+ ISC                        Dummy  210      I(4)            4           scalar   ARG,IN           233,248,255,264,265,280           
+ IX                         Local  230      I(4)            4           scalar                    278,281,282,283,286,288,289       
+ JEC                        Dummy  210      I(4)            4           scalar   ARG,IN           233,248,258,264,265,279           
+ JJ                         Local  230      I(4)            4           scalar                    279,286,287,289                   
+ JSC                        Dummy  210      I(4)            4           scalar   ARG,IN           233,248,257,264,265,279           
+ KPTS                       Dummy  211      I(4)            4           scalar   ARG,IN           259                               
+ LBLKSZ                     Local  230      I(4)            4           scalar                    269,270,271,272,273               
+ MESSAGE                    Dummy  211      L(4)            4           scalar   ARG,INOUT        245,252                           
+ MOD                        Func   238                                  scalar                    238,246,249                       
+ NB                         Local  230      I(4)            4           scalar                    268,270,271,272,273,277,284,287,28
+                                                                                                  8,289                             
+ NBLKS                      Local  230      I(4)            4           scalar                    235,239,241,260,262,263,268,270   
+ REAL                       Func   241                                  scalar                    241                               
+ TEXT                       Local  231      CHAR            256         scalar                    247,250                           
+ TOT_PTS                    Local  230      I(4)            4           scalar                    233,236,238,239,241,246,249,270   
+ TRIM                       Func   247                                  scalar                    247,250                           
+
+
+TYPE COMPONENTS/COMMON VARIABLES
+
+ Name                       Type            Bytes Offset   Dimen Elements Attributes       References                         
+                                                                                                                              
+ BLOCK_CONTROL_TYPE.BLKNO   I(4)            4     464      2     1        ALC              264,287                            
+ BLOCK_CONTROL_TYPE.BLKSZ   I(4)            4     392      1     1        ALC              261,262,271                        
+ BLOCK_CONTROL_TYPE.INDEX   RECORD          144   656      1     1        ALC              263,272,273,288,289                
+ BLOCK_CONTROL_TYPE.IXP     I(4)            4     560      2     1        ALC              265,286                            
+ PK_TYPE.II                 I(4)            4     0        1     1        ALC              272,288                            
+ PK_TYPE.JJ                 I(4)            4     72       1     1        ALC              273,289                            
+
+Page 9           Source Listing                  DEFINE_BLOCKS_PACKED
+2021-06-01 08:55                                 block_control.F90
+
+    294 
+    295 end module block_control_mod
+
+
+SYMBOL CROSS REFERENCE
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ BLOCK_CONTROL_MOD          Module 25                                                                                               
+ DEFINE_BLOCKS              Subr   62                                                             62                                
+ DEFINE_BLOCKS_PACKED       Subr   62                                                             62                                
+ IX_TYPE                    Type   33                       96          scalar                    35,51                             
+ MPP_DOMAINS_MOD            Module 28                                                             28                                
+ MPP_MOD                    Module 27                                                             27                                
+ NOTE                       Param  27       I(4)            4           scalar                    27                                
+ PK_TYPE                    Type   37                       144         scalar                    40,58                             
+
+Page 10          Source Listing                  DEFINE_BLOCKS_PACKED
+2021-06-01 08:55 Subprograms/Common Blocks       block_control.F90
+
+
+
+SUBPROGRAMS/COMMON BLOCKS
+
+ Name                       Object Declared Type            Bytes Dimen Elements Attributes       References                        
+                                                                                                                                    
+ BLOCK_CONTROL_MOD          Module 25                                                                                               
+ DEFINE_BLOCKS              Subr   93                                                                                               
+ DEFINE_BLOCKS_PACKED       Subr   210                                                                                              
+
+COMPILER OPTIONS BEING USED
+
+       -align noall                          -align nonone
+       -align nocommons                      -align nodcommons
+       -align noqcommons                     -align nozcommons
+       -align records                        -align nosequence
+       -align norec1byte                     -align norec2byte
+       -align norec4byte                     -align norec8byte
+       -align norec16byte                    -align norec32byte
+       -align norec64byte                    -align noarray8byte
+       -align noarray16byte                  -align noarray32byte
+       -align noarray64byte                  -align noarray128byte
+       -align noarray256byte                 -altparam
+       -assume accuracy_sensitive            -assume nobscc
+       -assume nobuffered_io                 -assume nobuffered_stdout
+       -assume byterecl                      -assume nocontiguous_assumed_shape
+       -assume nocontiguous_pointer          -assume cc_omp
+       -assume nocstring                     -assume nodummy_aliases
+       -assume nofpe_summary                 -assume noieee_fpe_flags
+       -assume nominus0                      -assume noold_boz
+       -assume old_complex_align             -assume old_unit_star
+       -assume old_inquire_recl              -assume old_ldout_format
+       -assume old_ldout_zero                -assume noold_logical_assign
+       -assume noold_logical_ldio            -assume old_maxminloc
+       -assume old_xor                       -assume noprotect_allocates
+       -assume protect_constants             -assume noprotect_parens
+       -assume split_common                  -assume source_include
+       -assume nostd_intent_in               -assume std_minus0_rounding
+       -assume nostd_mod_proc_name           -assume std_value
+       -assume realloc_lhs                   -assume underscore
+       -assume no2underscores                -assume norecursion
+       -auto                            no   -auto_scalar
+  no   -bintext                              -ccdefault default
+       -check noarg_temp_created             -check noassume
+       -check nobounds                       -check nocontiguous
+       -check noformat                       -check nooutput_conversion
+       -check nooverflow                     -check nopointers
+       -check noshape                        -check nostack
+       -check nouninitialized                -check noudio_iostat
+       -coarray-num-procs 0             no   -coarray-config-file
+       -convert native                       -cross_reference
+       -D __INTEL_COMPILER=1910              -D __INTEL_COMPILER_UPDATE=0
+       -D __unix__                           -D __unix
+       -D __linux__                          -D __linux
+       -D __gnu_linux__                      -D unix
+       -D linux                              -D __ELF__
+       -D __x86_64                           -D __x86_64__
+
+Page 11          Source Listing                  DEFINE_BLOCKS_PACKED
+2021-06-01 08:55                                 block_control.F90
+
+       -D __amd64                            -D __amd64__
+       -D __INTEL_COMPILER_BUILD_DATE=20191121       -D _OPENMP=201611
+       -D __INTEL_OFFLOAD                    -D __MMX__
+       -D __SSE__                            -D __SSE_MATH__
+       -D __SSE2__                           -D __SSE2_MATH__
+       -D __pentium4                         -D __pentium4__
+       -D __tune_pentium4__                  -D PACKAGE_NAME='"GFDL FMS Library"'
+       -D PACKAGE_TARNAME='"FMS"'            -D PACKAGE_VERSION='"2021.02.0"'
+       -D PACKAGE_STRING='"GFDL FMS Library 2021.02.0"'       -D PACKAGE_BUGREPORT='"gfdl.climate.model.info@noaa.gov"'
+       -D PACKAGE_URL='"https://www.gfdl.noaa.gov/fms"'       -D PACKAGE='"FMS"'
+       -D VERSION='"2021.02.0"'              -D STDC_HEADERS=1
+       -D HAVE_SYS_TYPES_H=1                 -D HAVE_SYS_STAT_H=1
+       -D HAVE_STDLIB_H=1                    -D HAVE_STRING_H=1
+       -D HAVE_MEMORY_H=1                    -D HAVE_STRINGS_H=1
+       -D HAVE_INTTYPES_H=1                  -D HAVE_STDINT_H=1
+       -D HAVE_UNISTD_H=1                    -D HAVE_DLFCN_H=1
+       -D LT_OBJDIR='".libs/"'               -D HAVE_MPI_H=1
+       -D HAVE_NETCDF_H=1                    -D HAVE_SCHED_GETAFFINITY=1
+       -D HAVE_MOD_MPI=1                     -D HAVE_MOD_NETCDF=1
+       -D HAVE_CRAY_POINTER=1                -D HAVE_QUAD_PRECISION=1
+       -D HAVE_INTERNAL_NML=1                -D use_netCDF=1
+       -D use_libMPI=1                       -D INTERNAL_FILE_NML
+       -double_size 64                  no   -d_lines
+  no   -Qdyncom                              -error_limit 30
+  no   -f66                             no   -f77rtl
+  no   -fast                                 -fpscomp nofilesfromcmd
+       -fpscomp nogeneral                    -fpscomp noioformat
+       -fpscomp noldio_spacing               -fpscomp nologicals
+  no   -fpconstant                           -fpe3
+       -fprm nearest                         -ftz
+       -fp_model noprecise                   -fp_model fast
+       -fp_model nostrict                    -fp_model nosource
+       -fp_model nodouble                    -fp_model noextended
+       -fp_model novery_fast                 -fp_model noexcept
+       -fp_model nono_except                 -fp_modbits nofp_contract
+       -fp_modbits nono_fp_contract          -fp_modbits nofenv_access
+       -fp_modbits nono_fenv_access          -fp_modbits nocx_limited_range
+       -fp_modbits nono_cx_limited_range       -fp_modbits noprec_div
+       -fp_modbits nono_prec_div             -fp_modbits noprec_sqrt
+       -fp_modbits nono_prec_sqrt            -fp_modbits ftz
+       -fp_modbits nono_ftz                  -fp_modbits nointrin_limited_range
+       -fp_modbits nono_intrin_limited_range       -fp_modbits notrunc_compares
+       -fp_modbits nono_trunc_compares       -fp_modbits noieee_nan_compares
+       -fp_modbits nono_ieee_nan_compares       -fp_modbits honor_f32_conversion
+       -fp_modbits nono_honor_f32_conversion       -fp_modbits honor_f64_conversion
+       -fp_modbits nono_honor_f64_conversion       -fp_modbits nono_x87_copy
+       -fp_modbits nono_no_x87_copy          -fp_modbits noexception_semantics
+       -fp_modbits nono_exception_semantics       -fp_modbits noprecise_libm_functions
+       -fp_modbits nono_precise_libm_functions       -heap_arrays 0
+  no   -threadprivate_compat                 -free
+       -g2                                   -iface nomixed_str_len_arg
+       -iface nono_mixed_str_len_arg         -init noarrays
+       -init nohuge                          -init noinfinity
+       -init nominus_huge                    -init nominus_infinity
+       -init nominus_tiny                    -init nonan
+       -init nosnan                          -init notiny
+       -init nozero                     no   -intconstant
+
+Page 12          Source Listing                  DEFINE_BLOCKS_PACKED
+2021-06-01 08:55                                 block_control.F90
+
+       -integer_size 32                 no   -mixed_str_len_arg
+       -module ../.mods                      -names lowercase
+  no   -noinclude                       no   -o
+       -offload-build=host                   -openmp
+       -openmp-simd                          -openmp-offload
+       -O0                              no   -pad_source
+       -real_size 64                    no   -recursive
+       -reentrancy threaded                  -vec=simd
+       -show nofullpath                      -show noinclude
+       -show map                             -show options
+  no   -syntax_only                     no   -threadcom
+  no   -U                               no   -vms
+       -w noall                              -w nonone
+       -w noalignments                       -w nodeclarations
+       -w noexternals                        -w nogeneral
+       -w noignore_bounds                    -w noignore_loc
+       -w nointerfaces                       -w noshape
+       -w notruncated_source                 -w nouncalled
+       -w nouninitialized                    -w nounused
+       -w nousage                       no   -wrap-margins
+
+       -includepath : /opt/netcdf/4.6.1/INTEL/include/,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/,.f90,./.f90,./.f90,../include/.f90,
+           ./.f90,/opt/netcdf/4.6.1/INTEL/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mpi/intel64/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/ipp/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/mkl/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/pstl/include/.f90,
+           /opt/intel/2020/compilers_and_libraries/linux/tbb/include/.f90,/opt/intel/2020/compilers_and_libraries/linux/daal/include/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/intel64/.f90,/opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/icc/.f90,
+           /opt/intel/2020/compilers_and_libraries_2020.0.166/linux/compiler/include/.f90,/usr/local/include/.f90,
+           /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/.f90,/usr/include/.f90,/usr/include/.f90,/usr/include/.f90
+       -list filename : block_control.lst
+  no   -o
+
+COMPILER: Intel(R) Fortran 19.1-1555
