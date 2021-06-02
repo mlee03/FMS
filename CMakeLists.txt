@@ -222,23 +222,26 @@ if(APPLE)
   list(APPEND fms_defs __APPLE__)
 endif()
 
-# Obtain default compiler flags including preciion-based flags
+# Obtain default compiler flags including precision-based flags
 include(fms_compiler_flags)
 
 # Options to use user-defined compiler flags
-# Will over-ride compiler flags set above but not the precision-based flags
+# Will over-ride all the default compiler flags EXCEPT the precision-based flags
 if( DEFINED "ENV{FMS_Fortran_FLAGS}" )
-  set( CMAKE_Fortran_FLAGS         "$ENV{FMS_Fortran_FLAGS}" )
+  set( CMAKE_Fortran_FLAGS         "" )
   set( CMAKE_Fortran_FLAGS_RELEASE "$ENV{FMS_Fortran_FLAGS}" )
   set( CMAKE_Fortran_FLAGS_DEBUG   "$ENV{FMS_Fortran_FLAGS}" )
 endif()
 if( DEFINED "ENV{FMS_C_FLAGS}" )
-  set( CMAKE_C_FLAGS         "$ENV{FMS_C_FLAGS}" )
+  set( CMAKE_C_FLAGS         "" )
   set( CMAKE_C_FLAGS_RELEASE "$ENV{FMS_C_FLAGS}" )
   set( CMAKE_C_FLAGS_DEBUG   "$ENV{FMS_C_FLAGS}" )
 endif()
-if( DEFINED "ENV{FMS_LINK_FLAGS}" )
+if( DEFINED "ENV{FMS_Fortran_LINK_FLAGS}" )
   set( CMAKE_Fortran_LINK_FLAGS "$ENV{FMS_LINK_FLAGS}" )
+endif()
+if( DEFINED "ENV{FMS_C_LINK_FLAGS}" )
+  set( CMAKE_C_LINK_FLAGS "$ENV{FMS_C_LINK_FLAGS}" )
 endif()
 
 foreach(kind ${kinds})
