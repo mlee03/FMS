@@ -3,7 +3,7 @@
 This guide helps covert fms_io/mpp_io code to fms2_io
 
 ### A. FMS2_io Fileobjs
-FMS2_io rovides three new derived types, which target the different I/O paradigms used in GFDL models. 
+FMS2_io provides three new derived types, which target the different I/O paradigms used in GFDL models. 
 
 **1. FmsNetcdfFile_t:** This type provides a thin wrapper over the netCDF4 library, but allows the user to assign a “pelist” to the file. If a pelist is assigned, only the first rank on the list directly interacts with the netCDF library, and performs broadcasts to relay the information to the rest of the ranks on the list.
 
@@ -355,6 +355,53 @@ endif
  
 #### 2. Unstructured Domain non-restart read/writes
 
+```F90
+use fms2_io_mod,        only: FmsNetcdfUnstructuredDomainFile_t, register_field, register_axis, unlimited
+use fms2_io_mod,        only: open_file, close_file, write_data
+use mpp_domains_mod,    only: domainug, center
+
+type(FmsNetcdfUnstructuredDomainFile_t) :: fileobj        !< Fms2_io domain decomposed fileobj
+real, dimension(:,:)        :: variable_data  !< Variable data in the unstructured domain
+type (domainug)             :: domain         !< 2d mpp domain
+character(len=8)            :: dim_names(3)   !< Array of dimension names
+
+dim_names(1) = "ucdim"
+dim_names(2) = "zaxis_1"
+dim_names(3) = "Time"
+
+!> Create domain !<
+!> Create an io_domain !<
+!> Create an unstructured domain !<
+
+if (open_file(fileobj, "filename", "ovewrite", domain, is_restart=.true.)) then
+  call register_axis(fileobj, dim_names(1))
+  call register_axis(fileobj, dim_names(2), dimsize)
+  call register_axis(fileobj, dim_names(3), unlimited)
+  
+  call register_field(fileobj, 'variable_name', 'variable_type', dim_names)
+  call write_data(fileobj, 'variable_name', variable_data)
+  call close_file(fileobj)
+endif
+```
+Difference from writting restarts:
+- `open_file` does not have is_restart=.true., so the `write_restart` functionality cannot be used'
+- [register_field](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/fms_netcdf_unstructured_domain_io.F90#L178-L179) is basically a wrapper for `nf90_def_var` which just adds the variable metadata to the file.
+  - "variable_type" is a string which indicates the type you want the variable to be written as. The acceptable values are "int", "int64", "double", "float", and "char"
+- [write_data](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/unstructured_domain_write.inc)
+  - The ranks send their data to the io_root pe. The io_root pe receives the data and writes it to the file. 
+ 
+Similarly for domain reads:
+```F90
+if (open_file(fileobj, "filename", "read", domain, is_restart=.true.)) then
+  call register_axis(fileobj, dim_names(1))
+  call write_data(fileobj, 'variable_name', variable_data)
+  call close_file(fileobj)
+endif
+```
+- `register_axis` is only required for the compressed dimensions so the code knows which dimensions and therefore variables are compressed
+- `register_field` is not required because the code can get the dimensions information from the file.
+- [read_data](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/unstructured_domain_read.inc)
+  - The io_root pe reads the data and sends it to the other pes.
 
 #### 3. Non-domain decomposed read/writes
 
@@ -429,31 +476,39 @@ endif
 - Because [is_compressed=.true.](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/netcdf_io.F90#L747-L768), the root pe is going to gather the dimension size of each rank and add them to get the total length of the dimension. In the example above, rank 0 has a x/y axis of 1, rank 1 has a x/y of 2. The total dimension size of x/y is equal to 3 (the sum for all pes).  
 
 ### E. Coupler Type Restarts
-#### 1. Writting coupler type restarts
+With the functionality in `coupler_type_register_restarts`, one can loop through a list of variables in the coupler_type and register each variable to the corresponding restart file and then read/write the file.
+
+#### 1. Reading coupler_type restarts
 In FMS_io, this was accomplished as:
+
 ```F90
-call coupler_type_register_restarts(bc_type, bc_rest_files, num_rest_files, domain, to_read=.false., ocean_restart=.false., &
-                                    & directory="RESTART/")
-do l = 1, num_ice_bc_restart
-   call restore_state(Ice_bc_restart(l), directory='INPUT', &
+call coupler_type_register_restarts(bc_type, bc_rest_files, num_rest_files, domain)
+do l = 1, num_rest_files
+   call restore_state(bc_rest_files(l), directory='INPUT', &
                            nonfatal_missing_files=.true.)
 enddo
-
 ```
+
 In FMS2_io, this can be accomplished as:
 
 ```F90
-call coupler_type_register_restarts(bc_type, bc_rest_files, num_rest_files, domain, to_read=.false., ocean_restart=.false., &
-                                    & directory="RESTART/")
+call coupler_type_register_restarts(bc_type, bc_rest_files, num_rest_files, domain, to_read=.false.)
 
-do i = 1, bc_type%num_bcs
-   call write_restart(bc_rest_files(i))
-   call close_file(bc_rest_files(i))
+do l = 1, num_rest_files
+   call write_restart(bc_rest_files(l))
+   call close_file(bc_rest_files(l))
 enddo
-
 ```
+Note: `num_rest_files` is set inside `coupler_type_register_restarts`
 
-#### 2. Reading coupler_type restarts
+Difference from fms_io
+- `to_read` was added to the coupler_type_register_restarts subroutine
+-  [coupler_type_register_restarts](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/coupler/coupler_types.F90#L3096) loops through the variables in the coupler_type, opens the file needed, register the axis, and registers the restart_variables. 
+- The file should be closed after writing it by calling `close_file`
+- It is required that the `domain` has an io_domain or the code will fail 
+
+#### 2. Writting coupler type restarts
+This is done the same way as the reads expect `write_restart` is used instead of `read_restart`. 
 
 ### F. Boundary Conditions Restarts
 Both FMS_io and FMS2_io have the functionality where one can read or write data where only some pes have a section of the data (i.e halos).
