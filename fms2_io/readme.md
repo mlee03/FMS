@@ -7,9 +7,11 @@ FMS2_io rovides three new derived types, which target the different I/O paradigm
 
 **1. FmsNetcdfFile_t:** This type provides a thin wrapper over the netCDF4 library, but allows the user to assign a “pelist” to the file. If a pelist is assigned, only the first rank on the list directly interacts with the netCDF library, and performs broadcasts to relay the information to the rest of the ranks on the list.
 
-**2. FmsNetcdfDomainFile_t:** This type extends the FmsNetcdfFile_t type to support “domain-decomposed” reads/writes. Here domain decomposed refers to data that is on the user-defined mpp_domains two-dimensional lon-lat or cubed-sphere grid. Each MPI rank has its own section of the data. This fileobj can write/read non-domain-decomposed variables as well. 
+**2. FmsNetcdfDomainFile_t:** This type does everything that the FmsNetcdfFile_t type does and it adds support for “domain-decomposed” reads/writes. Here domain decomposed refers to data that is on the user-defined mpp_domains two-dimensional lon-lat or cubed-sphere grid. Each MPI rank has its own section of the data. This fileobj can write/read non-domain-decomposed variables as well. 
 
-**3. FmsNetcdfUnstructuredDomainFile_t:** This type extends the FmsNetcdfFile_t type to support “domain-decomposed” reads/writes on a user defined mpp_domains unstructured grid. This fileobj can write/read non-domain-decomposed variables as well.
+**3. FmsNetcdfUnstructuredDomainFile_t:** This type does everything that the FmsNetcdfFile_t type does and it adds support for “domain-decomposed” reads/writes on a user defined mpp_domains **unstructured** grid. This fileobj can write/read non-domain-decomposed variables as well.
+
+*The FMS_io equivalent to these derived types is [restart_file_type](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms/fms_io.F90#L297-L323)*
 
 ### B. Writing Restarts
  
@@ -39,9 +41,9 @@ id_restart = register_restart_field(fileobj, "filename", "variable_name", variab
 call save_restart(Atm_restart)
 ```
 Metadata:
-- FMS_io wrote named the dimensions: "xaxis_1", "yaxis_1", zaxis_1" and "Time"
-- FMS_io wrote the dimensions as variables as well 
-- FMS_io wrote variable attribute: "longname = {same as variable} and "units = {"none"} to all variables by default
+- FMS_io wrote named the dimensions: "xaxis_1", "yaxis_1", zaxis_1" and "Time". With fms2_io the user can name the axis whatever they like. 
+- FMS_io wrote the dimensions as variables as well. Fms2_io does not do this by default, the user can do this if they like.
+- FMS_io wrote variable attribute: "longname = {same as variable} and "units = {"none"} to all variables by default. Fms2_io does not do this by default, the user can add real meta data if they like. 
 
 **This is how a restart file can be written with FMS2-io:**
 ```F90
@@ -79,19 +81,19 @@ endif
   -  Mangles the filename in the same manner as fms_io
   -  Opens the netcdf file to write (a `nf90_create` call)
   -  Set ups the pelist for each io_domain
-  -  `is_restart` indicates that this is a restart file, so it adds ".res" to the filename and it allows user to use the `read_restart` and `write_restart` functionality
+  -  `is_restart` indicates that this is a restart file, so it adds ".res" to the filename and it allows user to use the `read_restart` and `register_restart_field` functionality
   -  **NOTE**: The filename needs to include the full path to the file, including the directory.  
 - [register_axis](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/fms_netcdf_domain_io.F90#L437)
   - writes the dimension metadata in the netcdf file (a `nf90_def_dim` call)
   - The "x" and "y" indicate that that dimension is domain decomposed in x/y. The only acceptable values are "x" and "y". 
-  - The `position=center` indicates position of the axis (this is the default). The other acceptable values are `position=east` for "x" and`position=north` for "y", in this cases the axis will have an extra point. 
-  - The "unlimited" indicates that the dimension is unlimited `nf90_unlimited`
-  - The integer "dimsize" indicate that this is a normal dimension of length equal to dimsize 
+  - The `position=center` indicates the position of the axis (this is the default). The other acceptable values are `position=east` for "x" and`position=north` for "y", in this cases the axis will have an extra point. 
+  - The "unlimited" indicates that the dimension is unlimited (`nf90_unlimited`)
+  - The integer "dimsize" indicates that this is a normal dimension of length equal to dimsize 
 - [register_restart_field](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/register_domain_restart_variable.inc) 
   - Writes the variable metadata to the file (a `nf90_def_var` call)
   - Saves the data as pointers, which will be written to the netcdf file later
 - [write_restart](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/fms_netcdf_domain_io.F90#L549)
-  - Loops to the restart variables registered
+  - Loops through the restart variables that were registered
   - Calculates and writes a global checksum for each variables
   - Writes the data to the file (a `nf90_put_var` call)
 - [close_file](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/fms_netcdf_domain_io.F90#L424) 
@@ -134,18 +136,18 @@ endif
   -  Mangles the filename: (1) Adds ".tileXX" if you are on multiple tiles (2) Adds .XXXX to the end of the file if uncombined.
   -  Opens the netcdf file to write (a `nf90_create` call)
   -  Set ups the pelist for each io_domain
-  -  `is_restart` indicates that this is a restart file, so it adds ".res" to the filename and it allows user to use the `read_restart` and `write_restart` functionality
+  -  `is_restart` indicates that this is a restart file, so it adds ".res" to the filename and it allows user to use the `read_restart` and `register_restart_field` functionality
   -  **NOTE**: The filename needs to include the full path to the file, including the directory.  
 - [register_axis](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/fms_netcdf_unstructured_domain_io.F90#L155)
   - writes the dimension metadata in the netcdf file (a `nf90_def_dim` call)
-  - The lack of the third argument in the `register_axis` calls indicates that it is uncompressed
-  - The "unlimited" indicates that the dimension is unlimited `nf90_unlimited`
-  - The integer "dimsize" indicate that this is a normal dimension of length equal to dimsize 
+  - The lack of the third argument in the `register_axis` calls indicates that this dimension is uncompressed
+  - The "unlimited" indicates that the dimension is unlimited (`nf90_unlimited`)
+  - The integer "dimsize" indicates that this is a normal dimension of length equal to dimsize 
 - [register_restart_field](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/register_unstructured_domain_restart_variable.inc)
   - Writes the variable metadata to the file (a `nf90_def_var` call)
   - Saves the data as pointers, which will be written to the netcdf file later
 - [write_restart](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/fms_netcdf_unstructured_domain_io.F90#L193)
-  - Loops to the restart variables registered
+  - Loops through the restart variables that were registered
   - Calculates and writes a global checksum for each variables
   - Writes the data to the file (a `nf90_put_var` call)
 - [close_file](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/fms_netcdf_unstructured_domain_io.F90#L146) 
@@ -191,19 +193,19 @@ endif
   -  a logical function, outputs .true. if the file was opened successfully and .false. if it failed. 
   -  Mangles the filename: ".res" is the only thing that is added to the filename
   -  Opens the netcdf file to write (a `nf90_create` call)
-  -  `is_restart` indicates that this is a restart file, so it adds ".res" to the filename and it allows user to use the `read_restart` and `write_restart` functionality
+  -  `is_restart` indicates that this is a restart file, so it adds ".res" to the filename and it allows user to use the `read_restart` and `register_restart_field` functionality
   -  With the *optional* pelist argument, only the first rank interacts with the file (opens, writes, closes) and broadcasts the information to the rest of the ranks on the list. 
   -  **NOTE**: The filename needs to include the full path to the file, including the directory.  
 - [register_axis](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/netcdf_io.F90#L727-L728)
   - writes the dimension metadata in the netcdf file (a `nf90_def_dim` call)
-  - The "unlimited" indicates that the dimension is unlimited `nf90_unlimited`
-  - The integer "dimsize" indicate that this is a normal dimension of length equal to dimsize
+  - The "unlimited" indicates that the dimension is unlimited (`nf90_unlimited`)
+  - The integer "dimsize" indicates that this is a normal dimension of length equal to dimsize
   - "x" and "y" cannot be added to the `register_axis` calls
 - [register_restart_field](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/fms2_io.F90#L135-L140)
   - Writes the variable metadata to the file (a `nf90_def_var` call)
   - Saves the data as pointers, which will be written to the netcdf file later
 - [write_restart](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/netcdf_io.F90#L1898)
-  - Loops to the restart variables registered
+  - Loops through the restart variables that were registered
   - Calculates and writes a global checksum for each variables
   - Writes the data to the file (a `nf90_put_var` call)
 - [close_file](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/netcdf_io.F90#L1876)
@@ -211,36 +213,42 @@ endif
   - Closes the netcdf file (a `nf90_close` call)
 
 #### 4. Other helpful information:
-- By default, fms2_io writes the file as `nf90_64bit_offset`, the user can change the netcdf file type by `nc_format="64bit", "classic", or "netcdf4"` to the `open_file` call or by adding `netcdf_default_format="64bit", "classic", or "netcdf4"` to the fms2_io_nml
+- By default, fms2_io writes the file as `nf90_64bit_offset`, the user can change the netcdf file type by adding `nc_format="64bit", "classic", or "netcdf4"` to the `open_file` call (which will change the type for that file only) or by adding `netcdf_default_format="64bit", "classic", or "netcdf4"` to the fms2_io_nml (which will change the type for all files that don't have the nc_format in the open_file call)
 - If the user wishes to not add ".res" to filename, the user can add `dont_add_res_to_filename=.true.` to the `open_file` call
-- **Variable attributes** can be written by calling [register_variable_attribute](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/register_variable_attribute.inc) scalar and 1d real and integers (32 and 64 bit) and string values are supported
+- **Variable attributes** can be written by calling [register_variable_attribute](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/register_variable_attribute.inc). Scalar and 1d real and integers (32 and 64 bit) and string values are supported
 ```F90
 call register_variable_attribute(fileobj, "varname", "attribute_name", value)
 ```
-This interface can be used with any FMS2_io fileobj. 
-- **Global attributes** can be written by calling [register_global_attribute](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/register_global_attribute.inc) scalar and 1d real and integers (32 and 64 bit) and scalar string values are supported 
+This interface can be used with any FMS2_io fileobj, but the open_file needs to be called before using it. 
+
+*A similar thing can be accomplished in fms_io with [mpp_write_meta](https://github.com/NOAA-GFDL/FMS/blob/main/mpp/include/mpp_io_write.inc#L22-L135)*
+
+- **Global attributes** can be written by calling [register_global_attribute](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/register_global_attribute.inc). Scalar and 1d real and integers (32 and 64 bit) and scalar string values are supported 
 ```F90
 call register_global_attribute(fileobj, "global_attribute_name", value)
 ```
-This interface can be used with any FMS2_io fileobj.
+This interface can be used with any FMS2_io fileobj, but the open_file needs to be called before using it.
+
+*A similar thing can be accomplished in fms_io with [mpp_write_meta](https://github.com/NOAA-GFDL/FMS/blob/main/mpp/include/mpp_io_write.inc#L22-L135)*
+
 ### C. Reading Restarts
-The restarts can be read the same way as the writes. The only difference is that "read" is used in the `open_file` call and `read_restart` is used instead of [write restart](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/fms2_io.F90#L216-L219). 
+The restarts can be read the same way as the writes. The only difference is that "read" is used in the `open_file` call and [read_restart]((https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/fms2_io.F90#L216-L219) is used instead of write restart. 
 
 #### Other helpful information:
-- **Variable attributes** can be read by calling [get_variable_attribute](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/get_variable_attribute.inc) scalar and 1d real and integers (32 and 64 bit) and string values are supported. To check if a variable attribute exists before reading, the logical function [variable_att_exists](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/netcdf_io.F90#L1046-L1047) can be used
+- **Variable attributes** can be read by calling [get_variable_attribute](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/get_variable_attribute.inc). Scalar and 1d real and integers (32 and 64 bit) and string values are supported. To check if a variable attribute exists before reading, the logical function [variable_att_exists](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/netcdf_io.F90#L1046-L1047) can be used
 ```F90
 if (variable_att_exists(fileobj, "varname", "attribute_name")) then
    call get_variable_attribute(fileobj, "varname", "attribute_name", value)
 endif
 ```
-The fms_io equivalent of this is `get_var_att_value`. The mpp_io equivalent is `mpp_get_att_value`
-- **Global attributes** can be read by calling [get_global_attribute](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/get_global_attribute.inc) scalar and 1d real and integers (32 and 64 bit) and scalar string values are supported. To check if a global attribute exist before reading, the logical function [global_att_exists](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/netcdf_io.F90#L1019) can be used.
+*A similar thing can be accomplished in fms_io with [get_vart_att_value](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms/fms_io.F90#L466-L468)*
+- **Global attributes** can be read by calling [get_global_attribute](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/get_global_attribute.inc). Scalar and 1d real and integers (32 and 64 bit) and scalar string values are supported. To check if a global attribute exist before reading, the logical function [global_att_exists](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/netcdf_io.F90#L1019) can be used.
 ```F90
 if (global_att_exists(fileobj, "global_attribute_name)) then
    call get_global_attribute(fileobj, "global_attribute_name", value)
 endif
 ```
-The fms_io equivalent of this is `get_global_att_value`. 
+*A similar thing can be accomplished in fms_io with [get_global_att_value](https://github.com/NOAA-GFDL/FMS/blob/main/fms/fms_io.F90#L461-L464)* 
 
 - **Reading dimension metadata** The following subroutines can be used with any of the FMS2_io. 
   - [get_num_dimensions](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/netcdf_io.F90#L1079) can be used to get the total number of dimensions in a file
@@ -263,6 +271,8 @@ The fms_io equivalent of this is `get_global_att_value`.
      call get_dimension_size(fileobj, "dimension_name", dimsize)
  endif
  ```
+ *A similar thing can be accomplished with fms_io with [mpp_get_info](https://github.com/NOAA-GFDL/FMS/blob/main/mpp/include/mpp_io_util.inc#L41)*
+ 
 - **Reading variable metada** The following subroutines can be used with any of the FMS2_io. 
   - [get_num_variables](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/netcdf_io.F90#L1295) can be used to get the number of variables in a file
   - [get_variable_names](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/netcdf_io.F90#L1323) can be used to get the variables names in a file
@@ -289,8 +299,9 @@ if (variable_exists(fileobj, "varname")) then
 endif
 
 ```
+ *A similar thing can be accomplished with fms_io with [mpp_get_info](https://github.com/NOAA-GFDL/FMS/blob/main/mpp/include/mpp_io_util.inc#L41) and/or [field_size](https://github.com/NOAA-GFDL/FMS/blob/main/fms/fms_io.F90#L4965)*
 ### D. Reading/Writting Non-restarts
-Reading and writing netcdf files can also be accomplished using `read_data` and `write_data` calls.
+Reading and writing netcdf files that are not restarts can be done using `read_data` and `write_data` calls.
 
 #### 1. Domain decomposed read/write:
 ```F90
@@ -375,7 +386,7 @@ if (open_file(fileobj, "filename", "ovewrite", pelist=pes, is_restart=.true.)) t
   call register_axis(fileobj, dim_names(4), unlimited)
   
   call register_field(fileobj, 'variable_name', 'variable_type', dim_names)
-  call read_data(fileobj)
+  call write_data(fileobj)
   call close_file(fileobj)
 endif
 ```
@@ -392,7 +403,7 @@ if (open_file(fileobj, "filename", "read", pelist=pes, is_restart=.true.)) then
   call close_file(fileobj)
 endif
 ```
-- Here the `register_axis` and `register_field` calls and the dim_names argument are not needed because the code can get the dimensions from the file
+- Here the `register_axis` and `register_field` calls are not needed because the code can get the dimensions from the file
 
 Additionally, the `corner` and `edge_lengths` optional arguments in the `read_data` calls can be used to read only a section of a file.
 ```F90
@@ -406,11 +417,118 @@ Here the code is going to start reading at x=10, y=2, z=2, t=3 and read 2, 3, 4,
 Additionally, it is possible to do "compressed" reads and writes. Here "compressed" is when different ranks have different numbers of points for a specific
 axis. For example:
 ```F90
-
+if (open_file(fileobj, "filename", "ovewrite", pelist=pes, is_restart=.true.)) then
+  call register_axis(fileobj, "xaxis_1", mpp_pe()+1, is_compressed=.true.)
+  call register_axis(fileobj, "yaxis_1", mpp_pe()+1, is_compressed=.true.)
+  
+  call register_field(fileobj, 'variable_name', 'variable_type', dim_names)
+  call write_data(fileobj)
+  call close_file(fileobj)
+endif
 ```
-In this example, rank 0 has a x/y axis of 1, rank 1 has a x/y of 2. The total dimension size of x/y is equal to 3 (the sum for all pes).  
+- Because [is_compressed=.true.](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/netcdf_io.F90#L747-L768), the root pe is going to gather the dimension size of each rank and add them to get the total length of the dimension. In the example above, rank 0 has a x/y axis of 1, rank 1 has a x/y of 2. The total dimension size of x/y is equal to 3 (the sum for all pes).  
 
 ### E. Coupler Type Restarts
+#### 1. Writting coupler type restarts
+In FMS_io, this was accomplished as:
+```F90
+call coupler_type_register_restarts(bc_type, bc_rest_files, num_rest_files, domain, to_read=.false., ocean_restart=.false., &
+                                    & directory="RESTART/")
+do l = 1, num_ice_bc_restart
+   call restore_state(Ice_bc_restart(l), directory='INPUT', &
+                           nonfatal_missing_files=.true.)
+enddo
+
+```
+In FMS2_io, this can be accomplished as:
+
+```F90
+call coupler_type_register_restarts(bc_type, bc_rest_files, num_rest_files, domain, to_read=.false., ocean_restart=.false., &
+                                    & directory="RESTART/")
+
+do i = 1, bc_type%num_bcs
+   call write_restart(bc_rest_files(i))
+   call close_file(bc_rest_files(i))
+enddo
+
+```
+
+#### 2. Reading coupler_type restarts
 
 ### F. Boundary Conditions Restarts
-Both FMS_io and FMS2_io have the functionality to write
+Both FMS_io and FMS2_io have the functionality where one can read or write data where only some pes have a section of the data (i.e halos).
+
+In FMS_io this was accomplished as:
+```F90
+type(restart_file_type) :: fileobj        !< Fms_io fileobj
+
+id_restart = register_restart_field(fileobj, "filename", "variable_name", variable_data, indices, global_size, pelist, is_root_pe)
+
+call save_restart_border(fileobj)
+call free_restart_type(fileobj)
+
+```
+
+In FMS2_io this can be accomplished as:
+```F90
+type(FmsNetcdfFile_t)       :: fileobj        !< Fms2_io fileobj
+
+if (open_file(fileobj, "filename", "overwrite", is_restart=.true., pelist=all_pelist)) then
+    call register_restart_field(fileobj, "variable_name", variable_data, indices, global_size, pelist, is_root_pe)
+    call write_restart(fileobj)
+    call close_file(fileobj)
+endif
+```
+
+- `indices` are the starting and indices of the region for that pe (starting x, ending x, starting y, ending y)
+- `global_size` is the size of the variable in (x,y,*z*)
+- `pelist` is the list of pelist that have the data for the variable 
+- `is_root_pe` is a flag indicating if this is the root_pe from the pelist
+
+Difference between fms2_io and fms_io:
+  - In fms_io, `register_restart_field` is a integer function while in fms2_io it is a subroutine
+  - In fms_io, the first two arguments of `register_restart_field` were [fileobj and filename](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms/fms_io.F90#L2376-L2377) and in fms2_io it is just the [fileobj](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/include/netcdf_add_restart_variable.inc#L350)
+  - In fms2_io, [restore_state_border](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms/fms_io.F90#L3668) was renamed to renamed to [read_restart_bc](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/netcdf_io.F90#L2083)
+  - In fms2_io, [save_restart_border](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms/fms_io.F90#L3378) was renamed to [write_restart_bc](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/netcdf_io.F90#L2114)
+  - In fms2_io, it is required for the file to be opened before registering the restarts. 
+
+### G. Ascii_io
+
+#### 1. Writing ascii files
+With fms_io, ascii writes can be accomplished with a combination of `mpp_open`, `mpp_close` from `mpp_io` and `write`. 
+```F90
+integer :: unit_number
+call mpp_open( unit_number, 'filename', nohdrs=.TRUE. )
+if ( mpp_pe().EQ.mpp_root_pe() ) write (unit_number, *) 'FMS2_io is flawless and works as inteded'
+call mpp_close(unit_number)
+```
+
+With fms2_io, there is no real support for ascii writes. The user can use fortran's `open`, `write` and `close`.  For example, 
+```F90
+integer :: unit_number
+
+if ( mpp_pe().EQ.mpp_root_pe() ) then
+   open(newunit = unit_number, file='filename', status='replace', form='formatted')
+   write (unit_number, *) 'FMS2_io is flawless and works as inteded'
+   close (unit_number)
+endif
+```
+- The `if ( mpp_pe().EQ.mpp_root_pe() ) ` ensures that the file is only written once.
+- The `newunit` ensures that an unused unit number is used.
+
+#### 2. Reading ascii files
+With fms_io:
+- Opening an ascii file was accomplished with `mpp_open`, `open_namelist_file` or `open` calls. 
+- Reading an ascii file was accomplished with `read_data`, `read_distributed` or `read` calls. 
+- Closing an ascii file was sometimes done with `mpp_close`, `close_file` or `close` calls. 
+
+With fms2_io, ascii reads can be accomplished using `ascii_writes`. In `ascii_writes`, the root_pe opens and reads the file into a a string buffer and broadcasts it to the other ranks. Each rank can then read from the buffer. For example:
+```F90
+character(len=:), dimension(:), allocatable :: restart_file !< Restart file saved as a string
+
+call ascii_read('INPUT/coupler.res', restart_file)
+read(restart_file(1), *) calendar_type
+read(restart_file(2), *) date_init
+read(restart_file(3), *) date
+deallocate(restart_file)
+```
