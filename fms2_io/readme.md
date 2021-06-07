@@ -1,17 +1,20 @@
 ### Fms_io/mpp_io to fms2_io conversion guide
 
+MKL:  For an introduction, something like:  "Before the fms2_io module, subroutines and functions in fms_io and mpp_io modules were used to mainly handle read/writes to NetCDF files.  However, there were overlapping routines present in both modules that led to redundancy; and the blackbox-like I/O processes restricted user flexibility.  The fms2_io module has thus been implemented for a cleaner set of I/O tools and to give users more control over the information being written/read to NetCDF files."
+
 This guide helps covert fms_io/mpp_io code to fms2_io
 
 ### A. FMS2_io Fileobjs
-FMS2_io provides three new derived types, which target the different I/O paradigms used in GFDL models. 
+In FMS_io, the derived type [restart_file_type](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms/fms_io.F90#L297-L323)* was used for all restart I/O.  FMS2_io provides three new derived types, which target the different I/O paradigms used in GFDL models. 
 
-**1. FmsNetcdfFile_t:** This type provides a thin wrapper over the netCDF4 library, but allows the user to assign a “pelist” to the file. If a pelist is assigned, only the first rank on the list directly interacts with the netCDF library, and performs broadcasts to relay the information to the rest of the ranks on the list.
+**1. FmsNetcdfFile_t:** This type provides a thin wrapper over the netCDF4 library, but allows the user to assign a “pelist” to the file. If a pelist is assigned, only the first rank on the list directly interacts with the netCDF library, and performs broadcasts to relay the information (MKL:  what information?) to the rest of the ranks on the list.
 
 **2. FmsNetcdfDomainFile_t:** This type does everything that the FmsNetcdfFile_t type does and it adds support for “domain-decomposed” reads/writes. Here domain decomposed refers to data that is on the user-defined mpp_domains two-dimensional lon-lat or cubed-sphere grid, which means that each MPI rank has its own section of the data.
 
 **3. FmsNetcdfUnstructuredDomainFile_t:** This type does everything that the FmsNetcdfFile_t type does and it adds support for “domain-decomposed” reads/writes on a user defined mpp_domains **unstructured** grid.
 
-*The FMS_io equivalent to these derived types is [restart_file_type](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms/fms_io.F90#L297-L323)*
+>MKL:  I think it's confusing to say each type does everything that the previous derived type does.  The users then could ask, why have three distinct derived types when the third one could do it all.
+
 
 ### B. Writing Restarts
  
@@ -19,7 +22,9 @@ FMS2_io provides three new derived types, which target the different I/O paradig
 
 When writing domain decomposed restarts, FMS mangles the filename for domain decomposed restarts in the following way:
 - If the domain is a cubesphere (6 tiles) and the io_layout is (/1,1/), it will create restart files: "RESTART/filename.tileX.res.nc"
+ > the X in "RESTART/filename.tileX.res.nc" can be confused with the X in the io_layout? 
 - If the domain is a cubesphere (6 tiles) and the io_layout is (/X,Y/), it write `X*Y` restart files: "RESTART/filename.tileX.res.nc.XXXX"
+ >MKL: Likewise here, the multiple use of X is confusing.
 - If the domain has only 1 tile and the tile number is 1, "tileX" will not be added
 
 Additionally, the user can append an appendix (i.e "nestXX" or ensXX") to the filename by calling `set_filename_appendix (appendix)`
@@ -41,8 +46,16 @@ id_restart = register_restart_field(fileobj, "filename", "variable_name", variab
 call save_restart(Atm_restart)
 ```
 Metadata:
-- FMS_io wrote named the dimensions: "xaxis_1", "yaxis_1", zaxis_1" and "Time". With fms2_io the user can name the axis whatever they like. 
-- FMS_io wrote the dimensions as variables as well. Fms2_io does not do this by default, the user can do this if they like.
+'''        float slp(time, grid_yt, grid_xt) ;
+                slp:_FillValue = -1.e+10f ;
+                slp:missing_value = -1.e+10f ;
+                slp:valid_range = 800.f, 1200.f ;
+                slp:units = "mb" ;
+                slp:long_name = "sea-level pressure" ;
+                slp:cell_methods = "time: point" ; '''
+
+- For the coordinate variables, FMS_io automatically set the dimensions as "xaxis_1", "yaxis_1", zaxis_1" and "Time". With fms2_io, the user can name the axis whatever they like. 
+- FMS_io wrote the dimensions of the variables as well. Fms2_io does not do this by default.  The user can do this if they like.
 - FMS_io wrote variable attribute: "longname = {same as variable} and "units = {"none"} to all variables by default. Fms2_io does not do this by default, the user can add real meta data if they like. 
 
 **This is how a restart file can be written with FMS2-io:**
