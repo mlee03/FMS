@@ -1,8 +1,8 @@
 ### Fms_io/mpp_io to fms2_io conversion guide
 
-MKL:  For an introduction, something like:  "Before the fms2_io module, subroutines and functions in fms_io and mpp_io modules were used to mainly handle read/writes to NetCDF files.  However, there were overlapping routines present in both modules that led to redundancy; and the blackbox-like I/O processes restricted user flexibility.  The fms2_io module has thus been implemented for a cleaner set of I/O tools and to give users more control over the information being written/read to NetCDF files."
+MKL:  For an introduction, something like:  "Before the fms2_io module, subroutines and functions in fms_io and mpp_io modules were used to mainly handle read/writes to NetCDF files.  However, there were oduplicate routines present in both modules that led to redundancy; and the blackbox-like I/O processes restricted user flexibility.  The fms2_io module has thus been implemented for a cleaner set of I/O tools and to give users more control over the information being written/read to NetCDF files."
 
-This guide helps covert fms_io/mpp_io code to fms2_io
+This guide helps convert fms_io/mpp_io code to fms2_io
 
 ### A. FMS2_io Fileobjs
 In FMS_io, the derived type [restart_file_type](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms/fms_io.F90#L297-L323)* was used for all restart I/O.  FMS2_io provides three new derived types, which target the different I/O paradigms used in GFDL models. 
@@ -22,7 +22,7 @@ In FMS_io, the derived type [restart_file_type](https://github.com/NOAA-GFDL/FMS
 
 When writing domain decomposed restarts, FMS mangles the filename for domain decomposed restarts in the following way:
 - If the domain is a cubesphere (6 tiles) and the io_layout is (/1,1/), it will create restart files: "RESTART/filename.tileX.res.nc"
- > the X in "RESTART/filename.tileX.res.nc" can be confused with the X in the io_layout? 
+ >MKL the X in "RESTART/filename.tileX.res.nc" can be confused with the X in the io_layout? 
 - If the domain is a cubesphere (6 tiles) and the io_layout is (/X,Y/), it write `X*Y` restart files: "RESTART/filename.tileX.res.nc.XXXX"
  >MKL: Likewise here, the multiple use of X is confusing.
 - If the domain has only 1 tile and the tile number is 1, "tileX" will not be added
@@ -54,7 +54,7 @@ Metadata:
                 slp:long_name = "sea-level pressure" ;
                 slp:cell_methods = "time: point" ; '''
 
-- For the coordinate variables, FMS_io automatically set the dimensions as "xaxis_1", "yaxis_1", zaxis_1" and "Time". With fms2_io, the user can name the axis whatever they like. 
+- For the coordinate variables, FMS_io automatically set the dimensions to "xaxis_1", "yaxis_1", zaxis_1" and "Time". With fms2_io, the user can name the axis whatever they like. 
 - FMS_io wrote the dimensions of the variables as well. Fms2_io does not do this by default.  The user can do this if they like.
 - FMS_io wrote variable attribute: "longname = {same as variable} and "units = {"none"} to all variables by default. Fms2_io does not do this by default, the user can add real meta data if they like. 
 
@@ -93,15 +93,17 @@ endif
   -  a logical function, outputs .true. if the file was opened successfully and .false. if it failed. 
   -  Mangles the filename in the same manner as fms_io
   -  Opens the netcdf file to write (a `nf90_create` call)
-  -  Set ups the pelist for each io_domain
+  -  Sets up the pelist for each io_domain
   -  `is_restart` indicates that this is a restart file, so it adds ".res" to the filename and it allows user to use the `write_restart` and `register_restart_field` functionality
   -  **NOTE**: The filename needs to include the full path to the file, including the directory.  
 - [register_axis](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/fms_netcdf_domain_io.F90#L437)
   - writes the dimension metadata in the netcdf file (a `nf90_def_dim` call)
   - The "x" and "y" argument indicate that that dimension is domain decomposed in x/y. The only acceptable values are "x" and "y". 
   - The `position=center` indicates the position of the axis (this is the default). The other acceptable values are `position=east` for "x" and`position=north` for "y", in this cases the axis will have an extra point. 
+    >MKL: position of axis?
   - The "unlimited" indicates that the dimension is unlimited (`nf90_unlimited`)
   - The integer "dimsize" indicates that this is a normal dimension of length equal to dimsize 
+    >MKL:  normal dimension? 
 - [register_restart_field](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/register_domain_restart_variable.inc) 
   - Writes the variable metadata to the file (a `nf90_def_var` call)
   - Saves the data as pointers, which will be written to the netcdf file later
