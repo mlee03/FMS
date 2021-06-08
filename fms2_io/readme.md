@@ -110,9 +110,11 @@ endif
 - [write_restart](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/fms_netcdf_domain_io.F90#L549)
   - Loops through the restart variables that were registered
   - Calculates and writes a global checksum for each variables
+  >MKL doesn't the global checksum go in the metadata section?
   - Writes the data to the file (a `nf90_put_var` call)
 - [close_file](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/fms_netcdf_domain_io.F90#L424) 
   - Cleans up the fileobj
+  >MKL more details on what the cleanup does?  Does it deallocates thing?
   - Closes the netcdf file (a `nf90_close` call)
 
 #### 2. Unstructured Domain Restarts
@@ -156,6 +158,7 @@ endif
 - [register_axis](https://github.com/NOAA-GFDL/FMS/blob/b9fc6515c7e729909e59a0f9a1efc6eb1d3e44d1/fms2_io/fms_netcdf_unstructured_domain_io.F90#L155)
   - writes the dimension metadata in the netcdf file (a `nf90_def_dim` call)
   - The lack of the third argument in the `register_axis` calls indicates that this dimension is uncompressed
+    >MKL uncompressed dimension is a GFDL terminology?
   - The "unlimited" indicates that the dimension is unlimited (`nf90_unlimited`)
   - The integer "dimsize" indicates that this is a normal dimension of length equal to dimsize 
 - [register_restart_field](https://github.com/NOAA-GFDL/FMS/blob/main/fms2_io/include/register_unstructured_domain_restart_variable.inc)
