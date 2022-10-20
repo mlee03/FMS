@@ -1,0 +1,149 @@
+#undef GET_AMIP_SST_
+#def   GET_AMIP SST_ get_amip_sst_r4
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r4_kind
+#undef GET_AMIP SST_
+
+#undef GET_AMIP_SST_
+#def   GET_AMIP SST_ get_amip_sst_r8
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r8_kind
+#undef GET_AMIP SST_
+
+#undef GET_AMIP_ICE_
+#def   GET_AMIP_ICE_ get_amip_ice_r4
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r4_kind
+#undef GET_AMIP_ICE_
+
+#undef AMIP_INTERP_NEW_1D_
+#def   AMIP_INTERP_NEW_1D_ amip_interp_new_1d_r4
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r4_kind
+#undef AMIP_INTERP_NEW_1D_
+
+#undef AMIP_INTERP_NEW_1D_
+#def   AMIP_INTERP_NEW_1D_ amip_interp_new_1d_r8
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r8_kind
+#undef AMIP_INTERP_NEW_1D_
+
+#undef AMIP_INTERP_NEW_2D_
+#def   AMIP_INTERP_NEW_2D_ amip_interp_new_2d_r4
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r4_kind
+#undef AMIP_INTERP_NEW_2D_
+
+#undef AMIP_INTERP_NEW_2D_
+#def   AMIP_INTERP_NEW_2D_ amip_interp_new_2d_r8
+#undef FMS_AI_KIND_
+#def FMS_AI_KIND_ r8_kind
+#undef AMIP_INTERP_NEW_2D_
+    
+#undef SET_SST_GRID_EDGES_AMIP1_
+#def  SET_SST_GRID_EDGES_AMIP1_ set_sst_grid_edges_amip1_r4
+#undef FMS_AI_KIND_
+#def FMS_AI_KIND_ r4_kind
+#undef SET_SST_GRID_EDGES_AMIP1_
+
+#undef SET_SST_GRID_EDGES_AMIP1_
+#def  SET_SST_GRID_EDGES_AMIP1_ set_sst_grid_edges_amip1_r8
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r8_kind
+#undef SET_SST_GRID_EDGES_AMIP1_
+
+#undef SET_SST_GRID_EDGES_OI_
+#def   SET_SST_GRID_EDGES_OI_ set_sst_grid_edges_oi_r4
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r4_kind
+#undef SET_SST_GRID_EDGES_OI_
+
+#undef SET_SST_GRID_EDGES_OI_
+#def   SET_SST_GRID_EDGES_OI_ set_sst_grid_edges_oi_r8
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r8_kind
+#undef SET_SST_GRID_EDGES_OI_
+  
+#undef SET_SST_GRID_EDGES_DAILY_
+#def   SET_SST_GRID_EDGES_DAILY set_sst_grid_edges_daily_r4
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r4_kind
+#undef SET_SST_GRID_EDGES_DAILY_
+
+#undef SET_SST_GRID_EDGES_DAILY_
+#def   SET_SST_GRID_EDGES_DAILY_ set_sst_grid_edges_daily_r4
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r4_kind
+#undef SET_SST_GRID_EDGES_DAILY_
+  
+#undef A2A_BILINEAR_
+#def   A2A_BILINEAR_ a2a_bilinear_r4
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r4_kind
+#undef A2A_BILINEAR_
+
+#undef A2A_BILINEAR_
+#def   A2A_BILINEAR_ a2a_bilinear_r8
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r8_kind
+#undef A2A_BILINEAR_
+
+#undef GET_SST_GRID_BOUNDARY_
+#def   GET_SST_GRID_BOUNDARY_ get_sst_grid_boundary_r4
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r4_kind
+#undef GET_ST_GRID_BOUNDARY_
+
+#undef GET_SST_GRID_BOUNDARY_
+#def   GET_SST_GRID_BOUNDARY_ get_sst_grid_boundary_r8
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r8_kind
+#undef GET_ST_GRID_BOUNDARY_
+
+#undef READ_RECORD_
+#def   READ_RECORD_ read_record_r4
+#undef FMS_AI_KIND_ 
+#def   FMS_AI_KIND_ r4_kind  
+#undef READ_RECORD_
+
+#undef READ_RECORD_
+#def   READ_RECORD_ read_record_r8
+#undef FMS_AI_KIND_ 
+#def   FMS_AI_KIND_ r8_kind
+#undef READ_RECORD_
+    
+#undef CLIP_DATA_
+#def   CLIP_DATA_ clip_data_r4
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r4_kind
+#undef CLIP_DATA_
+
+#undef CLIP_DATA_
+#def   CLIP_DATA_ clip_data_r8
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r8_kind
+#undef CLIP_DATA_
+  
+#undef PRINT_DATES_
+#def   PRINT_DATES_ print_dates_r4
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r4_kind
+#undef PRINT_DATES_
+
+#undef PRINT_DATES_
+#def   PRINT_DATES_ print_dates_r8
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r8_kind
+#undef PRINT_DATES_
+  
+#undef ZONAL_SST_
+#def   ZONAL_SST_ zonal_sst_r4
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r4_kind
+#undef ZONAL_SST_
+
+#undef ZONAL_SST_
+#def   ZONAL_SST_ zonal_sst_r8
+#undef FMS_AI_KIND_
+#def   FMS_AI_KIND_ r8_kind
+#undef ZONAL_SST_  
