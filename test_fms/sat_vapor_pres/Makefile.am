@@ -34,13 +34,14 @@ check_PROGRAMS = test_sat_vapor_pres
 test_sat_vapor_pres_SOURCES = test_sat_vapor_pres.F90
 
 TEST_EXTENSIONS = .sh
-SH_LOG_DRIVER = env AM_TAP_AWK='$(AWK)' $(SHELL) $(abs_top_srcdir)/test_fms/tap-driver.sh
+SH_LOG_DRIVER = env AM_TAP_AWK='$(AWK)' $(SHELL) \
+										$(abs_top_srcdir)/test_fms/tap-driver.sh
 
 # Run the test program.
 TESTS = test_sat_vapor_pres.sh
 
 # These files will be included in the distribution.
-EXTRA_DIST = test_sap_vapor_pres.sh
+EXTRA_DIST = test_sat_vapor_pres.sh
 
 # Clean up
 CLEANFILES = *.nml *.out* *.dpi *.spi *.dyn *.spl
