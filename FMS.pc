@@ -17,32 +17,25 @@
 #* License along with FMS.  If not, see <http://www.gnu.org/licenses/>.
 #***********************************************************************
 
-# This is an automake file for the axis_utils directory of the FMS
-# package.
+prefix=/usr/local
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
 
-# Ed Hartnett 2/22/19
+# Including the following, as they may be useful when building other components
+# and as a way to better record how the library was built.
+ccompiler=mpicc
+fccompiler=mpif90
+cppflagss.compiled=-DINTERNAL_FILE_NML -fopenmp
+cflags.compiled=-I/opt/netcdf/4.9.0/GNU/12.2.0/include -fopenmp
+fcflags.compiled=-g -fbacktrace  -ffree-form -ffree-line-length-none -fcray-pointer -fopenmp -I/opt/netcdf/4.9.0/GNU/12.2.0/include -I/opt/netcdf/4.9.0/GNU/12.2.0/include -fdefault-real-8
+ldflags.compiled= -L/opt/netcdf/4.9.0/GNU/12.2.0/lib64 -lnetcdf -L/opt/mpich/4.0.3/GNU/12.2.0/lib
 
-# Include .h and .mod files.
-AM_CPPFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/axis_utils/include
-AM_FCFLAGS = $(FC_MODINC). $(FC_MODOUT)$(MODDIR)
-
-# Build this uninstalled convenience library.
-noinst_LTLIBRARIES = libaxis_utils.la
-
-libaxis_utils_la_SOURCES = \
-  axis_utils.F90 \
-  axis_utils2.F90 \
-  include/axis_utils2_r4.fh \
-  include/axis_utils2_r8.fh \
-  include/axis_utils2.inc
-
-axis_utils2.$(FC_MODEXT) : \
-include/axis_utils2_r4.fh \
-include/axis_utils2_r8.fh \
-include/axis_utils2.inc
-
-# Mod file depends on its o file, is built and then installed.
-nodist_include_HEADERS = axis_utils_mod.$(FC_MODEXT) axis_utils2_mod.$(FC_MODEXT)
-BUILT_SOURCES = axis_utils_mod.$(FC_MODEXT) axis_utils2_mod.$(FC_MODEXT)
-
-include $(top_srcdir)/mkmods.mk
+Name: FMS
+Description: The Flexible Modeling System Infrastructure Library
+URL: https://www.gfdl.noaa.gov/fms
+Version: 2022.04.00-dev
+Libs: -L$(libdir) -lFMS
+Libs.private: -lnetcdff 
+Cflags: -I${includedir}
+Fflags: -I${includedir}
