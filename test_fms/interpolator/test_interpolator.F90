@@ -37,12 +37,15 @@ program test_interpolator
 
 use mpp_mod
 use mpp_domains_mod
-use fms_mod
+use fms_mod, only: fms_init, check_nml_error, file_exist
 use time_manager_mod
 use diag_manager_mod
 use interpolator_mod
 use constants_mod
 use time_interp_mod, only : time_interp_init
+
+use fms2_io_mod, only: fms2_io_init, open_file, close_file, FmsNetcdfFile_t, unlimited
+use fms2_io_mod, only: register_axis, register_field, write_data, register_variable_attribute
 
 implicit none
 integer, parameter :: nsteps_per_day = 8, ndays = 16
@@ -100,6 +103,10 @@ call set_calendar_type(JULIAN)
 call diag_manager_init
 call constants_init
 call time_interp_init
+
+!MKLMKLMKLMKLMKLMKLMKLMKLMKLMKLMKLMKLMKLMKLMKLMKLMKLMKLMKLMKL
+call write_climatology_file()
+stop
 
 level = 18
 tpi = 2.0*PI !4.*acos(0.)
@@ -306,5 +313,7 @@ integer, intent(in), optional :: is,js
 call interpolator( o3, model_time, p_half, model_data, "ozone", is, js)
 
 end subroutine get_ozone
+
+#include "test_interpolator_write_climatology.inc"
 
 end program test_interpolator

@@ -23,7 +23,7 @@
 # uramirez, Ed Hartnett
 
 # Find the fms_mod.mod file.
-AM_CPPFLAGS = -I$(MODDIR)
+AM_CPPFLAGS = -I$(MODDIR) -I$(top_srcdir)/test_fms/interpolator/.
 
 # Link to the FMS library.
 LDADD = $(top_builddir)/libFMS/libFMS.la
@@ -32,14 +32,14 @@ LDADD = $(top_builddir)/libFMS/libFMS.la
 check_PROGRAMS = test_interpolator
 
 # This is the source code for the test.
-test_interpolator_SOURCES = test_interpolator.F90
+test_interpolator_SOURCES = test_interpolator2.F90 test_interpolator_write_climatology.inc
 
 # Run the test program.
 TESTS = test_interpolator2.sh
 
 TEST_EXTENSIONS = .sh
 SH_LOG_DRIVER = env AM_TAP_AWK='$(AWK)' $(SHELL) \
-                  $(abs_top_srcdir)/test_fms/tap-driver.sh
+									$(abs_top_srcdir)/test_fms/tap-driver.sh
 TESTS_ENVIRONMENT= test_input_path="@TEST_INPUT_PATH@"
 
 # These files are also included in the distribution.

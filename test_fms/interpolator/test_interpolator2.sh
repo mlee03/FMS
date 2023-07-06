@@ -28,12 +28,12 @@
 . ../test-lib.sh
 
 # Tests to skip if input files not present
-if test ! -z "$test_input_path" ; then
-  rm -rf INPUT && mkdir INPUT
-  cp $test_input_path/interpolator/INPUT/* INPUT
-else
-  SKIP_TESTS="$SKIP_TESTS $(basename $0 .sh).1"
-fi
+#if test ! -z "$test_input_path" ; then
+#  rm -rf INPUT && mkdir INPUT
+#  cp $test_input_path/interpolator/INPUT/* INPUT
+#else
+#  SKIP_TESTS="$SKIP_TESTS $(basename $0 .sh).1"
+#fi
 
 # Create files for test.
 cat <<_EOF  > diag_table
@@ -57,6 +57,6 @@ test_expect_success "test interpolator" '
     mpirun -n 2 ./test_interpolator
 '
 
-rm -rf INPUT *.nc # remove any leftover io files to save space
+#rm -rf INPUT *.nc # remove any leftover io files to save space
 
 test_done
