@@ -30,22 +30,22 @@ subroutine write_climatology_file
   timedata=[1, 2, 3]
 
   !assign latdata
-  dx = 360./real(nlonlat)
-  dy = 180./real(nlonlat)
+  dx = 1.0
+  dy = 1.0
 
   do i=1, nlonlat
-     latdata(i)=real(i-1)*dx
-     londata(i)= -90. + real(i-1)*dy
+     latdata(i)= real(2*(i-1))
+     londata(i)= real(2*(i-1))
   end do
 
-  lonbdata(1)=londata(1)
-  latbdata(1)=latdata(1)
+  lonbdata(1)=0.0
+  latbdata(1)=0.0
   do i=2,nlonlat
      lonbdata(i)=0.5*(londata(i-1)+londata(i))
      latbdata(i)=0.5*(latdata(i-1)+latdata(i))
   enddo
-  lonbdata(nlonlat+1)=londata(nlonlat)
-  latbdata(nlonlat+1)=latdata(nlonlat)
+  lonbdata(nlonlat+1)=real(2*(nlonlat-1))
+  latbdata(nlonlat+1)=real(2*(nlonlat-1))
 
   !p data
   pfulldata=[0.0001, 0.0003, 0.0005]
@@ -56,7 +56,7 @@ subroutine write_climatology_file
      do j=1, npfull
         do k=1, nlonlat
            do l=1, nlonlat
-              ozonedata(l,k,j,i)=real(i*j)/real(l)*PI+0.001*real(k)
+              ozonedata(l,k,j,i)=real(j)
            end do
         end do
      end do

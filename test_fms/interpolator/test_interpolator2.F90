@@ -41,26 +41,23 @@ contains
   subroutine init_model_latlon
 
     implicit none
-    real :: dx, dy
+    real :: dxy
 
-    !assign latdata
-    dx = 360./real(nlonlat)
-    dy = 180./real(nlonlat)
-
+    dxy = 1.0
     do i=1, nlonlat
-       lon_mod(:,i)= -90. + real(i-1)*dy
-       lat_mod(i,:)=real(i-1)*dx
+       lon_mod(:,i) = real(i)*dxy
+       lat_mod(i,:) = real(i)*dxy
     end do
 
     !!!!!!FIXXXXXXXX!!!!!
-    lonb_mod(1:nlonlat,1)=lon_mod(:,1)
-    latb_mod(1,1:nlonlat)=lat_mod(1,:)
+    lonb_mod(1:nlonlat,1)=0.0
+    latb_mod(1,1:nlonlat)=0.0
     do i=2,nlonlat
        lonb_mod(1:nlonlat,i)=0.5*(lon_mod(:,i-1)+lon_mod(:,i))
        latb_mod(i,1:nlonlat)=0.5*(lat_mod(i-1,:)+lat_mod(i,:))
     enddo
-    lonb_mod(1:nlonlat,nlonlat+1)=lon_mod(:,nlonlat)
-    latb_mod(nlonlat+1,1:nlonlat)=lat_mod(nlonlat,:)
+    lonb_mod(1:nlonlat,nlonlat+1)=real(nlonlat-1)
+    latb_mod(nlonlat+1,1:nlonlat)=real(nlonlat-1)
 
   end subroutine init_model_latlon
 !-----------------------------------------------!
