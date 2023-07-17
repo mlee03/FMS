@@ -6,20 +6,10 @@ subroutine write_climatology_file
 
   type(FmsNetcdfFile_t) :: fileobj
 
-  integer, parameter :: ntime=3
-  integer, parameter :: npfull=3, nphalf=npfull+1
-
   integer :: i,j,k,l
   integer, allocatable :: pes(:)
   integer :: stringlen
   character(100) :: mystring
-
-  real, dimension(ntime)  :: timedata
-  real, dimension(nlonlat)  :: latdata, londata
-  real, dimension(nlonlatb) :: latbdata, lonbdata
-  real, dimension(npfull) :: pfulldata
-  real, dimension(nphalf) :: phalfdata
-  real, dimension(nlonlat,nlonlat,npfull,ntime) :: ozonedata
 
   real :: dx, dy
 
@@ -27,15 +17,15 @@ subroutine write_climatology_file
   call mpp_get_current_pelist(pes)
 
   ! assign time
-  timedata=[1, 2, 3]
+  timedata=[2, 4, 6, 8, 10]
 
   !assign latdata
   dx = 1.0
   dy = 1.0
 
   do i=1, nlonlat
-     latdata(i)= real(2*(i-1))
-     londata(i)= real(2*(i-1))
+     latdata(i)= real(2*i-1)
+     londata(i)= real(2*i-1)
   end do
 
   lonbdata(1)=0.0
@@ -44,8 +34,8 @@ subroutine write_climatology_file
      lonbdata(i)=0.5*(londata(i-1)+londata(i))
      latbdata(i)=0.5*(latdata(i-1)+latdata(i))
   enddo
-  lonbdata(nlonlat+1)=real(2*(nlonlat-1))
-  latbdata(nlonlat+1)=real(2*(nlonlat-1))
+  lonbdata(nlonlat+1)=real(2*nlonlat-1)
+  latbdata(nlonlat+1)=real(2*nlonlat-1)
 
   !p data
   pfulldata=[0.0001, 0.0003, 0.0005]
@@ -56,7 +46,7 @@ subroutine write_climatology_file
      do j=1, npfull
         do k=1, nlonlat
            do l=1, nlonlat
-              ozonedata(l,k,j,i)=real(j)
+              ozonedata(l,k,j,i)=real(i)
            end do
         end do
      end do

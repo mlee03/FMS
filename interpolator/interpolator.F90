@@ -2550,7 +2550,6 @@ select case(clim_type%level_type)
 end select
 
 
-
 col_data(:,:)=0.0
 select case(clim_type%mr(i))
   case(NO_CONV)
@@ -2612,6 +2611,7 @@ do j = 1, size(phalf,2)
 !              pclim( maxloc(pclim)) = 0
          end select
       endif
+
       select case(clim_type%vert_interp(i))
          case(INTERP_WEIGHTED_P)
             call interp_weighted_scalar(pclim, phalf(ilon,j,:),hinterp_data(ilon,j,:),interp_data(ilon,j,:))
