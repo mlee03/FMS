@@ -314,6 +314,4 @@ call interpolator( o3, model_time, p_half, model_data, "ozone", is, js)
 
 end subroutine get_ozone
 
-#include "test_interpolator_write_climatology.inc"
-
 end program test_interpolator
