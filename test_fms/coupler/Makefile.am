@@ -29,15 +29,16 @@ AM_CPPFLAGS = -I${top_srcdir}/include -I$(MODDIR)
 LDADD = ${top_builddir}/libFMS/libFMS.la
 
 # Build this test program.
-check_PROGRAMS = test_coupler_2d test_coupler_3d
+check_PROGRAMS = test_coupler_2d test_coupler_3d test_atmos_ocean_fluxes
 
 # This is the source code for the test.
 test_coupler_2d_SOURCES = test_coupler_2d.F90
 test_coupler_3d_SOURCES = test_coupler_3d.F90
+test_atmos_ocean_fluxes_SOURCES = test_atmos_ocean_fluxes.F90
 
 TEST_EXTENSIONS = .sh
 SH_LOG_DRIVER = env AM_TAP_AWK='$(AWK)' $(SHELL) \
-                  $(abs_top_srcdir)/test_fms/tap-driver.sh
+									$(abs_top_srcdir)/test_fms/tap-driver.sh
 
 # Run the test program.
 TESTS = test_coupler.sh

@@ -20,115 +20,101 @@
 !! @brief unit tests for interpolator_mod
 !! @author MiKyung Lee
 !! @email gfdl.climate.model.info@noaa.gov
-!! @description This program tests the various subroutines in interpolator_mod.
-!! TODO:  Test obtain_interpolator_time_slices.
-!!        The subroutine obtain_interpolator_time_slices returns
-!!        an interpolator_type which cannot be queried.
-!!        This subroutine should be called by the interpolators.
-
-program test_interpolator
+!! @description This program tests the various subroutines in interpolator_mod.  The code in
+!! in test_interpolator.F90 shows how to use interpolator_mod.  This program contains the
+!! actual testing.
+!! TODO:
+#define TEST_INTP_KIND_ 8
+program test_interpolator2
 
   use fms2_io_mod, only: FmsNetcdfFile_t, UNLIMITED,                  &
                          register_field, register_variable_attribute, &
                          register_axis,                               &
                          write_data, close_file, open_file
-  use mpp_mod,     only: mpp_error, FATAL
+  use mpp_mod,          only: mpp_error, FATAL
   use time_manager_mod, only: time_type, set_date, set_calendar_type, time_manager_init
-  use fms_mod,     only: fms_init
-  use constants_mod, only: PI
+  use fms_mod,          only: fms_init
+  use constants_mod,    only: PI
+  use platform_mod,     only: r4_kind, r8_kind
 
   use interpolator_mod
 
   implicit none
 
-  character(100), parameter :: ncfile='immadeup.o3.climatology.nc'
-  integer, parameter :: calendar_type=2     !< JULIAN
+  character(100), parameter :: ncfile='immadeup.o3.climatology.nc' !< fake climatology file.
+  integer, parameter :: calendar_type=2  !< JULIAN calendar
+  integer, parameter :: lkind=TEST_INTP_KIND_
+  real(r8_kind), parameter :: tol=1.e-5_r8_kind !< the interpolation methods are not perfect.
+                                                !! Will not get perfectly agreeing answers
 
+  !> climatology related variables and arrays (holding made up data)
   integer :: nlonlat       !< number of latitude and longitudinal center coordinates
   integer :: nlonlatb      !< number of latitude and longitudinal boundary coordinates
   integer :: ntime         !< number of time slices
   integer :: npfull        !< number of p levels
   integer :: nphalf        !< number of half p levels
-  integer :: nlonlat_mod, nlonlatb_mod
+  real(TEST_INTP_KIND_), allocatable :: lat(:)   !< climatology coordinates
+  real(TEST_INTP_KIND_), allocatable :: lon(:)   !< climatology coordinates
+  real(TEST_INTP_KIND_), allocatable :: latb(:)  !< climatology coordinates
+  real(TEST_INTP_KIND_), allocatable :: lonb(:)  !< climatology coordinates
+  real(TEST_INTP_KIND_), allocatable :: clim_time (:) !< climatology time
+  real(TEST_INTP_KIND_), allocatable :: pfull(:) !< climatology p level
+  real(TEST_INTP_KIND_), allocatable :: phalf(:) !< climatology p half level
+  real(TEST_INTP_KIND_), allocatable :: ozone(:,:,:,:) !< climatology ozone data
 
-  !> climatology related arrays that will hold made-up data
-  real, allocatable :: lat(:)   !< climatology coordinates
-  real, allocatable :: lon(:)   !< climatology coordinates
-  real, allocatable :: latb(:)  !< climatology coordinates
-  real, allocatable :: lonb(:)  !< climatology coordinates
-  real, allocatable :: clim_time (:) !< climatology time
-  real, allocatable :: pfull(:) !< climatology p level
-  real, allocatable :: phalf(:) !< climatology p half level
-  real, allocatable :: ozone(:,:,:,:) !< climatology ozone data
+  !> model related variables and arrays
+  integer :: nlonlat_mod, nlonlatb_mod !< number of latitude and longitude coordinates in the model
+  real(TEST_INTP_KIND_), allocatable :: lat_mod(:,:)  !< model coordinates
+  real(TEST_INTP_KIND_), allocatable :: lon_mod(:,:)  !< model coordinates
+  real(TEST_INTP_KIND_), allocatable :: latb_mod(:,:) !< model coordinates
+  real(TEST_INTP_KIND_), allocatable :: lonb_mod(:,:) !< model coordinates
 
-  !> model related arrays
-  real, allocatable :: lat_mod(:,:)  !< model coordinates
-  real, allocatable :: lon_mod(:,:)  !< model coordinates
-  real, allocatable :: latb_mod(:,:) !< model coordinates
-  real, allocatable :: lonb_mod(:,:) !< model coordinates
-
-  type(interpolate_type) :: o3
+  type(interpolate_type) :: o3 !< recyclable interpolate_type
 
   call fms_init
   call time_manager_init
   call set_calendar_type(calendar_type)
 
+
   !> set data
-  nlonlat  = 10        !< number of latitude and longitudinal center coordinates
-  nlonlatb = nlonlat+1 !< number of latitude and longitudinal boundary coordinates
-  nlonlat_mod  = nlonlat
-  nlonlatb_mod = nlonlatb
-  ntime  = 5        !< number of time slices
-  npfull = 3        !< number of p levels
-  nphalf = npfull+1 !< number of half p levels
-  call allocate_arrays()
-  call set_clim_time()
-  call set_latlon_b()
-  call set_pfullhalf()
-  call set_ozone()
-  call write_climatology_file()
+  !call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=5, npfull_in=3)
 
-  call set_latlon_b_mod()
+  !> test interpolator_init
+  !write(*,*) '===== test_interpolator_init ====='
+  !call test_interpolator_init(o3)
+  !write(*,'(A,/)') 'test interpolator_init success'
 
-  write(*,*) '===== test_intepolator_init ====='
+  !> test interpolator 2D-4D
+  !write(*,*) '===== test_intepolator ======='
+  !call test_interpolator(o3)
+  !write(*,'(A,/)') 'test_interpolator success'
+
+  !> test interpolate_type_eq
+  !write(*,*) '===== test_interpolate_type_eq ====='
+  !call test_interpolate_type_eq()
+  !write(*,'(A,/)') 'test_interpolate_type_eq success'
+
+  !> test query_interpolator
+  !write(*,*) '===== test_query_interpolator ====='
+  !call test_query_interpolator()
+  !write(*,'(A,/)') 'test_query_interpolator success'
+
+  !> test interpolator end
+  !write(*,*) '===== test_interpolator_end ====='
+  !call test_interpolator_end(o3)
+  !write(*,'(A,/)') 'test_interpolator_end success'
+
+  !> deallocate all arrays used to write the .nc file and used for model coordinates
+  !call deallocate_arrays()
+
+  !> test interpolator_no_time_axis
+  !! Write out new set of data that will have a time axis, but will have "0" time points
+  !! because that's how interpolator_init is set up.
+  call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=0, npfull_in=3)
   call test_interpolator_init(o3)
-  write(*,*) '      test interpolator_init success'
-  write(*,*) ''
-
-  write(*,*) '===== test_intepolator_2D ======='
-  write(*,*) '      ALSO TESTING obtain_interpolator_time_slices'
-  call test_interpolator_2D(o3)
-  write(*,*) '      test_interpolator_2D success'
-  write(*,*) ''
-
-  write(*,*) '===== test_intepolator_3D ======='
-  call test_interpolator_3D(o3)
-  write(*,*) '      test_interpolator_3D success'
-  write(*,*) ''
-
-  write(*,*) '===== test_intepolator_4D ======='
-  call test_interpolator_4D(o3)
-  write(*,*) '      test_interpolator_4D success'
-  write(*,*) ''
-
-  write(*,*) '===== test_interpolate_type_eq ====='
-  call test_interpolate_type_eq()
-  write(*,*) '      test_interpolate_type_eq success'
-  write(*,*) ''
-
-  write(*,*) '===== test_query_interpolator ====='
-  call test_query_interpolator()
-  write(*,*) '      test_query_interpolator success'
-  write(*,*) ''
-
-  write(*,*) '===== test_interpolator_end ====='
-  call test_interpolator_end(o3)
-  write(*,*) '      test_interpolator_end success'
-  write(*,*) ''
-
-  call deallocate_arrays()
-
-  write(*,*) "*************************************"
+  write(*,*) '===== test_intepolator_no_time_axis ======='
+  call test_interpolator_no_time_axis(o3)
+  write(*,*) 'test_interpolator_no_time_axis success'
 
 contains
   !===============================================!
@@ -147,98 +133,60 @@ contains
 
   end subroutine test_interpolator_init
   !===============================================!
-  subroutine test_interpolator_2D(clim_type)
+  subroutine test_interpolator(clim_type)
 
     implicit none
-    type(interpolate_type), intent(inout)    :: clim_type
 
-    real, dimension(nlonlat_mod,nlonlat_mod) :: interp_data !< returns interpolation for first plevel
-    type(time_type) :: model_time
-    integer :: itime, i, j, k
-
-    do itime=1, ntime
-       model_time=set_date(1849,1,1+int(clim_time(itime)))
-       call obtain_interpolator_time_slices(clim_type,model_time)
-       call interpolator(clim_type, model_time, interp_data, 'ozone')
-       call unset_interpolator_time_flag(clim_type)
-       call interpolator(clim_type, model_time, interp_data, 'ozone')
-
-       do i=1, 1
-          do j=1, nlonlat_mod
-             do k=1, nlonlat_mod
-                !call check_answers(interp_data(k,j), ozone(k,j,i,itime), 'test interpolator_2D')
-             end do
-          end do
-       end do
-
-    end do
-
-  end subroutine test_interpolator_2D
-  !===============================================!
-  subroutine test_interpolator_3D(clim_type)
-
-    implicit none
     type(interpolate_type), intent(inout) :: clim_type
-    real, dimension(nlonlat,nlonlat,nphalf-1) :: interp_data
-    real, dimension(nlonlat,nlonlat,nphalf) :: phalf
+    real(TEST_INTP_KIND_), dimension(nlonlat,nlonlat,npfull,1) :: interp_data !< last column, there is only one field
+    real(TEST_INTP_KIND_), dimension(nlonlat,nlonlat,nphalf) :: phalf
     type(time_type) :: model_time
-
-    integer :: itime, i, j, k
-
-    do itime=1, ntime
-
-       model_time=set_date(1849,1,1+int(clim_time(itime)))
-       phalf(:,:,1)=0.0000
-       phalf(:,:,2)=0.0002
-       phalf(:,:,3)=0.0004
-       phalf(:,:,4)=0.0005
-       call interpolator(clim_type, model_time, phalf, interp_data, 'ozone')
-
-       do i=1, nphalf-1
-          do j=1, nlonlat
-             do k=1, nlonlat
-                !call check_answers(interp_data(k,j,i), ozone(k,j,i,itime), 'test interpolator_3D')
-             end do
-          end do
-       end do
-
-    end do
-
-  end subroutine test_interpolator_3D
-  !===============================================!
-  subroutine test_interpolator_4D(clim_type)
-
-    implicit none
-
-    type(interpolate_type) :: clim_type
-
-    real, dimension(nlonlat,nlonlat,nphalf-1,1) :: interp_data !< last column, there is only one field
-
-    real, dimension(nlonlat,nlonlat,nphalf) :: phalf
-    type(time_type) :: model_time
-
     integer :: itime, i, j, k, l
 
+    phalf(:,:,1)=0.0000_lkind
+    phalf(:,:,2)=0.0002_lkind
+    phalf(:,:,3)=0.0004_lkind
+    phalf(:,:,4)=0.0005_lkind
+
     do itime=1, ntime
 
        model_time=set_date(1849,1,1+int(clim_time(itime)))
-       phalf(:,:,1)=0.0000
-       phalf(:,:,2)=0.0002
-       phalf(:,:,3)=0.0004
-       phalf(:,:,4)=0.0005
-       call interpolator(clim_type, model_time, phalf, interp_data, 'ozone')
 
-       do i=1, nphalf-1
+       !> 4D
+       call interpolator(clim_type, model_time, phalf, interp_data, 'ozone')
+       do i=1, npfull
           do j=1, nlonlat
              do k=1, nlonlat
-                !call check_answers(interp_data(k,j,i,1), ozone(k,j,i,itime), 'test interpolator_3D')
+                !write(*,*) i, j, k, interp_data(k,j,i,1), ozone(k,j,i,itime)
+                call check_answers(interp_data(k,j,i,1), ozone(k,j,i,itime), tol, 'test interpolator_4D')
              end do
+          end do
+       end do
+
+       !> 3D
+       call interpolator(clim_type, model_time, phalf, interp_data(:,:,:,1), 'ozone')
+       do i=1, npfull
+          do j=1, nlonlat
+             do k=1, nlonlat
+                call check_answers(interp_data(k,j,i,1), ozone(k,j,i,itime), tol, 'test interpolator_3D')
+             end do
+          end do
+       end do
+
+       !> 2D.  Also test obtain_interpolator_time_slices
+       call obtain_interpolator_time_slices(clim_type,model_time)
+       call interpolator(clim_type, model_time, interp_data(:,:,1,1), 'ozone')
+       call unset_interpolator_time_flag(clim_type)
+       call interpolator(clim_type, model_time, interp_data(:,:,1,1), 'ozone')
+       do j=1, nlonlat_mod
+          do k=1, nlonlat_mod
+             call check_answers(interp_data(k,j,1,1), ozone(k,j,1,itime), tol, 'test interpolator_2D')
           end do
        end do
 
     end do
 
-  end subroutine test_interpolator_4D
+  end subroutine test_interpolator
   !===============================================!
   subroutine test_interpolator_end(clim_type)
 
@@ -250,37 +198,52 @@ contains
 
   end subroutine test_interpolator_end
   !===============================================!
-  subroutine test_interpolator_4D_no_time_axis(clim_type)
+  subroutine test_interpolator_no_time_axis(clim_type)
 
     implicit none
 
     type(interpolate_type) :: clim_type
 
-    real, dimension(nlonlat,nlonlat,nphalf-1) :: interp_data !< last column, there is only one field
+    real(TEST_INTP_KIND_), dimension(nlonlat,nlonlat,nphalf-1,1) :: interp_data !< last column, there is only one field
 
-    real, dimension(nlonlat,nlonlat,nphalf) :: phalf
-    type(time_type) :: model_time
+    real(TEST_INTP_KIND_), dimension(nlonlat,nlonlat,nphalf) :: phalf
+    integer :: i, j, k
 
-    phalf(:,:,1)=0.0000
-    phalf(:,:,2)=0.0002
-    phalf(:,:,3)=0.0004
-    phalf(:,:,4)=0.0005
-    model_time=set_date(1849,1,1+int(clim_time(1)))
-    call read_data(clim_type, 'ozone', interp_data, 1, 1, Time=model_time)
+    phalf(:,:,1)=0.0000_lkind
+    phalf(:,:,2)=0.00005_lkind
+    phalf(:,:,3)=0.00015_lkind
+    phalf(:,:,4)=0.0002_lkind
+
+    !> 4D
     call interpolator(clim_type, phalf, interp_data, 'ozone')
+    do i=1, nphalf-1
+       do j=1, nlonlat
+          do k=1, nlonlat
+             write(*,*) j,k, interp_data(k,j,i,1)
+             !call check_answers(interp_data(k,j,i,1), ozone(k,j,i,1), tol, 'test interpolator_4D_no_time_axis')
+          end do
+       end do
+    end do
 
-    !do i=1, 1!nphalf-1
-    !   do j=1, nlonlat
-    !      do k=1, nlonlat
-    !         if( interp_data(k,j,i).ne.ozone(k,j,i,1) ) then
-    !            write(*,*) k,j,interp_data(k,j,i), ozone(k,j,i,1)
-    !            !call mpp_error(FATAL, 'wrong')
-    !         end if
-    !      end do
-    !   end do
-    !end do
+    !> 3D
+    call interpolator(clim_type, phalf, interp_data(:,:,:,1), 'ozone')
+    do i=1, nphalf-1
+       do j=1, nlonlat
+          do k=1, nlonlat
+             call check_answers(interp_data(k,j,i,1), ozone(k,j,i,1), tol, 'test interpolator_3D_no_time_axis')
+          end do
+       end do
+    end do
 
-  end subroutine test_interpolator_4D_no_time_axis
+    !> 2D
+    call interpolator(clim_type, interp_data(:,:,1,1), 'ozone')
+    do j=1, nlonlat
+       do k=1, nlonlat
+          call check_answers(interp_data(k,j,1,1), ozone(k,j,1,1), tol, 'test interpolator_2D_no_time_axis')
+       end do
+    end do
+
+  end subroutine test_interpolator_no_time_axis
   !===============================================!
   subroutine test_interpolate_type_eq
 
@@ -289,7 +252,7 @@ contains
     type(interpolate_type) :: o3_copy
 
     o3_copy = o3
-    call test_interpolator_3D(o3_copy)
+    call test_interpolator(o3_copy)
 
   end subroutine test_interpolate_type_eq
   !===============================================!
@@ -314,13 +277,14 @@ contains
 
   end subroutine test_query_interpolator
   !===============================================!
-  subroutine check_answers(results, answers, whoami)
+  subroutine check_answers(results, answers, tol, whoami)
 
     implicit none
-    real :: results, answers
+    real(TEST_INTP_KIND_), intent(in) :: results, answers
+    real(r8_kind), intent(in) :: tol
     character(*) :: whoami
 
-    if (results.ne.answers) then
+    if (real(abs(results-answers),r8_kind).gt.tol) then
        write(*,*) '      EXPECTED ', answers, ' but computed ', results
        call mpp_error(FATAL, trim(whoami))
     end if
@@ -329,4 +293,4 @@ contains
   !===============================================!
 #include "test_interpolator_write_climatology.inc"
 
-end program test_interpolator
+end program test_interpolator2

@@ -909,6 +909,7 @@ endif
     call horiz_interp_new (clim_type%interph, &
                         clim_type%lonb, clim_type%latb, &
                         lonb_mod, latb_mod)
+
  else
 
     call mpp_error(NOTE, "Using Bilinear interpolation")
@@ -3101,7 +3102,7 @@ if(present(clim_units)) then
 endif
 
 do n=1, size(clim_type%field_name(:))
-  hinterp_data(:,:,:,n) = clim_type%data(istart:iend,jstart:jend,:,1,n)
+   hinterp_data(:,:,:,n) = clim_type%data(istart:iend,jstart:jend,:,1,n)
 end do
 
 select case(clim_type%level_type)
@@ -3553,6 +3554,7 @@ real, allocatable :: climdata(:,:,:), climdata2(:,:,:)
       else  ! no vertical level
          call fms2_io_read_data(clim_type%fileobj,field_name, climdata(:,:,1))
       endif
+
 !  if vertical index increases upward, flip the data so that lowest
 !  pressure level data is at index 1, rather than the highest pressure
 !  level data. the indices themselves were previously flipped.
@@ -3569,6 +3571,7 @@ real, allocatable :: climdata(:,:,:), climdata2(:,:,:)
       endif
 
       call horiz_interp(clim_type%interph, climdata, hdata)
+
       deallocate(climdata)
 
 end subroutine read_data_no_time_axis

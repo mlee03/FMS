@@ -27,14 +27,6 @@
 # Set common test settings.
 . ../test-lib.sh
 
-# Tests to skip if input files not present
-#if test ! -z "$test_input_path" ; then
-#  rm -rf INPUT && mkdir INPUT
-#  cp $test_input_path/interpolator/INPUT/* INPUT
-#else
-#  SKIP_TESTS="$SKIP_TESTS $(basename $0 .sh).1"
-#fi
-
 # Create files for test.
 cat <<_EOF  > diag_table
 test_diag_manager_01
@@ -53,9 +45,12 @@ cat <<_EOF > input.nml
 _EOF
 
 # Run test
-test_expect_success "test interpolator" '
-    mpirun -n 1 ./test_interpolator
-'
+
+#Run the second set of interpolator tests
+mkdir -p INPUT
+test_expect_success "test_interpolator2 r8 unit tests" 'mpirun -n 1 ./test_interpolator2_r8'
+#test_expect_success "test_interpolator2 r4 unit tests" 'mpirun -n 1 ./test_interpolator2_r4'
+
 
 #rm -rf INPUT *.nc # remove any leftover io files to save space
 

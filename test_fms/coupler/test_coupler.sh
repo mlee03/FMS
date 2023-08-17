@@ -40,6 +40,10 @@ test_expect_success "2D coupler" '
 test_expect_success "3D coupler" '
   mpirun -n 1 ./test_coupler_3d
 '
+
+test_expect_success "atmos_ocean_flux" 'mpirun -n 1 ./test_atmos_ocean_fluxes'
+
+
 rm -rf RESTART
 
 test_done

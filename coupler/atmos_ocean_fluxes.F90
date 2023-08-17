@@ -148,6 +148,8 @@ contains
     character(len=256)                                      :: long_err_msg
     integer :: verbose !< An integer indicating the level of verbosity.
 
+    call mpp_error(FATAL, "failing")
+
     verbose = 5 ! Default verbosity level
     if (present(verbosity)) verbose = verbosity
 
@@ -206,8 +208,11 @@ contains
     endif
 
     ! Set a new coupler flux and get its index.
-    coupler_index = fm_new_list(coupler_list)
+    write(*,*) coupler_list
+    coupler_index = fm_new_list(trim(coupler_list))
+    write(*,*) coupler_index
     if (coupler_index .le. 0) then
+       write(*,*) 'here2'
       call mpp_error(FATAL, trim(error_header) // ' Could not set coupler flux ')
     endif
 

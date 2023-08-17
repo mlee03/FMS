@@ -1,3 +1,4 @@
+#define TEST_INTP_KIND_ 8
 subroutine write_climatology_file
 
   implicit none
@@ -10,7 +11,7 @@ subroutine write_climatology_file
   real :: dx, dy
 
   ! write netcdf file
-  if(open_file(fileobj, 'INPUT'//trim(ncfile), 'overwrite')) then
+  if(open_file(fileobj, 'INPUT/'//trim(ncfile), 'overwrite')) then
      call register_axis(fileobj, 'time', UNLIMITED)
      call register_axis(fileobj, 'lon',   nlonlat)
      call register_axis(fileobj, 'lat',   nlonlat)
@@ -22,51 +23,57 @@ subroutine write_climatology_file
      call register_axis(fileobj, 'latitude',  nlonlat)
 
      !time axes
+     !if(ntime /=0 ) then
      call register_field(fileobj, 'time', 'double', dimensions=(/'time'/))
      call register_string_attribute(fileobj, 'time', 'axis', 'T')
      call register_string_attribute(fileobj, 'time', 'calendar', 'noleap')
      call register_string_attribute(fileobj, 'time', 'climatology', '1979-01-01 00:00:00, 1998-01-01 00:00:00')
      call register_string_attribute(fileobj, 'time', 'units', 'days since 1849-01-01 00:00:00')
+     !end if
 
      !lon axes
-     call register_field(fileobj, 'lon', 'float', dimensions=(/'longitude'/))
+     call register_field(fileobj, 'lon', 'double', dimensions=(/'longitude'/))
      call register_string_attribute(fileobj, 'lon', 'edges', 'lonb')
      call register_string_attribute(fileobj, 'lon', 'cartesian_axis', 'X')
      call register_string_attribute(fileobj, 'lon', 'units', 'degrees_east')
 
      !lonb  axes longitude edges
-     call register_field(fileobj, 'lonb', 'float', dimensions=(/'lonb'/))
+     call register_field(fileobj, 'lonb', 'double', dimensions=(/'lonb'/))
      call register_string_attribute(fileobj, 'lonb', 'cartesian_axis','X')
      call register_string_attribute(fileobj, 'lonb', 'units', 'degrees_edges')
 
      !lat
-     call register_field(fileobj, 'lat', 'float', dimensions=(/'latitude'/))
+     call register_field(fileobj, 'lat', 'double', dimensions=(/'latitude'/))
      call register_string_attribute(fileobj, 'lat', 'edges', 'latb')
      call register_string_attribute(fileobj, 'lat', 'cartesian_axis', 'Y')
      call register_string_attribute(fileobj, 'lat', 'units', 'degrees_north')
 
      !latb latitude_edges
-     call register_field(fileobj, 'latb', 'float', dimensions=(/'latb'/))
+     call register_field(fileobj, 'latb', 'double', dimensions=(/'latb'/))
      call register_string_attribute(fileobj, 'latb', 'cartesian_axis', 'Y')
      call register_string_attribute(fileobj, 'latb', 'units', 'degrees_N')
 
      !pfull layer-mean pressure
-     call register_field(fileobj, 'pfull', 'float', dimensions=(/'pfull'/))
+     call register_field(fileobj, 'pfull', 'double', dimensions=(/'pfull'/))
      call register_string_attribute(fileobj, 'pfull', 'positive', 'down')
      call register_string_attribute(fileobj, 'pfull', 'cartesian_axis', 'Z')
      call register_string_attribute(fileobj, 'pfull', 'units', 'hPa')
 
      !phalf half pressure level
-     call register_field(fileobj, 'phalf', 'float', dimensions=(/'phalf'/))
+     call register_field(fileobj, 'phalf', 'double', dimensions=(/'phalf'/))
      call register_string_attribute(fileobj, 'phalf', 'positive', 'down')
      call register_string_attribute(fileobj, 'phalf', 'cartesian_axis', 'Z')
      call register_string_attribute(fileobj, 'phalf', 'units', 'hPa')
 
      !ozone ozone mass mixing ratio
-     call register_field(fileobj, 'ozone', 'float', dimensions=(/'lon','lat','pfull','time'/))
+     if( ntime==0 ) then
+        call register_field(fileobj, 'ozone', 'double', dimensions=(/'lon  ','lat  ','pfull'/))
+     else
+        call register_field(fileobj, 'ozone', 'double', dimensions=(/'lon  ','lat  ','pfull','time '/))
+     end if
      call register_string_attribute(fileobj, 'ozone', 'units', 'kg/kg')
 
-     call write_data(fileobj, 'time',  clim_time)
+     if(ntime /= 0 ) call write_data(fileobj, 'time',  clim_time)
      call write_data(fileobj, 'lon',   lon)
      call write_data(fileobj, 'lonb',  lonb)
      call write_data(fileobj, 'lat',   lat)
@@ -97,14 +104,19 @@ end subroutine register_string_attribute
 subroutine allocate_arrays()
 
   implicit none
-  allocate( lat(nlonlat),   &
-            lon(nlonlat),   &
-            latb(nlonlatb), &
-            lonb(nlonlatb), &
-            clim_time(ntime),    &
-            pfull(npfull),  &
-            phalf(nphalf),  &
-            ozone(nlonlat, nlonlat, npfull, ntime) )
+  integer :: ntime2
+
+  ntime2=ntime
+  if(ntime==0) ntime2=1
+
+  allocate( lat(nlonlat),     &
+            lon(nlonlat),     &
+            latb(nlonlatb),   &
+            lonb(nlonlatb),   &
+            clim_time(ntime2),&
+            pfull(npfull),    &
+            phalf(nphalf),    &
+            ozone(nlonlat, nlonlat, npfull, ntime2) )
 
   allocate( lat_mod(nlonlat_mod, nlonlat_mod),    &
             lon_mod(nlonlat_mod, nlonlat_mod),    &
@@ -131,6 +143,29 @@ subroutine deallocate_arrays()
 
 end subroutine deallocate_arrays
 !===============================================!
+subroutine set_write_data(nlonlat_in, nlonlat_mod_in, ntime_in, npfull_in)
+
+  implicit none
+  integer, intent(in) :: nlonlat_in, nlonlat_mod_in, ntime_in, npfull_in
+
+  nlonlat  = nlonlat_in   !< number of latitude and longitudinal center coordinates
+  nlonlatb = nlonlat_in+1 !< number of latitude and longitudinal boundary coordinates
+  nlonlat_mod  = nlonlat_mod_in
+  nlonlatb_mod = nlonlat_mod_in+1
+  ntime  = ntime_in    !< number of time slices
+  npfull = npfull_in   !< number of p levels
+  nphalf = npfull_in+1 !< number of half p levels
+  call allocate_arrays()
+  if( ntime /= 0) call set_clim_time()
+  call set_latlon_b()
+  call set_pfullhalf()
+  call set_ozone()
+  call write_climatology_file()
+
+  call set_latlon_b_mod()
+
+end subroutine set_write_data
+!===============================================!
 subroutine set_clim_time()
 
   implicit none
@@ -148,15 +183,15 @@ subroutine set_latlon_b()
   integer :: i
 
   do i=1, nlonlat
-     lat(i)= real(2*i-1)
-     lon(i)= real(2*i-1)
+     lat(i)= real(2*i-1,TEST_INTP_KIND_)
+     lon(i)= real(2*i-1,TEST_INTP_KIND_)
   end do
 
-  lonb(1)=0.0
-  latb(1)=0.0
+  lonb(1)=1.0_lkind
+  latb(1)=1.0_lkind
   do i=2,nlonlat
-     lonb(i)=0.5*(lon(i-1)+lon(i))
-     latb(i)=0.5*(lat(i-1)+lat(i))
+     lonb(i)=0.5_lkind*(lon(i-1)+lon(i))
+     latb(i)=0.5_lkind*(lat(i-1)+lat(i))
   enddo
   lonb(nlonlat+1)=real(2*nlonlat-1)
   latb(nlonlat+1)=real(2*nlonlat-1)
@@ -167,28 +202,36 @@ end subroutine set_latlon_b
 subroutine set_latlon_b_mod
 
   implicit none
-  integer :: i
+  integer :: i, j
 
   !> the model grid and the climatology grid are the same
-  do i=1, nlonlat_mod
-     lon_mod(:,i) = real(2*i-1)
-     lat_mod(i,:) = real(2*i-1)
+  do i=1, nlonlat
+     lon_mod(:,i) = real(2*i-1,TEST_INTP_KIND_)
+     lat_mod(i,:) = real(2*i-1,TEST_INTP_KIND_)
   end do
 
-  lonb_mod(1:nlonlat,1)=0.0
-  latb_mod(1,1:nlonlat)=0.0
-  do i=2, nlonlatb_mod
-     lonb_mod(1:nlonlat,i)=0.5*(lon_mod(:,i-1)+lon_mod(:,i))
-     latb_mod(i,1:nlonlat)=0.5*(lat_mod(i-1,:)+lat_mod(i,:))
+  lonb_mod(1:nlonlatb,1)=1.0_lkind
+  latb_mod(1,1:nlonlatb)=1.0_lkind
+  do i=1, nlonlat-1
+     lonb_mod(1:nlonlatb,i+1)=2*i
+     latb_mod(i+1,1:nlonlatb)=2*i
+     write(*,*) lonb_mod(:,i+1)
   end do
-  lonb_mod(1:nlonlat,nlonlat+1)=real(2*nlonlat-1)
-  latb_mod(nlonlat+1,1:nlonlat)=real(2*nlonlat-1)
+  lonb_mod(1:nlonlatb,nlonlatb)=real(2*nlonlat-1,TEST_INTP_KIND_)
+  latb_mod(nlonlatb,1:nlonlatb)=real(2*nlonlat-1,TEST_INTP_KIND_)
 
   !> convert from degrees to radians
-  lon_mod  = lon_mod*PI/180.0
-  lat_mod  = lat_mod*PI/180.0
-  lonb_mod = lonb_mod*PI/180.0
-  latb_mod = latb_mod*PI/180.0
+  lon_mod  = lon_mod*real(PI,TEST_INTP_KIND_)/180.0_lkind
+  lat_mod  = lat_mod*real(PI,TEST_INTP_KIND_)/180.0_lkind
+  lonb_mod = lonb_mod*real(PI,TEST_INTP_KIND_)/180.0_lkind
+  latb_mod = latb_mod*real(PI,TEST_INTP_KIND_)/180.0_lkind
+
+  !do i=1, nlonlatb_mod
+  !   do j=1, nlonlatb_mod
+  !      write(*,*) j, i, lonb_mod(j,i)
+  !   end do
+  !end do
+
 
 end subroutine set_latlon_b_mod
 !===============================================!
@@ -198,12 +241,12 @@ subroutine set_pfullhalf()
   integer :: i
 
   do i=1, npfull
-     pfull(i) = 0.0001 * real(i-1)
+     pfull(i) = 0.0001_lkind * real(i-1,TEST_INTP_KIND_)
   end do
 
-  phalf(1)=0.0
+  phalf(1)=0.0_lkind
   do i=2, npfull
-     phalf(i)=0.5*( pfull(i)+pfull(i-1) )
+     phalf(i)=0.5_lkind*( pfull(i)+pfull(i-1) )
   end do
   phalf(npfull+1)=pfull(npfull)
 
@@ -213,12 +256,16 @@ subroutine set_ozone()
 
   implicit none
   integer :: i, j, k, l
+  integer :: ntime2
 
-  do i=1, ntime
+  ntime2=ntime
+  if(ntime == 0 ) ntime2=1
+
+  do i=1, ntime2
      do j=1, npfull
         do k=1, nlonlat
            do l=1, nlonlat
-              ozone(l,k,j,i)=real(i)
+              ozone(l,k,j,i)=real(i,TEST_INTP_KIND_)
            end do
         end do
      end do
