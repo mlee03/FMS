@@ -19,14 +19,23 @@
 
 !> This file contains subroutines that initialize data and write out the climatology file.
 
-subroutine write_climatology_file
+subroutine write_climatology_file(daily, monthly, yearly)
 
   implicit none
+
+  logical, intent(inout) :: daily, monthly, yearly
 
   type(FmsNetcdfFile_t) :: fileobj
   integer :: i,j,k,l, itime
   integer :: stringlen
   character(100) :: mystring
+
+  if( daily.eq.monthly .and. monthly.eq.yearly ) then
+     call mpp_error(WARNING, "write_climatology_file only daily, monthly, or yearly must be true.  Going with daily")
+     daily=.true.
+     monthly=.false.
+     yearly=.false.
+  end if
 
   ! write netcdf file
   if(open_file(fileobj, 'INPUT/'//trim(ncfile), 'overwrite')) then
@@ -46,7 +55,9 @@ subroutine write_climatology_file
      call register_string_attribute(fileobj, 'time', 'axis', 'T')
      call register_string_attribute(fileobj, 'time', 'calendar', 'noleap')
      call register_string_attribute(fileobj, 'time', 'climatology', '1979-01-01 00:00:00, 1998-01-01 00:00:00')
-     call register_string_attribute(fileobj, 'time', 'units', 'days since 1849-01-01 00:00:00')
+     if(daily)   call register_string_attribute(fileobj, 'time', 'units', 'days since 1849-01-01 00:00:00')
+     if(monthly) call register_string_attribute(fileobj, 'time', 'units', 'months since 1849-01-01 00:00:00')
+     if(yearly)  call register_string_attribute(fileobj, 'time', 'units', 'years since 1849-01-01 00:00:00')
      !end if
 
      !lon axes
@@ -161,10 +172,18 @@ subroutine deallocate_arrays()
 
 end subroutine deallocate_arrays
 !===============================================!
-subroutine set_write_data(nlonlat_in, nlonlat_mod_in, ntime_in, npfull_in)
+subroutine set_write_data(nlonlat_in, nlonlat_mod_in, ntime_in, npfull_in, daily, monthly, yearly)
 
   implicit none
   integer, intent(in) :: nlonlat_in, nlonlat_mod_in, ntime_in, npfull_in
+  logical, intent(in), optional :: daily, monthly, yearly
+
+  logical :: daily_in, monthly_in, yearly_in
+
+  daily_in=.true. ; monthly_in=.false. ; yearly_in=.false.
+  if(present(daily))   daily_in=daily
+  if(present(monthly)) monthly_in=monthly
+  if(present(yearly))  yearly_in=yearly
 
   nlonlat  = nlonlat_in   !< number of latitude and longitudinal center coordinates
   nlonlatb = nlonlat_in+1 !< number of latitude and longitudinal boundary coordinates
@@ -178,7 +197,7 @@ subroutine set_write_data(nlonlat_in, nlonlat_mod_in, ntime_in, npfull_in)
   call set_latlon_b()
   call set_pfullhalf()
   call set_ozone()
-  call write_climatology_file()
+  call write_climatology_file(daily_in, monthly_in, yearly_in)
 
   call set_latlon_b_mod()
 

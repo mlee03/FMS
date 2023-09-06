@@ -31,7 +31,7 @@ program test_interpolator2
                          register_field, register_variable_attribute, &
                          register_axis,                               &
                          write_data, close_file, open_file
-  use mpp_mod,          only: mpp_error, FATAL
+  use mpp_mod,          only: mpp_error, FATAL, WARNING
   use time_manager_mod, only: time_type, set_date, set_calendar_type, time_manager_init
   use fms_mod,          only: fms_init
   use constants_mod,    only: PI
@@ -76,7 +76,7 @@ program test_interpolator2
   call set_calendar_type(calendar_type)
 
   !> set data
-  call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=5, npfull_in=3)
+  call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=5, npfull_in=3, daily=.true.)
 
   !> test interpolator_init
   write(*,*) '===== test_interpolator_init ====='

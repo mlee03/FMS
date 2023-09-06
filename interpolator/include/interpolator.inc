@@ -153,6 +153,11 @@ type(FmsNetcdfFile_t) :: fileobj
 integer, parameter :: lkind=FMS_INTP_KIND_
 real(FMS_INTP_KIND_), parameter :: lPI=real(PI,FMS_INTP_KIND_)
 
+logical :: monthly, yearly !< flags to indicate if time data is in units of months or years
+integer :: num_year        !< variables for yearly=.true.
+real(FMS_INTP_KIND_) :: num_days, frac_year !< variables for yearly=.true.
+integer :: nn !< counter
+
 clim_type%separate_time_vary_calc = .false.
 
 num_fields = 0
@@ -332,6 +337,8 @@ if(dimension_exists(fileobj, "time")) then
    filehr  = 0
    filemin = 0
    filesec = 0
+   monthly = .false.
+   yearly  = .false.
    select case(units(:3))
      case('day')
        fileunits = units(12:) !Assuming "days since YYYY-MM-DD HH:MM:SS"
@@ -363,8 +370,25 @@ if(dimension_exists(fileobj, "time")) then
        read(fileunits(12:13), *)  filehr
        read(fileunits(15:16), *)  filemin
        read(fileunits(18:19), *)  filesec
+       monthly = .true.
+    case( 'yea')
+       fileunits = units(13:) !Assuming "years since YYYY-MM-DD HH:MM:SS"
+       if ( len_trim(fileunits) < 19 ) then
+         write(error_mesg, '(A49,A,A51,A)' ) &
+           'Interpolator_init : Incorrect time units in file ', &
+           trim(file_name), '. Expecting years since YYYY-MM-DD HH:MM:SS, found', &
+           trim(units)
+         call mpp_error(FATAL,error_mesg)
+       endif
+       read(fileunits(1:4)  , *)  fileyr
+       read(fileunits(6:7)  , *)  filemon
+       read(fileunits(9:10) , *)  fileday
+       read(fileunits(12:13), *)  filehr
+       read(fileunits(15:16), *)  filemin
+       read(fileunits(18:19), *)  filesec
+       yearly = .true.
      case default
-       call mpp_error(FATAL,'Interpolator_init : Time units not recognised in file '//file_name)
+       call mpp_error(FATAL,'Interpolator_init : Time units not recognized in file '//file_name)
    end select
 
    clim_type%climatological_year = (fileyr == 0)
@@ -430,6 +454,20 @@ if(dimension_exists(fileobj, "time")) then
       clim_type%clim_times = set_time(0,0) + base_time
       call fms2_io_read_data(fileobj, "time", time_in)
       ntime_in = ntime
+      ! convert number of years passed to days
+      ! so far, if both calendars are Julian
+      if(yearly) then
+         do n = 1, ntime
+            num_days  = 0.0
+            num_year  = int(time_in(n))
+            frac_year = time_in(n) - real(num_year, FMS_INTP_KIND_)
+            do nn=1, num_year
+               num_days = num_days+days_in_year( base_time+set_date(nn-1,0,0) )
+            end do
+            num_days   = num_days + frac_year*days_in_year(base_time+set_date(nn,0,0))
+            time_in(n) = num_days
+         end do
+      end if
       ! determine whether the data is a continuous set of monthly values or
       ! a series of annual cycles spread throughout the period of data
       non_monthly = .false.
@@ -458,9 +496,9 @@ if(dimension_exists(fileobj, "time")) then
            !! time_interp_list with the optional argument modtime=YEAR, so that
            !! the time that is needed in time_slice is the displacement into the
            !! year, not the displacement from a base_time.
-           clim_type%time_slice(n) = &
-               set_time( INT( (time_in(n)-real(INT(time_in(n)),FMS_INTP_KIND_)) &
-                               *real(SECONDS_PER_DAY,FMS_INTP_KIND_)), INT(time_in(n)))
+            clim_type%time_slice(n) = &
+                 set_time( INT( (time_in(n)-real(INT(time_in(n)),FMS_INTP_KIND_)) &
+                 *real(SECONDS_PER_DAY,FMS_INTP_KIND_)), INT(time_in(n)))
          else
 
            !--------------------------------------------------------------------
