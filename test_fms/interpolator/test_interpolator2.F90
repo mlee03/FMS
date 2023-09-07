@@ -1,4 +1,4 @@
- !***********************************************************************
+!***********************************************************************
 !*                   GNU Lesser General Public License
 !*
 !* This file is part of the GFDL Flexible Modeling System (FMS).
@@ -32,7 +32,10 @@ program test_interpolator2
                          register_axis,                               &
                          write_data, close_file, open_file
   use mpp_mod,          only: mpp_error, FATAL, WARNING
-  use time_manager_mod, only: time_type, set_date, set_time, set_calendar_type, time_manager_init, print_date
+  use time_manager_mod, only: time_type, set_calendar_type, time_manager_init, &
+                              get_date_no_leap, get_date_julian, set_date, set_time, &
+                              set_date_no_leap, set_date_julian, &
+                              operator(+), operator(-), time_type_to_real
   use fms_mod,          only: fms_init
   use constants_mod,    only: PI
   use platform_mod,     only: r4_kind, r8_kind
@@ -83,10 +86,10 @@ program test_interpolator2
   call fms_init
   call time_manager_init
   !> set data
-  if(test_daily_noleap)  call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=100, npfull_in=3, daily=.true., noleap=.true.)
-  if(test_daily_julian)  call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=100, npfull_in=3, daily=.true., noleap=.false.)
-  if(test_yearly_noleap) call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=100, npfull_in=3, yearly=.true., noleap=.true.)
-  if(test_yearly_julian) call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=100, npfull_in=3, yearly=.true., noleap=.false.)
+  if(test_daily_noleap)  call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=5, npfull_in=3, daily=.true., noleap=.true.)
+  if(test_daily_julian)  call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=5, npfull_in=3, daily=.true., noleap=.false.)
+  if(test_yearly_noleap) call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=5, npfull_in=3, yearly=.true., noleap=.true.)
+  if(test_yearly_julian) call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=5, npfull_in=3, yearly=.true., noleap=.false.)
 
   !> test interpolator_init with model JULIAN calendar
   calendar_type=2  !< JULIAN calendar
@@ -138,6 +141,7 @@ contains
     real(TEST_INTP_KIND_), dimension(nlonlat,nlonlat,npfull,1) :: interp_data !< last column, there is only one field
     real(TEST_INTP_KIND_), dimension(nlonlat,nlonlat,nphalf) :: phalf
     type(time_type) :: model_time, start_time
+    type(time_type) :: yearly_model_time(5)
     integer :: itime, i, j, k, l
 
     phalf(:,:,1)=0.0000_lkind
@@ -145,15 +149,18 @@ contains
     phalf(:,:,3)=0.0004_lkind
     phalf(:,:,4)=0.0005_lkind
 
-    start_time=set_date(1849,1,1)
+    if(test_yearly_noleap .or. test_yearly_julian) then
+       yearly_model_time(1)=set_date(1850,2, 1,0,0,0)
+       yearly_model_time(2)=set_date(1852,2,28,0,0,0)
+       yearly_model_time(3)=set_date(1900,1, 2,0,0,0)
+       yearly_model_time(4)=set_date(1905,1, 1,0,0,0)
+       yearly_model_time(5)=set_date(1951,12,5,0,0,0)
+    end if
 
     do itime=1, ntime
 
-       !model_time=set_time(0,clim_time(itime))+start_time
-       !if(test_daily_noleap)  model_time=increment_date(start_time, days=int(clim_time(itime)))
-       !if(test_daily_julian)  model_time=increment_date(start_time, days=int(clim_time(itime)))
-       !if(test_yearly_noleap) model_time=increment_date(start_time, years=int(clim_time(itime)))
-       !if(test_yearly_julian) model_time=increment_date(start_time, years=int(clim_time(itime)))
+       !> only when clim_time is not an integer
+       if(test_daily_noleap .or. test_daily_julian) model_time=get_complicated_time(clim_time(itime))
 
        !call print_date(model_time)
 
@@ -323,6 +330,41 @@ contains
 
 
   end subroutine run_test_set
+  !===============================================!
+  function get_complicated_time(days_in)
+
+    implicit none
+    type(time_type) :: get_complicated_time
+    real(TEST_INTP_KIND_), intent(in) :: days_in
+
+    integer, parameter :: seconds_per_day=86400
+    type(time_type) :: tmp_time, base_time
+    integer :: yr, mo, dy, hr, mn, sc
+    real(TEST_INTP_KIND_) :: frac_day
+
+    !1849,1,1
+    if(test_daily_noleap.or.test_yearly_noleap) base_time=set_date_no_leap(1849,1,1,0,0,0)
+    if(test_daily_julian.or.test_yearly_julian) base_time=set_date_julian(1849,1,1,0,0,0)
+    tmp_time = set_time(0,int(days_in)) + base_time
+    frac_day = days_in - real(int(days_in),TEST_INTP_KIND_)
+    if(test_daily_noleap .and. calendar_type==2) then
+       !> daily file calendar = noleap, model calendar = julian
+       call get_date_no_leap(tmp_time, yr, mo, dy, hr, mn, sc)
+       get_complicated_time=set_date(yr, mo, dy, mn, sc)
+    else if(test_daily_noleap .and. calendar_type==4) then
+       !> daily file calendar = noleap, model calendar = noleap
+       get_complicated_time=set_time(int(seconds_per_day*frac_day),int(days_in))+base_time
+    else if(test_daily_julian .and. calendar_type==2) then
+       !> daily file calendar = julian, model_calendar = julian
+       get_complicated_time=set_time(int(seconds_per_day*frac_day),int(days_in))+base_time
+    else if(test_daily_julian .and. calendar_type==4) then
+       !> daily file calendar = julian, model calendar = noleap
+       call get_date_julian(tmp_time, yr, mo, dy, hr, mn, sc)
+       get_complicated_time=set_date(yr, mo, dy, hr, mn, sc)
+    end if
+
+
+  end function get_complicated_time
   !===============================================!
   subroutine check_answers(results, answers, tol, whoami)
 

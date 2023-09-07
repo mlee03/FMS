@@ -159,17 +159,17 @@ end subroutine allocate_arrays
 subroutine deallocate_arrays()
 
   implicit none
-  deallocate( lat,   &
-              lon,   &
-              latb,  &
-              lonb,  &
-              clim_time,  &
+  deallocate( lat,  &
+              lon,  &
+              latb, &
+              lonb, &
+              clim_time, &
               pfull, &
               phalf, &
-              lat_mod,   &
-              lon_mod,   &
-              latb_mod,  &
-              lonb_mod,  &
+              lat_mod,  &
+              lon_mod,  &
+              latb_mod, &
+              lonb_mod, &
               ozone )
 
 end subroutine deallocate_arrays
@@ -210,9 +210,47 @@ subroutine set_clim_time()
   implicit none
   integer :: i
 
-  do i=1, ntime
-     clim_time(i)=2*real(i,lkind) + real(i,lkind)/4.0_lkind
-  end do
+  type(time_type) :: base_time, tmp_time, tmp_time2
+
+  if(test_daily_noleap .or. test_daily_julian) then
+     do i=1, ntime
+        clim_time(i)=2*real(i,lkind) + real(i,lkind)/4.0_lkind
+     end do
+  else if(test_yearly_julian) then
+     base_time=set_date_julian(1849,1,1,0,0,0)
+     ! 1
+     tmp_time=set_date_julian(1850,2,1,0,0,0)
+     clim_time(1)=time_type_to_real(tmp_time-base_time)/365.0_lkind
+     ! 2
+     tmp_time=set_date_julian(1852,2,28,0,0,0) ; tmp_time2=set_date_julian(1852,1,1,0,0,0)
+     clim_time(2)=real(1852-1849,lkind) + time_type_to_real(tmp_time-tmp_time2)/366.0_lkind
+     !3
+     tmp_time=set_date_julian(1900,1,2,0,0,0) ; tmp_time2=set_date_julian(1900,1,1,0,0,0)
+     clim_time(3)=real(1900-1849,lkind) + time_type_to_real(tmp_time-tmp_time2)/366.0_lkind
+     !4
+     tmp_time=set_date_julian(1905,1,1,0,0,0)
+     clim_time(4)=real(1905-1849,lkind)
+     !5
+     tmp_time=set_date_julian(1951,12,5,0,0,0) ; tmp_time2=set_date_julian(1951,1,1,0,0,0)
+     clim_time(5)=real(1951-1849,lkind) + time_type_to_real(tmp_time-tmp_time2)/365.0_lkind
+  else if (test_yearly_noleap) then
+     base_time=set_date_no_leap(1849,1,1,0,0,0)
+     ! 1
+     tmp_time=set_date_no_leap(1850,2,1,0,0,0)
+     clim_time(1)=time_type_to_real(tmp_time-base_time)/365.0_lkind/86400.0_lkind
+     ! 2
+     tmp_time=set_date_no_leap(1852,2,28,0,0,0) ; tmp_time2=set_date_no_leap(1852,1,1,0,0,0)
+     clim_time(2)=real(1852-1849,lkind) + time_type_to_real(tmp_time-tmp_time2)/365.0_lkind/86400._lkind
+     !3
+     tmp_time=set_date_no_leap(1900,1,2,0,0,0) ; tmp_time2=set_date_no_leap(1900,1,1,0,0,0)
+     clim_time(3)=real(1900-1849,lkind) + time_type_to_real(tmp_time-tmp_time2)/365.0_lkind/86400._lkind
+     !4
+     tmp_time=set_date_no_leap(1905,1,1,0,0,0)
+     clim_time(4)=real(1905-1849,lkind)
+     !5
+     tmp_time=set_date_no_leap(1951,12,5,0,0,0) ; tmp_time2=set_date_no_leap(1951,1,1,0,0,0)
+     clim_time(5)=real(1951-1849,lkind) + time_type_to_real(tmp_time-tmp_time2)/365.0_lkind/86400._lkind
+  end if
 
 end subroutine set_clim_time
 !===============================================!
