@@ -59,8 +59,8 @@ test_expect_success "test interpolator" 'mpirun -n 2 ./test_interpolator'
 mkdir -p INPUT
 test_expect_success "test_interpolator2 daily r4 unit tests" 'mpirun -n 1 ./test_interpolator2_daily_r4'
 test_expect_success "test_interpolator2 daily r8 unit tests" 'mpirun -n 1 ./test_interpolator2_daily_r8'
-test_expect_success "test_interpolator2 monthly r4 unit tests" 'mpirun -n 1 ./test_interpolator2_monthly_r4'
-test_expect_success "test_interpolator2 monthly r8 unit tests" 'mpirun -n 1 ./test_interpolator2_monthly_r8'
+test_expect_success "test_interpolator2 yearly r4 unit tests" 'mpirun -n 1 ./test_interpolator2_yearly_r4'
+test_expect_success "test_interpolator2 yearly r8 unit tests" 'mpirun -n 1 ./test_interpolator2_yearly_r8'
 
 #rm -rf INPUT *.nc # remove any leftover io files to save space
 

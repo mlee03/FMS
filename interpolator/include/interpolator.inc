@@ -153,10 +153,14 @@ type(FmsNetcdfFile_t) :: fileobj
 integer, parameter :: lkind=FMS_INTP_KIND_
 real(FMS_INTP_KIND_), parameter :: lPI=real(PI,FMS_INTP_KIND_)
 
-logical :: monthly, yearly !< flags to indicate if time data is in units of months or years
-integer :: l, num_years, num_months     !< variables for yearly=.true.
-real(FMS_INTP_KIND_) :: num_days, frac_year, frac_month !< variables for yearly=.true.
-type(time_type) :: n_time
+!> variables used to set time
+logical :: yearly !< flags to indicate if time data is in units of months or years
+integer :: num_years !< number of years
+integer :: base_year, base_month, base_day, base_hour, base_minute, base_second
+integer :: nn
+logical :: no_leap_calendar
+real(FMS_INTP_KIND_) :: num_days, frac_year !< variables for yearly=.true.
+type(time_type) :: n_time !< temporary time
 
 clim_type%separate_time_vary_calc = .false.
 
@@ -337,7 +341,6 @@ if(dimension_exists(fileobj, "time")) then
    filehr  = 0
    filemin = 0
    filesec = 0
-   monthly = .false.
    yearly  = .false.
    select case(units(:3))
      case('day')
@@ -370,7 +373,6 @@ if(dimension_exists(fileobj, "time")) then
        read(fileunits(12:13), *)  filehr
        read(fileunits(15:16), *)  filemin
        read(fileunits(18:19), *)  filesec
-       monthly = .true.
     case( 'yea')
        fileunits = units(13:) !Assuming "years since YYYY-MM-DD HH:MM:SS"
        if ( len_trim(fileunits) < 19 ) then
@@ -399,32 +401,35 @@ if(dimension_exists(fileobj, "time")) then
       !    if file date has a non-zero year in the base time, determine that
       !    base_time based on the netcdf info.
       !----------------------------------------------------------------------
-      if ( (model_calendar == JULIAN .and.   &
-           & trim(adjustl(lowercase(file_calendar))) == 'julian')  .or. &
-           & (model_calendar == NOLEAP .and.   &
-           & trim(adjustl(lowercase(file_calendar))) == 'noleap') )  then
-        call mpp_error (NOTE, 'interpolator_mod: Model and file&
-                  & calendars are the same for file ' //   &
-                  & trim(file_name) // '; no calendar conversion  &
-                  &needed')
-        base_time = set_date (fileyr, filemon, fileday, filehr, &
-                              filemin,filesec)
-      else if ( (model_calendar == JULIAN .and.   &
-           & trim(adjustl(lowercase(file_calendar))) == 'noleap')) then
-        call mpp_error (NOTE, 'interpolator_mod: Using julian &
+      no_leap_calendar=.false.
+      if ( (model_calendar == JULIAN .and. trim(adjustl(lowercase(file_calendar))) == 'julian')) then
+         call mpp_error (NOTE, 'interpolator_mod: Model and file&
+              & calendars are the same for file ' //   &
+              & trim(file_name) // '; no calendar conversion  &
+              &needed')
+         base_time = set_date (fileyr, filemon, fileday, filehr,filemin,filesec)
+         no_leap_calendar=.false.
+      else if((model_calendar == NOLEAP .and. trim(adjustl(lowercase(file_calendar))) == 'noleap') )  then
+         call mpp_error (NOTE, 'interpolator_mod: Model and file&
+              & calendars are the same for file ' //   &
+              & trim(file_name) // '; no calendar conversion  &
+              &needed')
+         base_time = set_date (fileyr, filemon, fileday, filehr,filemin,filesec)
+         no_leap_calendar=.true.
+      else if ( (model_calendar == JULIAN .and. trim(adjustl(lowercase(file_calendar))) == 'noleap')) then
+         call mpp_error (NOTE, 'interpolator_mod: Using julian &
                           &model calendar and noleap file calendar&
                           & for file ' // trim(file_name) //   &
                           &'; calendar conversion needed')
-        base_time = set_date_no_leap (fileyr, filemon, fileday,  &
-             & filehr, filemin, filesec)
-      else if ( (model_calendar == NOLEAP .and.   &
-           & trim(adjustl(lowercase(file_calendar))) == 'julian')) then
+        base_time = set_date_no_leap (fileyr, filemon, fileday,filehr, filemin, filesec)
+        no_leap_calendar=.true.
+      else if ( (model_calendar == NOLEAP .and. trim(adjustl(lowercase(file_calendar))) == 'julian')) then
         call mpp_error (NOTE, 'interpolator_mod: Using noleap &
                           &model calendar and julian file calendar&
                           & for file ' // trim(file_name) //  &
                           &'; calendar conversion needed')
-        base_time = set_date_julian (fileyr, filemon, fileday,  &
-             & filehr, filemin, filesec)
+        base_time = set_date_julian (fileyr, filemon, fileday,filehr, filemin, filesec)
+        no_leap_calendar=.false.
       else
         call mpp_error (FATAL , 'interpolator_mod: Model and file&
              & calendars ( ' // trim(file_calendar) // ' ) differ  &
@@ -454,43 +459,25 @@ if(dimension_exists(fileobj, "time")) then
       clim_type%clim_times = set_time(0,0) + base_time
       call fms2_io_read_data(fileobj, "time", time_in)
       ntime_in = ntime
-      ! convert number of years passed to days
-      ! so far, if both calendars are Julian
+      ! convert number of months passed to days if monthly=.true.
+      !> convert the number of years to days if yearly=.true.
       if(yearly) then
          do n = 1, ntime
-            num_years  = int(time_in(n))
-            frac_year = time_in(n) - real(num_years, FMS_INTP_KIND_)
-            n_time = base_time+set_date(num_years,0,0)
-            num_days = (time_type_to_real(n_time) - time_type_to_real(base_time)) / SECONDS_PER_DAY
-            num_days = num_days + frac_year * days_in_year(base_time+set_date(num_years+1,0,0))
-            !do nn=1, num_year
-            !   num_days = num_days+days_in_year( base_time+set_date(nn-1,0,0) )
-            !end do
-            !num_days   = num_days + frac_year*days_in_year(base_time+set_date(nn,0,0))
-            !time_in(n) = num_days
+            if(.not.no_leap_calendar) then
+               ! Julian c alendar
+               num_years  = int(time_in(n))
+               frac_year = time_in(n) - real(num_years, FMS_INTP_KIND_)
+               call get_date(base_time, base_year, base_month, base_day, base_hour, base_minute, base_second)
+               num_days = 0.0_lkind
+               do nn=1, num_years
+                  num_days = num_days + days_in_year(set_date(base_year+nn-1, base_month, base_day))
+               end do
+               num_days = num_days + frac_year * days_in_year(set_date(base_year+num_years, base_month, base_day))
+            else
+               num_days = time_in(n)*365._lkind
+            end if
+            time_in(n)=num_days
          end do
-      end if
-      if(monthly) then
-         num_years = int(time_in(n)/12._lkind)
-         num_months = int(time_in(n) - 12*num_years)
-         frac_month = time_in(n) - real(12*num_years+num_months, FMS_INTP_KIND_)
-         n_time = base_time + set_date(num_years,num_months,0)
-         num_days = (time_type_to_real(n_time) - time_type_to_real(base_time)) / SECONDS_PER_DAY
-         l=0 ; if(leap_year(n_time)) l=1
-         select case(num_months+1)
-         case(1) ; num_days = num_days + 31*frac_month
-         case(2) ; num_days = num_days + (28+l)*frac_month
-         case(3) ; num_days = num_days + 31*frac_month
-         case(4) ; num_days = num_days + 30*frac_month
-         case(5) ; num_days = num_days + 31*frac_month
-         case(6) ; num_days = num_days + 30*frac_month
-         case(7) ; num_days = num_days + 31*frac_month
-         case(8) ; num_days = num_days + 31*frac_month
-         case(9) ; num_days = num_days + 30*frac_month
-         case(10); num_days = num_days + 31*frac_month
-         case(11); num_days = num_days + 30*frac_month
-         case(12); num_days = num_days + 31*frac_month
-         end select
       end if
       ! determine whether the data is a continuous set of monthly values or
       ! a series of annual cycles spread throughout the period of data
