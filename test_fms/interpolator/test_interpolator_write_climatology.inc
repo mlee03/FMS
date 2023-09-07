@@ -19,23 +19,25 @@
 
 !> This file contains subroutines that initialize data and write out the climatology file.
 
-subroutine write_climatology_file(daily, monthly, yearly)
+subroutine write_climatology_file(daily, yearly, noleap)
 
   implicit none
 
-  logical, intent(inout) :: daily, monthly, yearly
+  logical, intent(in) :: daily, yearly
+  logical, intent(in), optional :: noleap
 
   type(FmsNetcdfFile_t) :: fileobj
   integer :: i,j,k,l, itime
   integer :: stringlen
   character(100) :: mystring
+  logical :: noleap2, daily2, yearly2
 
-  if( daily.eq.monthly .and. monthly.eq.yearly ) then
+  if( daily.eq.yearly) then
      call mpp_error(WARNING, "write_climatology_file only daily, monthly, or yearly must be true.  Going with daily")
-     daily=.true.
-     monthly=.false.
-     yearly=.false.
+     daily2=.true.
+     yearly2=.false.
   end if
+  noleap2=.false. ; if(present(noleap)) noleap2=noleap
 
   ! write netcdf file
   if(open_file(fileobj, 'INPUT/'//trim(ncfile), 'overwrite')) then
@@ -53,10 +55,10 @@ subroutine write_climatology_file(daily, monthly, yearly)
      !if(ntime /=0 ) then
      call register_field(fileobj, 'time', 'double', dimensions=(/'time'/))
      call register_string_attribute(fileobj, 'time', 'axis', 'T')
-     call register_string_attribute(fileobj, 'time', 'calendar', 'noleap')
+     if(noleap2) call register_string_attribute(fileobj, 'time', 'calendar', 'noleap')
+     if(.not.noleap2) call register_string_attribute(fileobj, 'time', 'calendar', 'julian')
      call register_string_attribute(fileobj, 'time', 'climatology', '1979-01-01 00:00:00, 1998-01-01 00:00:00')
      if(daily)   call register_string_attribute(fileobj, 'time', 'units', 'days since 1849-01-01 00:00:00')
-     if(monthly) call register_string_attribute(fileobj, 'time', 'units', 'months since 1849-01-01 00:00:00')
      if(yearly)  call register_string_attribute(fileobj, 'time', 'units', 'years since 1849-01-01 00:00:00')
      !end if
 
@@ -172,18 +174,18 @@ subroutine deallocate_arrays()
 
 end subroutine deallocate_arrays
 !===============================================!
-subroutine set_write_data(nlonlat_in, nlonlat_mod_in, ntime_in, npfull_in, daily, monthly, yearly)
+subroutine set_write_data(nlonlat_in, nlonlat_mod_in, ntime_in, npfull_in, daily, yearly, noleap)
 
   implicit none
   integer, intent(in) :: nlonlat_in, nlonlat_mod_in, ntime_in, npfull_in
-  logical, intent(in), optional :: daily, monthly, yearly
+  logical, intent(in), optional :: daily, yearly, noleap
 
-  logical :: daily_in, monthly_in, yearly_in
+  logical :: daily_in, monthly_in, yearly_in, noleap_in
 
-  daily_in=.true. ; monthly_in=.false. ; yearly_in=.false.
+  daily_in=.true. ; yearly_in=.false. ; noleap_in=.false.
   if(present(daily))   daily_in=daily
-  if(present(monthly)) monthly_in=monthly
   if(present(yearly))  yearly_in=yearly
+  if(present(noleap)) noleap_in=noleap
 
   nlonlat  = nlonlat_in   !< number of latitude and longitudinal center coordinates
   nlonlatb = nlonlat_in+1 !< number of latitude and longitudinal boundary coordinates
@@ -197,7 +199,7 @@ subroutine set_write_data(nlonlat_in, nlonlat_mod_in, ntime_in, npfull_in, daily
   call set_latlon_b()
   call set_pfullhalf()
   call set_ozone()
-  call write_climatology_file(daily_in, monthly_in, yearly_in)
+  call write_climatology_file(daily_in, yearly_in, noleap)
 
   call set_latlon_b_mod()
 
@@ -209,7 +211,7 @@ subroutine set_clim_time()
   integer :: i
 
   do i=1, ntime
-     clim_time(i)=2*i
+     clim_time(i)=2*real(i,lkind) + real(i,lkind)/4.0_lkind
   end do
 
 end subroutine set_clim_time

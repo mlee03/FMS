@@ -53,15 +53,63 @@ cat <<_EOF > input.nml
 _EOF
 
 # Run test
-test_expect_success "test interpolator" 'mpirun -n 2 ./test_interpolator'
+test_expect_success "test interpolator" 'mpirun -n 1 ./test_interpolator'
 
-#Run the second set of interpolator tests
+#Run the daily interpolator tests when the file calendar is in units of days and calendar type is NOLEAP
+cat <<EOF > test_interpolator.nml
+&test_interpolator_nml
+test_daily_noleap=.true.
+test_daily_julian=.false.
+test_yearly_noleap=.false.
+test_yearly_julian=.false.
+/
+EOF
 mkdir -p INPUT
-test_expect_success "test_interpolator2 daily r4 unit tests" 'mpirun -n 1 ./test_interpolator2_daily_r4'
-test_expect_success "test_interpolator2 daily r8 unit tests" 'mpirun -n 1 ./test_interpolator2_daily_r8'
-test_expect_success "test_interpolator2 yearly r4 unit tests" 'mpirun -n 1 ./test_interpolator2_yearly_r4'
-test_expect_success "test_interpolator2 yearly r8 unit tests" 'mpirun -n 1 ./test_interpolator2_yearly_r8'
+test_expect_success "test_interpolator2 daily r4 noleap  unit tests" 'mpirun -n 1 ./test_interpolator2_r4'
+test_expect_success "test_interpolator2 daily r8 noleap unit tests" 'mpirun -n 1 ./test_interpolator2_r8'
+#rm -rf INPUT *.nc test_interpolator.nml
 
-#rm -rf INPUT *.nc # remove any leftover io files to save space
+#Run the daily interpolator tests when the file calendar is in units of days and calendar type is JULIAN
+cat <<EOF > test_interpolator.nml
+&test_interpolator_nml
+test_daily_noleap=.false.
+test_daily_julian=.true.
+test_yearly_noleap=.false.
+test_yearly_julian=.false.
+/
+EOF
+mkdir -p INPUT
+test_expect_success "test_interpolator2 daily r4 julian unit tests" 'mpirun -n 1 ./test_interpolator2_r4'
+test_expect_success "test_interpolator2 daily r8 julian unit tests" 'mpirun -n 1 ./test_interpolator2_r8'
+#rm -rf INPUT *.nc test_interpolator.nml
 
+#Run the daily interpolator tests when the file calendar is in units of years and calendar type is NOLEAP
+cat <<EOF > test_interpolator.nml
+&test_interpolator_nml
+test_daily_noleap=.false.
+test_daily_julian=.false.
+test_yearly_noleap=.true.
+test_yearly_julian=.false.
+/
+EOF
+mkdir -p INPUT
+test_expect_success "test_interpolator2 yearly noleap r4 unit tests" 'mpirun -n 1 ./test_interpolator2_r4'
+test_expect_success "test_interpolator2 yearly noleap r8 unit tests" 'mpirun -n 1 ./test_interpolator2_r8'
+#rm -rf INPUT *.nc test_interpolator.nml
+
+#Run the daily interpolator tests when the file calendar is in units of years and calendar type is JULIAN
+cat <<EOF > test_interpolator.nml
+&test_interpolator_nml
+test_daily_noleap=.false.
+test_daily_julian=.false.
+test_yearly_noleap=.false.
+test_yearly_julian=.true.
+/
+EOF
+mkdir -p INPUT
+test_expect_success "test_interpolator2 yearly julian r4 unit tests" 'mpirun -n 1 ./test_interpolator2_r4'
+test_expect_success "test_interpolator2 yearly julian r8 unit tests" 'mpirun -n 1 ./test_interpolator2_r8'
+#rm -rf INPUT *.nc test_interpolator.nml
+
+#rm *.nml
 test_done

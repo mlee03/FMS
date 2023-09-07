@@ -63,12 +63,12 @@ use horiz_interp_mod,  only : horiz_interp_type, &
 use time_manager_mod,  only : time_type,   &
                               set_time,    &
                               set_date,    &
-                              get_date,    &
                               time_type_to_real, &
                               days_in_year, &
                               get_calendar_type, &
                               leap_year, &
                               JULIAN, NOLEAP, &
+                              get_date, &
                               get_date_julian, set_date_no_leap, &
                               set_date_julian, get_date_no_leap, &
                               print_date, &

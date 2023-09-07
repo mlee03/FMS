@@ -32,7 +32,7 @@ program test_interpolator2
                          register_axis,                               &
                          write_data, close_file, open_file
   use mpp_mod,          only: mpp_error, FATAL, WARNING
-  use time_manager_mod, only: time_type, set_date, set_calendar_type, time_manager_init
+  use time_manager_mod, only: time_type, set_date, set_time, set_calendar_type, time_manager_init, print_date
   use fms_mod,          only: fms_init
   use constants_mod,    only: PI
   use platform_mod,     only: r4_kind, r8_kind
@@ -42,10 +42,10 @@ program test_interpolator2
   implicit none
 
   character(100), parameter :: ncfile='immadeup.o3.climatology.nc' !< fake climatology file.
-  integer, parameter :: calendar_type=2  !< JULIAN calendar
   integer, parameter :: lkind=TEST_INTP_KIND_
   real(r8_kind), parameter :: tol=1.e-5_r8_kind !< the interpolation methods are not perfect.
                                                 !! Will not get perfectly agreeing answers
+  integer :: calendar_type
 
   !> climatology related variables and arrays (made up data)
   integer :: nlonlat       !< number of latitude and longitudinal center coordinates
@@ -71,45 +71,42 @@ program test_interpolator2
 
   type(interpolate_type) :: o3 !< recyclable interpolate_type
 
+  logical :: test_daily_julian=.true., test_daily_noleap=.false., test_yearly_noleap=.false., test_yearly_julian=.false.
+  integer :: nml_unit_var
+  character(*), parameter :: nml_file='test_interpolator.nml'
+  NAMELIST / test_interpolator_nml / test_daily_noleap, test_daily_julian, test_yearly_noleap, test_yearly_julian
+
+  open(unit=nml_unit_var, file=nml_file)
+  read(unit=nml_unit_var, nml=test_interpolator_nml)
+  close(nml_unit_var)
+
   call fms_init
   call time_manager_init
-  call set_calendar_type(calendar_type)
-
   !> set data
-  call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=5, npfull_in=3, daily=.true.)
+  if(test_daily_noleap)  call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=100, npfull_in=3, daily=.true., noleap=.true.)
+  if(test_daily_julian)  call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=100, npfull_in=3, daily=.true., noleap=.false.)
+  if(test_yearly_noleap) call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=100, npfull_in=3, yearly=.true., noleap=.true.)
+  if(test_yearly_julian) call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=100, npfull_in=3, yearly=.true., noleap=.false.)
 
-  !> test interpolator_init
-  write(*,*) '===== test_interpolator_init ====='
-  call test_interpolator_init(o3)
+  !> test interpolator_init with model JULIAN calendar
+  calendar_type=2  !< JULIAN calendar
+  call set_calendar_type(calendar_type)
+  call run_test_set('JULIAN')
+  !---------------------------------------------------------
+  !> test interpolator_init with model NOLEAP calendar
+  calendar_type=4  !< NOLEAP calendar
+  call set_calendar_type(calendar_type)
+  call run_test_set('NOLEAP')
 
-  !> test interpolator 2D-4D
-  write(*,*) '===== test_intepolator ======='
-  call test_interpolator(o3)
-
-  !> test interpolate_type_eq
-  !! This test has been commented out and will be included
-  !! in the testing suite once fileobj cp is added into
-  !! test_interpolate_type_eq
-  !write(*,*) '===== test_interpolate_type_eq ====='
-  !call test_interpolate_type_eq()
-
-  !> test query_interpolator
-  write(*,*) '===== test_query_interpolator ====='
-  call test_query_interpolator()
-
-  !> test interpolator end
-  write(*,*) '===== test_interpolator_end ====='
-  call test_interpolator_end(o3)
-
-  !> deallocate all arrays used to write the .nc file and used for model coordinates
+  !----------------------------------------------------------------------------------
+  !> Need to deallocate arrays because a new NetCDF File will be written out
   call deallocate_arrays()
-
   !> test interpolator_no_time_axis
   !! Write out new set of data that will have a time axis, but will have "0" time points
   !! because that's how interpolator_init is set up.
   call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=0, npfull_in=3)
   call test_interpolator_init(o3)
-  write(*,*) '===== test_intepolator_no_time_axis ======='
+  write(*,*) '                ===== test_intepolator_no_time_axis ======='
   call test_interpolator_no_time_axis(o3)
 
 contains
@@ -140,7 +137,7 @@ contains
     type(interpolate_type), intent(inout) :: clim_type
     real(TEST_INTP_KIND_), dimension(nlonlat,nlonlat,npfull,1) :: interp_data !< last column, there is only one field
     real(TEST_INTP_KIND_), dimension(nlonlat,nlonlat,nphalf) :: phalf
-    type(time_type) :: model_time
+    type(time_type) :: model_time, start_time
     integer :: itime, i, j, k, l
 
     phalf(:,:,1)=0.0000_lkind
@@ -148,9 +145,17 @@ contains
     phalf(:,:,3)=0.0004_lkind
     phalf(:,:,4)=0.0005_lkind
 
+    start_time=set_date(1849,1,1)
+
     do itime=1, ntime
 
-       model_time=set_date(1849,1,1+int(clim_time(itime)))
+       !model_time=set_time(0,clim_time(itime))+start_time
+       !if(test_daily_noleap)  model_time=increment_date(start_time, days=int(clim_time(itime)))
+       !if(test_daily_julian)  model_time=increment_date(start_time, days=int(clim_time(itime)))
+       !if(test_yearly_noleap) model_time=increment_date(start_time, years=int(clim_time(itime)))
+       !if(test_yearly_julian) model_time=increment_date(start_time, years=int(clim_time(itime)))
+
+       !call print_date(model_time)
 
        !> test interpolator_4D_r4/8
        call interpolator(clim_type, model_time, phalf, interp_data, 'ozone')
@@ -289,6 +294,35 @@ contains
     deallocate(field_names)
 
   end subroutine test_query_interpolator
+  !===============================================!
+  subroutine run_test_set(test_model_calendar)
+
+    character(*), intent(in) :: test_model_calendar
+
+    write(*,*) '                 ===== test_interpolator_init'//trim(test_model_calendar)//' ====='
+    call test_interpolator_init(o3)
+
+    !> test interpolator 2D-4D
+    write(*,*) '                 ===== test_intepolator'//trim(test_model_calendar)//' ====='
+    call test_interpolator(o3)
+
+    !> test interpolate_type_eq
+    !! This test has been commented out and will be included
+    !! in the testing suite once fileobj cp is added into
+    !! test_interpolate_type_eq
+    !write(*,*) '===== test_interpolate_type_eq ====='
+    !call test_interpolate_type_eq()
+
+    !> test query_interpolator
+    write(*,*) '                 ===== test_query_interpolator'//trim(test_model_calendar)//' ====='
+    call test_query_interpolator()
+
+    !> test interpolator end
+    write(*,*) '                 ===== test_interpolator_end'//trim(test_model_calendar)//' ====='
+    call test_interpolator_end(o3)
+
+
+  end subroutine run_test_set
   !===============================================!
   subroutine check_answers(results, answers, tol, whoami)
 
