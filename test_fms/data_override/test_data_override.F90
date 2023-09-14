@@ -324,17 +324,10 @@ contains
 
 !====================================================================================================================
  subroutine get_grid
-<<<<<<< HEAD
    real(lkind), allocatable, dimension(:,:,:) :: lon_vert_glo, lat_vert_glo
    real(lkind), allocatable, dimension(:,:)   :: lon_global, lat_global
    integer, dimension(2)                      :: siz
    character(len=128)                         :: message
-=======
-   real, allocatable, dimension(:,:,:) :: lon_vert_glo, lat_vert_glo
-   real, allocatable, dimension(:,:)   :: lon_global, lat_global
-   integer, dimension(2)  :: siz
-   character(len=128) :: message
->>>>>>> origin/main
 
    type(FmsNetcdfFile_t) :: fileobj_grid, fileobj_solo_mosaic, fileobj_tile
 

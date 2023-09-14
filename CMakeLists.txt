@@ -305,7 +305,6 @@ foreach(kind ${kinds})
                                                  fms2_io/include
                                                  string_utils/include
                                                  mpp/include
-<<<<<<< HEAD
                                                  monin_obukhov/include
                                                  sat_vapor_pres/include
                                                  horiz_interp/include
@@ -324,14 +323,6 @@ foreach(kind ${kinds})
                                                  coupler/include
                                                  data_override/include)
 
-=======
-                                                 sat_vapor_pres/include
-                                                 horiz_interp/include
-                                                 diag_manager/include
-                                                 constants4
-                                                 constants
-                                                 axis_utils/include)
->>>>>>> origin/main
   target_compile_definitions(${libTgt}_f PRIVATE "${fms_defs}")
   target_compile_definitions(${libTgt}_f PRIVATE "${${kind}_defs}")
 
@@ -367,7 +358,6 @@ foreach(kind ${kinds})
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/fms>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/fms/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/fms2_io/include>
-<<<<<<< HEAD
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/astronomy/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/monin_obukhov/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/sat_vapor_pres/include>
@@ -383,14 +373,6 @@ foreach(kind ${kinds})
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/interpolator/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/coupler/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/data_override/include>)
-
-=======
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/sat_vapor_pres/include>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/horiz_interp/include>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/string_utils/include>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/mpp/include>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/diag_manager/include>)
->>>>>>> origin/main
 
   target_include_directories(${libTgt} INTERFACE
     $<BUILD_INTERFACE:${moduleDir}>
