@@ -500,7 +500,6 @@ AC_CONFIG_FILES([
   test_fms/diag_integral/Makefile
   test_fms/tracer_manager/Makefile
   test_fms/random_numbers/Makefile
-
   FMS.pc
   ])
 
