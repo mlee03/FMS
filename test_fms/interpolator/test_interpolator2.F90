@@ -35,7 +35,8 @@ program test_interpolator2
   use time_manager_mod, only: time_type, set_calendar_type, time_manager_init, &
                               get_date_no_leap, get_date_julian, set_date, set_time, &
                               set_date_no_leap, set_date_julian, &
-                              operator(+), operator(-), time_type_to_real
+                              operator(+), operator(-), time_type_to_real, increment_time, &
+                              leap_year, days_in_month, print_date
   use fms_mod,          only: fms_init
   use constants_mod,    only: PI
   use platform_mod,     only: r4_kind, r8_kind
@@ -51,8 +52,8 @@ program test_interpolator2
   integer :: calendar_type
 
   !> climatology related variables and arrays (made up data)
-  integer :: nlonlat       !< number of latitude and longitudinal center coordinates
-  integer :: nlonlatb      !< number of latitude and longitudinal boundary coordinates
+  integer :: nlonlat       !< number of latitude and longitudinal center coordinates in file
+  integer :: nlonlatb      !< number of latitude and longitudinal boundary coordinates in file
   integer :: ntime         !< number of time slices
   integer :: npfull        !< number of p levels
   integer :: nphalf        !< number of half p levels
@@ -72,10 +73,14 @@ program test_interpolator2
   real(TEST_INTP_KIND_), allocatable :: latb_mod(:,:) !< model coordinates
   real(TEST_INTP_KIND_), allocatable :: lonb_mod(:,:) !< model coordinates
 
+  type(time_type), allocatable :: model_time_julian(:), model_time_noleap(:)
+
   type(interpolate_type) :: o3 !< recyclable interpolate_type
 
+  logical :: yearly, daily, noleap
+
   logical :: test_daily_julian=.true., test_daily_noleap=.false., test_yearly_noleap=.false., test_yearly_julian=.false.
-  integer :: nml_unit_var
+  integer :: nml_unit_var=99
   character(*), parameter :: nml_file='test_interpolator.nml'
   NAMELIST / test_interpolator_nml / test_daily_noleap, test_daily_julian, test_yearly_noleap, test_yearly_julian
 
@@ -83,34 +88,49 @@ program test_interpolator2
   read(unit=nml_unit_var, nml=test_interpolator_nml)
   close(nml_unit_var)
 
+  if(test_daily_noleap)  write(*,*) ' ** DAILY FILE CALENDAR NOLEAP ** FILE CALENDAR NOLEAP ** FILE CALENDAR NOLEAP'
+  if(test_daily_julian)  write(*,*) ' ** DAILY FILE CALENDAR JULIAN ** FILE CALENDAR JULIAN ** FILE CALENDAR JULIAN'
+  if(test_yearly_noleap) write(*,*) ' ** YEARLY FILE CALENDAR NOLEAP ** FILE CALENDAR NOLEAP ** FILE CALENDAR NOLEAP'
+  if(test_yearly_julian) write(*,*) ' ** YEARLY FILE CALENDAR JULIAN ** FILE CALENDAR JULIAN ** FILE CALENDAR JULIAN'
+
   call fms_init
   call time_manager_init
   !> set data
-  if(test_daily_noleap)  call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=5, npfull_in=3, daily=.true., noleap=.true.)
-  if(test_daily_julian)  call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=5, npfull_in=3, daily=.true., noleap=.false.)
-  if(test_yearly_noleap) call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=5, npfull_in=3, yearly=.true., noleap=.true.)
-  if(test_yearly_julian) call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=5, npfull_in=3, yearly=.true., noleap=.false.)
+  if(test_daily_noleap)  then
+     call set_parameters(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=20, npfull_in=3, &
+          daily_in=.true., yearly_in=.false., noleap_in=.true.)
+  else if(test_daily_julian) then
+     call set_parameters(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=20, npfull_in=3, &
+                         daily_in=.true., yearly_in=.false., noleap_in=.false.)
+  else if(test_yearly_noleap) then
+     call set_parameters(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=20, npfull_in=3, &
+                         daily_in=.false., yearly_in=.true., noleap_in=.true.)
+  else if(test_yearly_julian) then
+     call set_parameters(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=20, npfull_in=3, &
+                         daily_in=.false., yearly_in=.true., noleap_in=.false.)
+  end if
+  call set_and_write_data
 
   !> test interpolator_init with model JULIAN calendar
-  calendar_type=2  !< JULIAN calendar
+  calendar_type=2  !< JULIAN calendar for model
   call set_calendar_type(calendar_type)
-  call run_test_set('JULIAN')
+  call run_test_set
   !---------------------------------------------------------
   !> test interpolator_init with model NOLEAP calendar
-  calendar_type=4  !< NOLEAP calendar
+  calendar_type=4  !< NOLEAP calendar for model
   call set_calendar_type(calendar_type)
-  call run_test_set('NOLEAP')
+  call run_test_set
 
   !----------------------------------------------------------------------------------
   !> Need to deallocate arrays because a new NetCDF File will be written out
-  call deallocate_arrays()
+  !call deallocate_arrays()
   !> test interpolator_no_time_axis
   !! Write out new set of data that will have a time axis, but will have "0" time points
   !! because that's how interpolator_init is set up.
-  call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=0, npfull_in=3)
-  call test_interpolator_init(o3)
-  write(*,*) '                ===== test_intepolator_no_time_axis ======='
-  call test_interpolator_no_time_axis(o3)
+  !call set_write_data(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=0, npfull_in=3)
+  !call test_interpolator_init(o3)
+  !write(*,*) '                ===== test_intepolator_no_time_axis ======='
+  !call test_interpolator_no_time_axis(o3)
 
 contains
   !===============================================!
@@ -129,7 +149,7 @@ contains
 
   end subroutine test_interpolator_init
   !===============================================!
-  subroutine test_interpolator(clim_type)
+  subroutine test_interpolator(clim_type, model_time)
 
     !> call the variants of interpolator (4D-2d) that interpolates data at a given time-point
     !! The tests here do not test the "no_axis" interpolator routines
@@ -138,10 +158,9 @@ contains
     implicit none
 
     type(interpolate_type), intent(inout) :: clim_type
-    real(TEST_INTP_KIND_), dimension(nlonlat,nlonlat,npfull,1) :: interp_data !< last column, there is only one field
-    real(TEST_INTP_KIND_), dimension(nlonlat,nlonlat,nphalf) :: phalf
-    type(time_type) :: model_time, start_time
-    type(time_type) :: yearly_model_time(5)
+    type(time_type), dimension(ntime), intent(in) :: model_time
+    real(TEST_INTP_KIND_), dimension(nlonlat_mod,nlonlat_mod,npfull,1) :: interp_data !< last column, there is only one field
+    real(TEST_INTP_KIND_), dimension(nlonlat_mod,nlonlat_mod,nphalf) :: phalf
     integer :: itime, i, j, k, l
 
     phalf(:,:,1)=0.0000_lkind
@@ -149,43 +168,30 @@ contains
     phalf(:,:,3)=0.0004_lkind
     phalf(:,:,4)=0.0005_lkind
 
-    if(test_yearly_noleap .or. test_yearly_julian) then
-       yearly_model_time(1)=set_date(1850,2, 1,0,0,0)
-       yearly_model_time(2)=set_date(1852,2,28,0,0,0)
-       yearly_model_time(3)=set_date(1900,1, 2,0,0,0)
-       yearly_model_time(4)=set_date(1905,1, 1,0,0,0)
-       yearly_model_time(5)=set_date(1951,12,5,0,0,0)
-    end if
-
-    do itime=1, ntime
-
-       !> only when clim_time is not an integer
-       if(test_daily_noleap .or. test_daily_julian) model_time=get_complicated_time(clim_time(itime))
-
-       !call print_date(model_time)
+    do itime=2, ntime-1
 
        !> test interpolator_4D_r4/8
-       call interpolator(clim_type, model_time, phalf, interp_data, 'ozone')
+       call interpolator(clim_type, model_time(itime), phalf, interp_data, 'ozone')
        do i=1, npfull
-          do j=1, nlonlat
-             do k=1, nlonlat
+          do j=1, nlonlat_mod
+             do k=1, nlonlat_mod
                 call check_answers(interp_data(k,j,i,1), ozone(k,j,i,itime), tol, 'test interpolator_4D')
              end do
           end do
        end do
 
        !> test interpolator_3_r4/8
-       call interpolator(clim_type, model_time, phalf, interp_data(:,:,:,1), 'ozone')
+       call interpolator(clim_type, model_time(itime), phalf, interp_data(:,:,:,1), 'ozone')
        do i=1, npfull
-          do j=1, nlonlat
-             do k=1, nlonlat
+          do j=1, nlonlat_mod
+             do k=1, nlonlat_mod
                 call check_answers(interp_data(k,j,i,1), ozone(k,j,i,itime), tol, 'test interpolator_3D')
              end do
           end do
        end do
 
        !> test interpolator_2D_r4/8
-       call interpolator(clim_type, model_time, interp_data(:,:,1,1), 'ozone')
+       call interpolator(clim_type, model_time(itime), interp_data(:,:,1,1), 'ozone')
        do j=1, nlonlat_mod
           do k=1, nlonlat_mod
              call check_answers(interp_data(k,j,1,1), ozone(k,j,1,itime), tol, 'test interpolator_2D')
@@ -193,8 +199,8 @@ contains
        end do
 
        !> Test obtain_interpolator_time_slices
-       call obtain_interpolator_time_slices(clim_type,model_time)
-       call interpolator(clim_type, model_time, interp_data(:,:,1,1), 'ozone')
+       call obtain_interpolator_time_slices(clim_type,model_time(itime))
+       call interpolator(clim_type, model_time(itime), interp_data(:,:,1,1), 'ozone')
        call unset_interpolator_time_flag(clim_type)
        do j=1, nlonlat_mod
           do k=1, nlonlat_mod
@@ -275,7 +281,8 @@ contains
     type(interpolate_type) :: o3_copy
 
     o3_copy = o3
-    call test_interpolator(o3_copy)
+    if(calendar_type==2) call test_interpolator(o3_copy, model_time_julian)
+    if(calendar_type==4) call test_interpolator(o3_copy, model_time_noleap)
 
   end subroutine test_interpolate_type_eq
   !===============================================!
@@ -302,69 +309,36 @@ contains
 
   end subroutine test_query_interpolator
   !===============================================!
-  subroutine run_test_set(test_model_calendar)
+  subroutine run_test_set
 
-    character(*), intent(in) :: test_model_calendar
+    implicit none
+    integer :: i
 
-    write(*,*) '                 ===== test_interpolator_init'//trim(test_model_calendar)//' ====='
+    if(calendar_type==2) write(*,*) "** MODEL CALENDAR JULIAN ** MODEL CALENDAR JULIAN ** MODEL CALENDAR JULIAN **"
+    if(calendar_type==4) write(*,*) "** MODEL CALENDAR NOLEAP ** MODEL CALENDAR NOLEAP ** MODEL CALENDAR NOLEAP **"
+
+    write(*,*) '                 ===== test_interpolator_init ====='
     call test_interpolator_init(o3)
 
     !> test interpolator 2D-4D
-    write(*,*) '                 ===== test_intepolator'//trim(test_model_calendar)//' ====='
-    call test_interpolator(o3)
+    if(calendar_type==2) call test_interpolator(o3, model_time_julian)
+    if(calendar_type==4) call test_interpolator(o3, model_time_noleap)
 
     !> test interpolate_type_eq
-    !! This test has been commented out and will be included
-    !! in the testing suite once fileobj cp is added into
-    !! test_interpolate_type_eq
+    !! This test has been commented out and will be included in the testing suite once fileobj cp is added into
     !write(*,*) '===== test_interpolate_type_eq ====='
     !call test_interpolate_type_eq()
 
     !> test query_interpolator
-    write(*,*) '                 ===== test_query_interpolator'//trim(test_model_calendar)//' ====='
+    write(*,*) '                 ===== test_query_interpolator ====='
     call test_query_interpolator()
 
     !> test interpolator end
-    write(*,*) '                 ===== test_interpolator_end'//trim(test_model_calendar)//' ====='
+    write(*,*) '                 ===== test_interpolator_end ====='
     call test_interpolator_end(o3)
 
 
   end subroutine run_test_set
-  !===============================================!
-  function get_complicated_time(days_in)
-
-    implicit none
-    type(time_type) :: get_complicated_time
-    real(TEST_INTP_KIND_), intent(in) :: days_in
-
-    integer, parameter :: seconds_per_day=86400
-    type(time_type) :: tmp_time, base_time
-    integer :: yr, mo, dy, hr, mn, sc
-    real(TEST_INTP_KIND_) :: frac_day
-
-    !1849,1,1
-    if(test_daily_noleap.or.test_yearly_noleap) base_time=set_date_no_leap(1849,1,1,0,0,0)
-    if(test_daily_julian.or.test_yearly_julian) base_time=set_date_julian(1849,1,1,0,0,0)
-    tmp_time = set_time(0,int(days_in)) + base_time
-    frac_day = days_in - real(int(days_in),TEST_INTP_KIND_)
-    if(test_daily_noleap .and. calendar_type==2) then
-       !> daily file calendar = noleap, model calendar = julian
-       call get_date_no_leap(tmp_time, yr, mo, dy, hr, mn, sc)
-       get_complicated_time=set_date(yr, mo, dy, mn, sc)
-    else if(test_daily_noleap .and. calendar_type==4) then
-       !> daily file calendar = noleap, model calendar = noleap
-       get_complicated_time=set_time(int(seconds_per_day*frac_day),int(days_in))+base_time
-    else if(test_daily_julian .and. calendar_type==2) then
-       !> daily file calendar = julian, model_calendar = julian
-       get_complicated_time=set_time(int(seconds_per_day*frac_day),int(days_in))+base_time
-    else if(test_daily_julian .and. calendar_type==4) then
-       !> daily file calendar = julian, model calendar = noleap
-       call get_date_julian(tmp_time, yr, mo, dy, hr, mn, sc)
-       get_complicated_time=set_date(yr, mo, dy, hr, mn, sc)
-    end if
-
-
-  end function get_complicated_time
   !===============================================!
   subroutine check_answers(results, answers, tol, whoami)
 
