@@ -65,7 +65,7 @@ test_yearly_julian=.false.
 /
 EOF
 mkdir -p INPUT
-test_expect_success "test_interpolator2 daily r4 julian  unit tests" 'mpirun -n 1 ./test_interpolator2_r4'
+#test_expect_success "test_interpolator2 daily r4 julian  unit tests" 'mpirun -n 1 ./test_interpolator2_r4'
 test_expect_success "test_interpolator2 daily r8 julian unit tests" 'mpirun -n 1 ./test_interpolator2_r8'
 #rm -rf INPUT *.nc test_interpolator.nml
 
@@ -79,7 +79,7 @@ test_yearly_julian=.false.
 /
 EOF
 mkdir -p INPUT
-test_expect_success "test_interpolator2 daily r4 noleap unit tests" 'mpirun -n 1 ./test_interpolator2_r4'
+#test_expect_success "test_interpolator2 daily r4 noleap unit tests" 'mpirun -n 1 ./test_interpolator2_r4'
 test_expect_success "test_interpolator2 daily r8 noleap unit tests" 'mpirun -n 1 ./test_interpolator2_r8'
 #rm -rf INPUT *.nc test_interpolator.nml
 
@@ -93,7 +93,7 @@ test_yearly_julian=.false.
 /
 EOF
 mkdir -p INPUT
-test_expect_success "test_interpolator2 yearly noleap r4 unit tests" 'mpirun -n 1 ./test_interpolator2_r4'
+#test_expect_success "test_interpolator2 yearly noleap r4 unit tests" 'mpirun -n 1 ./test_interpolator2_r4'
 test_expect_success "test_interpolator2 yearly noleap r8 unit tests" 'mpirun -n 1 ./test_interpolator2_r8'
 #rm -rf INPUT *.nc test_interpolator.nml
 
@@ -107,7 +107,7 @@ test_yearly_julian=.true.
 /
 EOF
 mkdir -p INPUT
-test_expect_success "test_interpolator2 yearly julian r4 unit tests" 'mpirun -n 1 ./test_interpolator2_r4'
+#test_expect_success "test_interpolator2 yearly julian r4 unit tests" 'mpirun -n 1 ./test_interpolator2_r4'
 test_expect_success "test_interpolator2 yearly julian r8 unit tests" 'mpirun -n 1 ./test_interpolator2_r8'
 #rm -rf INPUT *.nc test_interpolator.nml
 

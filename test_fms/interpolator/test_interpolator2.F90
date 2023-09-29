@@ -47,7 +47,7 @@ program test_interpolator2
 
   character(100), parameter :: ncfile='immadeup.o3.climatology.nc' !< fake climatology file.
   integer, parameter :: lkind=TEST_INTP_KIND_
-  real(r8_kind), parameter :: tol=1.e-1_r8_kind !< the interpolation methods are not perfect.
+  real(r8_kind), parameter :: tol=1.e-3_r8_kind !< the interpolation methods are not perfect.
                                                 !! Will not get perfectly agreeing answers
   integer :: calendar_type
 
@@ -88,10 +88,14 @@ program test_interpolator2
   read(unit=nml_unit_var, nml=test_interpolator_nml)
   close(nml_unit_var)
 
-  if(test_daily_noleap)  write(*,*) ' ** DAILY FILE CALENDAR NOLEAP ** FILE CALENDAR NOLEAP ** FILE CALENDAR NOLEAP'
-  if(test_daily_julian)  write(*,*) ' ** DAILY FILE CALENDAR JULIAN ** FILE CALENDAR JULIAN ** FILE CALENDAR JULIAN'
-  if(test_yearly_noleap) write(*,*) ' ** YEARLY FILE CALENDAR NOLEAP ** FILE CALENDAR NOLEAP ** FILE CALENDAR NOLEAP'
-  if(test_yearly_julian) write(*,*) ' ** YEARLY FILE CALENDAR JULIAN ** FILE CALENDAR JULIAN ** FILE CALENDAR JULIAN'
+  if(test_daily_noleap) &
+       write(*,"(////10x,a/////)") " ** DAILY FILE CAL NOLEAP ** DAILY FILE CAL NOLEAP ** DAILY FILE CAL NOLEAP **"
+  if(test_daily_julian)  &
+       write(*,"(////10x,a/////)") ' ** DAILY FILE CAL JULIAN ** DAILY FILE CAL JULIAN ** DAILY FILE CAL JULIAN **'
+  if(test_yearly_noleap) &
+       write(*,"(////10x,a/////)") ' ** YEARLY FILE CAL NOLEAP ** YEARLY FILE CAL NOLEAP ** YEARLY FILE CAL NOLEAP **'
+  if(test_yearly_julian) &
+       write(*,"(////10x,a/////)") ' ** YEARLY FILE CAL JULIAN ** YEARLY FILE CAL JULIAN ** YEARLY FILE CAL JULIAN **'
 
   call fms_init
   call time_manager_init

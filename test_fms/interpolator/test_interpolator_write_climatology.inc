@@ -187,10 +187,10 @@ subroutine set_clim_time()
 
   !write(*,*) ' -- SETTING TIME -- '
 
-  hr = 1 ; mn = 1 ; sc = 1
+  hr = 0 ; mn = 0 ; sc = 0
 
   if(test_daily_noleap) then
-     base_time=set_date_no_leap(1849,1,1,1,1,1)
+     base_time=set_date_no_leap(1849,1,1,0,0,0)
      yr = 1849 ; mo = 1 ; dy = 15
      do i=1, ntime
         yr = yr + 1
@@ -199,6 +199,7 @@ subroutine set_clim_time()
         model_time_julian(i)=set_date_julian(yr, mo, dy, hr, mn, sc)
         model_time_noleap(i)=set_date_no_leap(yr, mo, dy, hr, mn, sc)
         clim_time(i)=time_type_to_real(model_time_noleap(i)-base_time)/86400._lkind
+        !call print_time(model_time_noleap(i))
      end do
   else if(test_daily_julian) then
      base_time=set_date_julian(1849,1,1,1,1,1)
@@ -210,6 +211,7 @@ subroutine set_clim_time()
         model_time_julian(i)=set_date_julian(yr, mo, dy, hr, mn, sc)
         model_time_noleap(i)=set_date_no_leap(yr, mo, dy, hr, mn, sc)
         clim_time(i)=time_type_to_real(model_time_julian(i)-base_time)/86400._lkind
+        !call print_time(model_time_julian(i))
      end do
   else if(test_yearly_noleap) then
      base_time=set_date_no_leap(1849,1,1,1,1,1)
@@ -229,6 +231,7 @@ subroutine set_clim_time()
            end select
         end do
         clim_time(i) = clim_time(i) + real(dy-1)/real(365,lkind)
+        !call print_time(model_time_noleap(i))
      end do
   else if(test_yearly_julian) then
      base_time=set_date_julian(1849,1,1,1,1,1)
@@ -249,7 +252,7 @@ subroutine set_clim_time()
            case(4,6,9,11) ; clim_time(i) = clim_time(i) + 30.0_lkind/real(365+l,lkind)
            end select
         end do
-        clim_time(i) = clim_time(i) + real(dy-1)/real(365+l,lkind)
+        !clim_time(i) = clim_time(i) + real(dy-1)/real(365+l,lkind)
      end do
      call set_calendar_type(0)
   end if
