@@ -175,7 +175,7 @@ subroutine set_clim_time()
   implicit none
   integer :: i
 
-  type(time_type) :: base_time, tmp_time, tmp_time2
+  type(time_type) :: base_time
   integer :: l, ii, yr, mo, dy, hr, mn, sc
   integer :: ntime2
 
@@ -187,35 +187,37 @@ subroutine set_clim_time()
 
   !write(*,*) ' -- SETTING TIME -- '
 
+  hr = 1 ; mn = 1 ; sc = 1
+
   if(test_daily_noleap) then
-     base_time=set_date_no_leap(1849,1,1,0,0,0)
+     base_time=set_date_no_leap(1849,1,1,1,1,1)
+     yr = 1849 ; mo = 1 ; dy = 15
      do i=1, ntime
-        tmp_time=increment_time(base_time,0,(365+5)*i)
-        call get_date_no_leap(tmp_time, yr, mo, dy, hr, mn, sc)
+        yr = yr + 1
+        mo = mo + 1 ; if( mo > 12 ) mo=1
+        dy = 15
         model_time_julian(i)=set_date_julian(yr, mo, dy, hr, mn, sc)
         model_time_noleap(i)=set_date_no_leap(yr, mo, dy, hr, mn, sc)
-        clim_time(i)=time_type_to_real(tmp_time-base_time)/86400._lkind
-        call set_calendar_type(4)
-        call print_date(tmp_time)
-        call set_calendar_type(0)
+        clim_time(i)=time_type_to_real(model_time_noleap(i)-base_time)/86400._lkind
      end do
   else if(test_daily_julian) then
-     base_time=set_date_julian(1849,1,1,0,0,0)
+     base_time=set_date_julian(1849,1,1,1,1,1)
+     yr = 1849 ; mo = 1 ; dy = 15
      do i=1, ntime
-        tmp_time=increment_time(base_time,0, (365+5)*i)
-        call get_date_julian(tmp_time, yr, mo, dy, hr, mn, sc)
+        yr = yr + 1
+        mo = mo + 1 ; if( mo > 12 ) mo=1
+        dy = 15
         model_time_julian(i)=set_date_julian(yr, mo, dy, hr, mn, sc)
         model_time_noleap(i)=set_date_no_leap(yr, mo, dy, hr, mn, sc)
-        clim_time(i)=time_type_to_real(tmp_time-base_time)/86400._lkind
-        call set_calendar_type(2)
-        call print_date(tmp_time)
-        call set_calendar_type(0)
+        clim_time(i)=time_type_to_real(model_time_julian(i)-base_time)/86400._lkind
      end do
   else if(test_yearly_noleap) then
-     base_time=set_date_no_leap(1849,1,1,0,0,0)
+     base_time=set_date_no_leap(1849,1,1,1,1,1)
+     yr = 1849 ; mo = 1 ; dy = 15
      do i=1, ntime
-        tmp_time=increment_time(base_time,0,(365+3)*i)
-        call get_date_no_leap(tmp_time, yr, mo, dy, hr, mn, sc)
+        yr = yr + 1
+        mo = mo + 1 ; if( mo > 12 ) mo=1
+        dy = 15
         model_time_julian(i)=set_date_julian(yr, mo, dy, hr, mn, sc)
         model_time_noleap(i)=set_date_no_leap(yr, mo, dy, hr, mn, sc)
         clim_time(i)=real(yr-1849,lkind)
@@ -226,18 +228,20 @@ subroutine set_clim_time()
            case(4,6,9,11) ; clim_time(i) = clim_time(i) + 30.0_lkind/365._lkind
            end select
         end do
-        clim_time(i) = clim_time(i) + (dy-1)/real(365,lkind)
+        clim_time(i) = clim_time(i) + real(dy-1)/real(365,lkind)
      end do
   else if(test_yearly_julian) then
-     base_time=set_date_julian(1849,1,1,0,0,0)
+     base_time=set_date_julian(1849,1,1,1,1,1)
+     yr = 1849 ; mo = 1 ; dy = 15
      call set_calendar_type(2)
      do i=1, ntime
-        tmp_time=increment_time(base_time,0,(365+4)*i)
-        call get_date_julian(tmp_time, yr, mo, dy, hr, mn, sc)
+        yr = yr + 1
+        mo = mo + 1 ; if( mo > 12 ) mo=1
+        dy = 15
         model_time_julian(i)=set_date_julian(yr,mo,dy,hr,mn,sc)
         model_time_noleap(i)=set_date_no_leap(yr,mo,dy,hr,mn,sc)
         clim_time(i)=real(yr-1849,lkind)
-        l=0 ; if(leap_year(tmp_time)) l=l+1
+        l=0 ; if(leap_year(model_time_julian(i))) l=l+1
         do ii=1, mo-1
            select case(ii)
            case(1,3,5,7,8,10,12) ; clim_time(i) = clim_time(i) + 31.0_lkind/real(365+l,lkind)
@@ -245,8 +249,7 @@ subroutine set_clim_time()
            case(4,6,9,11) ; clim_time(i) = clim_time(i) + 30.0_lkind/real(365+l,lkind)
            end select
         end do
-        clim_time(i) = clim_time(i) + (dy-1)/real(365+l,lkind)
-        !call print_date(tmp_time)
+        clim_time(i) = clim_time(i) + real(dy-1)/real(365+l,lkind)
      end do
      call set_calendar_type(0)
   end if
@@ -354,7 +357,7 @@ subroutine set_ozone()
      do j=1, npfull
         do k=1, nlonlat
            do l=1, nlonlat
-              ozone(l,k,j,i)=real(i,TEST_INTP_KIND_)
+              ozone(l,k,j,i)= real(i,TEST_INTP_KIND_)
            end do
         end do
      end do

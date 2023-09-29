@@ -83,8 +83,6 @@ test_expect_success "test_interpolator2 daily r4 noleap unit tests" 'mpirun -n 1
 test_expect_success "test_interpolator2 daily r8 noleap unit tests" 'mpirun -n 1 ./test_interpolator2_r8'
 #rm -rf INPUT *.nc test_interpolator.nml
 
-exit
-
 #Run the yearly interpolator tests when the file calendar is in units of years and calendar type is NOLEAP
 cat <<EOF > test_interpolator.nml
 &test_interpolator_nml

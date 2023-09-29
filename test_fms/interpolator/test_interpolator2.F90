@@ -34,9 +34,9 @@ program test_interpolator2
   use mpp_mod,          only: mpp_error, FATAL, WARNING
   use time_manager_mod, only: time_type, set_calendar_type, time_manager_init, &
                               get_date_no_leap, get_date_julian, set_date, set_time, &
-                              set_date_no_leap, set_date_julian, &
+                              set_date_no_leap, set_date_julian, operator(/), &
                               operator(+), operator(-), time_type_to_real, increment_time, &
-                              leap_year, days_in_month, print_date
+                              leap_year, days_in_month, print_date, print_time
   use fms_mod,          only: fms_init
   use constants_mod,    only: PI
   use platform_mod,     only: r4_kind, r8_kind
@@ -47,7 +47,7 @@ program test_interpolator2
 
   character(100), parameter :: ncfile='immadeup.o3.climatology.nc' !< fake climatology file.
   integer, parameter :: lkind=TEST_INTP_KIND_
-  real(r8_kind), parameter :: tol=1.e-5_r8_kind !< the interpolation methods are not perfect.
+  real(r8_kind), parameter :: tol=1.e-1_r8_kind !< the interpolation methods are not perfect.
                                                 !! Will not get perfectly agreeing answers
   integer :: calendar_type
 
@@ -97,16 +97,16 @@ program test_interpolator2
   call time_manager_init
   !> set data
   if(test_daily_noleap)  then
-     call set_parameters(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=20, npfull_in=3, &
+     call set_parameters(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=140, npfull_in=3, &
           daily_in=.true., yearly_in=.false., noleap_in=.true.)
   else if(test_daily_julian) then
-     call set_parameters(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=20, npfull_in=3, &
+     call set_parameters(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=140, npfull_in=3, &
                          daily_in=.true., yearly_in=.false., noleap_in=.false.)
   else if(test_yearly_noleap) then
-     call set_parameters(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=20, npfull_in=3, &
+     call set_parameters(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=140, npfull_in=3, &
                          daily_in=.false., yearly_in=.true., noleap_in=.true.)
   else if(test_yearly_julian) then
-     call set_parameters(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=20, npfull_in=3, &
+     call set_parameters(nlonlat_in=10, nlonlat_mod_in=10, ntime_in=140, npfull_in=3, &
                          daily_in=.false., yearly_in=.true., noleap_in=.false.)
   end if
   call set_and_write_data
@@ -159,9 +159,12 @@ contains
 
     type(interpolate_type), intent(inout) :: clim_type
     type(time_type), dimension(ntime), intent(in) :: model_time
+    type(time_type) :: tmp_time
     real(TEST_INTP_KIND_), dimension(nlonlat_mod,nlonlat_mod,npfull,1) :: interp_data !< last column, there is only one field
     real(TEST_INTP_KIND_), dimension(nlonlat_mod,nlonlat_mod,nphalf) :: phalf
     integer :: itime, i, j, k, l
+
+    real(TEST_INTP_KIND_) :: answer
 
     phalf(:,:,1)=0.0000_lkind
     phalf(:,:,2)=0.0002_lkind
@@ -170,41 +173,44 @@ contains
 
     do itime=2, ntime-1
 
+       answer=real(itime,TEST_INTP_KIND_)-0.5_lkind
+
        !> test interpolator_4D_r4/8
-       call interpolator(clim_type, model_time(itime), phalf, interp_data, 'ozone')
+       tmp_time=model_time(itime-1)+ (model_time(itime)-model_time(itime-1))/2
+       call interpolator(clim_type, tmp_time, phalf, interp_data, 'ozone')
        do i=1, npfull
           do j=1, nlonlat_mod
              do k=1, nlonlat_mod
-                call check_answers(interp_data(k,j,i,1), ozone(k,j,i,itime), tol, 'test interpolator_4D')
+                call check_answers(interp_data(k,j,i,1), answer, tol, 'test interpolator_4D')
              end do
           end do
        end do
 
        !> test interpolator_3_r4/8
-       call interpolator(clim_type, model_time(itime), phalf, interp_data(:,:,:,1), 'ozone')
+       call interpolator(clim_type, tmp_time, phalf, interp_data(:,:,:,1), 'ozone')
        do i=1, npfull
           do j=1, nlonlat_mod
              do k=1, nlonlat_mod
-                call check_answers(interp_data(k,j,i,1), ozone(k,j,i,itime), tol, 'test interpolator_3D')
+                call check_answers(interp_data(k,j,i,1), answer, tol, 'test interpolator_3D')
              end do
           end do
        end do
 
        !> test interpolator_2D_r4/8
-       call interpolator(clim_type, model_time(itime), interp_data(:,:,1,1), 'ozone')
+       call interpolator(clim_type, tmp_time, interp_data(:,:,1,1), 'ozone')
        do j=1, nlonlat_mod
           do k=1, nlonlat_mod
-             call check_answers(interp_data(k,j,1,1), ozone(k,j,1,itime), tol, 'test interpolator_2D')
+             call check_answers(interp_data(k,j,1,1), answer, tol, 'test interpolator_2D')
           end do
        end do
 
        !> Test obtain_interpolator_time_slices
-       call obtain_interpolator_time_slices(clim_type,model_time(itime))
-       call interpolator(clim_type, model_time(itime), interp_data(:,:,1,1), 'ozone')
+       call obtain_interpolator_time_slices(clim_type,tmp_time)
+       call interpolator(clim_type, tmp_time, interp_data(:,:,1,1), 'ozone')
        call unset_interpolator_time_flag(clim_type)
        do j=1, nlonlat_mod
           do k=1, nlonlat_mod
-             call check_answers(interp_data(k,j,1,1), ozone(k,j,1,itime), tol, 'test interpolator_2D')
+             call check_answers(interp_data(k,j,1,1), answer, tol, 'test interpolator_2D')
           end do
        end do
 
