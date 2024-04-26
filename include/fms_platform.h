@@ -21,6 +21,11 @@
 #ifndef __FMS_PLATFORM_
 #define __FMS_PLATFORM_
 
+#ifdef BIND_C
+#define BIND_C_ bind(c)
+#else
+#define BIND_C_
+#endif
 
 !Set type kinds.
 #ifdef PORTABLE_KINDS

@@ -112,6 +112,9 @@ AS_IF([test ${enable_r8_default:-yes} = yes],
   [enable_r8_default=yes],
   [enable_r8_default=no])
 
+AC_ARG_ENABLE([bind-c], [AS_HELP_STRING([--enable-bind-c], [Build C compatible FMS library])])
+AS_IF([test ${enable_bind_c:-no} = yes], [enable_bind_c=yes], [enable_bind_c=no])
+
 # user enabled testing with input files
 AC_MSG_CHECKING([whether to enable tests with input files])
 AC_ARG_ENABLE([test-input],
@@ -329,6 +332,11 @@ if test $enable_setting_flags = yes; then
   if test $enable_r8_default = yes; then
     GX_FC_DEFAULT_REAL_KIND8_FLAG([dnl
       FCFLAGS="$FCFLAGS $FC_DEFAULT_REAL_KIND8_FLAG"])
+  fi
+
+  if test $enable_bind_c = yes ; then
+    AC_DEFINE([BIND_C], [1], [add bind(c) to subroutines])
+    AC_DEFINE([PORTABLE_KINDS], [1], [use portable kinds])
   fi
 
   # individual mixed precision overloads
