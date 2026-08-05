@@ -1,0 +1,188 @@
+# 1 "grid_utils/gradient.F90"
+# 1 "<built-in>"
+# 1 "<command-line>"
+# 1 "grid_utils/gradient.F90"
+!***********************************************************************
+!*                             Apache License 2.0
+!*
+!* This file is part of the GFDL Flexible Modeling System (FMS).
+!*
+!* Licensed under the Apache License, Version 2.0 (the "License");
+!* you may not use this file except in compliance with the License.
+!* You may obtain a copy of the License at
+!*
+!*     http://www.apache.org/licenses/LICENSE-2.0
+!*
+!* FMS is distributed in the hope that it will be useful, but WITHOUT
+!* WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied;
+!* without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+!* PARTICULAR PURPOSE. See the License for the specific language
+!* governing permissions and limitations under the License.
+!***********************************************************************
+!> @defgroup gradient_mod gradient_mod
+!> @ingroup grid_utils
+!! @{
+!! @brief Implements some utility routines to calculate gradient.
+!! @author Zhi Liang
+!!
+!! Currently only gradient on cubic grid is implemented. Also a public interface
+!! is provided to calculate grid information needed to calculate gradient.
+
+module gradient_mod
+
+use mpp_mod,       only : mpp_error, FATAL
+use constants_mod, only : RADIUS
+use platform_mod
+
+implicit none
+private
+
+
+public :: gradient_cubic
+public :: calc_cubic_grid_info
+
+! Include variable "version" to be written to log file.
+
+# 1 "./include/file_version.h" 1
+! -*-f90-*-
+!***********************************************************************
+!*                             Apache License 2.0
+!*
+!* This file is part of the GFDL Flexible Modeling System (FMS).
+!*
+!* Licensed under the Apache License, Version 2.0 (the "License");
+!* you may not use this file except in compliance with the License.
+!* You may obtain a copy of the License at
+!*
+!*     http://www.apache.org/licenses/LICENSE-2.0
+!*
+!* FMS is distributed in the hope that it will be useful, but WITHOUT
+!* WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied;
+!* without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+!* PARTICULAR PURPOSE. See the License for the specific language
+!* governing permissions and limitations under the License.
+!***********************************************************************
+
+
+
+
+  character(len=*), parameter :: version = 'unknown'
+# 42 "grid_utils/gradient.F90" 2
+
+contains
+
+
+!#####################################################################
+!> Pin has halo size = 1.
+!! @param pin the size of pin    will be (nx+2,ny+2), T-cell center, with halo = 1
+!! @param the size of dx     will be (nx, ny+1),  N-cell center
+!! @param the size of dy     will be (nx+1, ny),  E-cell center
+!! @param the size of area   will be (nx, ny),    T-cell center.
+!! @param The size of edge_w will be (ny+1),      C-cell center
+!! @param The size of edge_e will be (ny+1),      C-cell center
+!! @param The size of edge_s will be (nx+1),      C-cell center
+!! @param The size of edge_n will be (nx+1),      C-cell center
+!! @param The size of en_n   will be (3,nx,ny+1), N-cell center
+!! @param The size of en_e   will be (3,nx+1,ny), E-cell center
+!! @param The size of vlon   will be (3,nx, ny)   T-cell center
+!! @param The size of vlat   will be (3,nx, ny),  T-cell center
+subroutine gradient_cubic(pin, dx, dy, area, edge_w, edge_e, edge_s, edge_n,    &
+                          en_n, en_e, vlon, vlat, grad_x, grad_y, on_west_edge, &
+                          on_east_edge, on_south_edge, on_north_edge)
+
+  real(r8_kind),    dimension(:,:  ), intent(in ) :: pin, dx, dy, area
+  real(r8_kind),    dimension(:    ), intent(in ) :: edge_w, edge_e, edge_s, edge_n
+  real(r8_kind),    dimension(:,:,:), intent(in ) :: en_n, en_e
+  real(r8_kind),    dimension(:,:,:), intent(in ) :: vlon, vlat
+  real(r8_kind),    dimension(:,:  ), intent(out) :: grad_x, grad_y
+  logical,                   intent(in ) :: on_west_edge, on_east_edge, on_south_edge, on_north_edge
+  integer :: nx, ny
+
+
+  nx = size(grad_x,1)
+  ny = size(grad_x,2)
+
+  if(size(pin,1) .NE. nx+2 .OR. size(pin,2) .NE. ny+2)call mpp_error(FATAL, &
+     &  "gradient_mod:size of pin should be (nx+2, ny+2)")
+  if(size(dx,1) .NE. nx .OR. size(dx,2) .NE. ny+1 ) call mpp_error(FATAL, &
+     &  "gradient_mod: size of dx should be (nx,ny+1)")
+  if(size(dy,1) .NE. nx+1 .OR. size(dy,2) .NE. ny ) call mpp_error(FATAL, &
+     &  "gradient_mod: size of dy should be (nx+1,ny)")
+  if(size(area,1) .NE. nx .OR. size(area,2) .NE. ny ) call mpp_error(FATAL, &
+     &  "gradient_mod: size of area should be (nx,ny)")
+  if(size(vlon,1) .NE. 3 .OR. size(vlon,2) .NE. nx .OR. size(vlon,3) .NE. ny) &
+          call mpp_error(FATAL, "gradient_mod: size of vlon should be (3,nx,ny)")
+  if(size(vlat,1) .NE. 3 .OR. size(vlat,2) .NE. nx .OR. size(vlat,3) .NE. ny) &
+          call mpp_error(FATAL, "gradient_mod: size of vlat should be (3,nx,ny)")
+  if(size(edge_w) .NE. ny+1) call mpp_error(FATAL, "gradient_mod: size of edge_w should be (ny+1)")
+  if(size(edge_e) .NE. ny+1) call mpp_error(FATAL, "gradient_mod: size of edge_e should be (ny+1)")
+  if(size(edge_s) .NE. nx+1) call mpp_error(FATAL, "gradient_mod: size of edge_s should be (nx+1)")
+  if(size(edge_n) .NE. nx+1) call mpp_error(FATAL, "gradient_mod: size of edge_n should be (nx+1)")
+  if(size(en_n,1) .NE. 3 .OR. size(en_n,2) .NE. nx .OR.  size(en_n,3) .NE. ny+1 ) &
+       call mpp_error(FATAL, "gradient_mod:size of en_n should be (3, nx, ny+1)")
+  if(size(en_e,1) .NE. 3 .OR. size(en_e,2) .NE. nx+1 .OR.  size(en_e,3) .NE. ny ) &
+       call mpp_error(FATAL, "gradient_mod:size of en_e should be (3, nx+1, ny)")
+
+  call grad_c2l(nx, ny, pin, dx, dy, area, edge_w, edge_e, edge_s, edge_n, en_n, en_e, vlon, vlat, &
+                grad_x, grad_y, on_west_edge, on_east_edge, on_south_edge, on_north_edge)
+
+  return
+
+end subroutine gradient_cubic
+
+
+subroutine calc_cubic_grid_info(xt, yt, xc, yc, dx, dy, area, edge_w, edge_e, edge_s, edge_n, &
+                           en_n, en_e, vlon, vlat, on_west_edge, on_east_edge, on_south_edge, on_north_edge )
+  real(r8_kind),    dimension(:,:  ), intent(in ) :: xt, yt, xc, yc
+  real(r8_kind),    dimension(:,:  ), intent(out) :: dx, dy, area
+  real(r8_kind),    dimension(:    ), intent(out) :: edge_w, edge_e, edge_s, edge_n
+  real(r8_kind),    dimension(:,:,:), intent(out) :: en_n, en_e
+  real(r8_kind),    dimension(:,:,:), intent(out) :: vlon, vlat
+  logical,                   intent(in ) :: on_west_edge, on_east_edge, on_south_edge, on_north_edge
+  integer :: nx, ny, nxp, nyp
+
+
+  nx  = size(area,1)
+  ny  = size(area,2)
+  nxp = nx+1
+  nyp = ny+1
+
+  if(size(xt,1) .NE. nx+2 .OR. size(xt,2) .NE. ny+2 ) call mpp_error(FATAL, &
+     &  "gradient_mod: size of xt should be (nx+2,ny+2)")
+  if(size(yt,1) .NE. nx+2 .OR. size(yt,2) .NE. ny+2 ) call mpp_error(FATAL, &
+     &  "gradient_mod: size of yt should be (nx+2,ny+2)")
+  if(size(xc,1) .NE. nxp .OR. size(xc,2) .NE. nyp ) call mpp_error(FATAL, &
+     &  "gradient_mod: size of xc should be (nx+1,ny+1)")
+  if(size(yc,1) .NE. nxp .OR. size(yc,2) .NE. nyp ) call mpp_error(FATAL, &
+     &  "gradient_mod: size of yc should be (nx+1,ny+1)")
+  if(size(dx,1) .NE. nx .OR. size(dx,2) .NE. nyp ) call mpp_error(FATAL, &
+     &  "gradient_mod: size of dx should be (nx,ny+1)")
+  if(size(dy,1) .NE. nxp .OR. size(dy,2) .NE. ny ) call mpp_error(FATAL, &
+     &  "gradient_mod: size of dy should be (nx+1,ny)")
+  if(size(area,1) .NE. nx .OR. size(area,2) .NE. ny ) call mpp_error(FATAL, &
+     &  "gradient_mod: size of area should be (nx,ny)")
+  if(size(vlon,1) .NE. 3 .OR. size(vlon,2) .NE. nx .OR. size(vlon,3) .NE. ny) &
+          call mpp_error(FATAL, "gradient_mod: size of vlon should be (3,nx,ny)")
+  if(size(vlat,1) .NE. 3 .OR. size(vlat,2) .NE. nx .OR. size(vlat,3) .NE. ny) &
+          call mpp_error(FATAL, "gradient_mod: size of vlat should be (3,nx,ny)")
+  if(size(edge_w) .NE. ny+1) call mpp_error(FATAL, "gradient_mod: size of edge_w should be (ny-1)")
+  if(size(edge_e) .NE. ny+1) call mpp_error(FATAL, "gradient_mod: size of edge_e should be (ny-1)")
+  if(size(edge_s) .NE. nx+1) call mpp_error(FATAL, "gradient_mod: size of edge_s should be (nx-1)")
+  if(size(edge_n) .NE. nx+1) call mpp_error(FATAL, "gradient_mod: size of edge_n should be (nx-1)")
+  if(size(en_n,1) .NE. 3 .OR. size(en_n,2) .NE. nx .OR.  size(en_n,3) .NE. nyp ) &
+       call mpp_error(FATAL, "gradient_mod:size of en_n should be (3, nx, ny+1)")
+  if(size(en_e,1) .NE. 3 .OR. size(en_e,2) .NE. nxp .OR.  size(en_e,3) .NE. ny ) &
+       call mpp_error(FATAL, "gradient_mod:size of en_e should be (3, nx+1, ny)")
+
+
+  call calc_c2l_grid_info(nx, ny, xt, yt, xc, yc, dx, dy, area, edge_w, edge_e, edge_s, edge_n, &
+                          en_n, en_e, vlon, vlat, on_west_edge, on_east_edge, on_south_edge, on_north_edge )
+
+
+  return
+
+end subroutine calc_cubic_grid_info
+
+end module gradient_mod
+!> @}
+! close documentation grouping
